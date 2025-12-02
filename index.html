@@ -1,117 +1,280 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>2026西北社區打卡系統</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <script type="module" src="app.js"></script>
-</head>
-<body>
-  <div class="page">
-    <header class="brand">
-      <div class="logo" aria-hidden="true">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="18" cy="18" r="16" fill="var(--red)"/>
-          <circle cx="18" cy="18" r="12" fill="white" opacity="0.95"/>
-          <circle cx="18" cy="18" r="2" fill="var(--red)"/>
-          <path d="M18 18 L18 10" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
-          <path d="M18 18 L24 21" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
-          <path d="M18 6 L18 8" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          <path d="M30 18 L28 18" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          <path d="M18 30 L18 28" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          <path d="M6 18 L8 18" stroke="white" stroke-width="2" stroke-linecap="round"/>
-        </svg>
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>西北社區打卡系統</title>
+    <meta name="theme-color" content="#c62828">
+    <style>
+      :root{--red:#c62828;--red-dark:#b71c1c;--bg:#f5f5f7;--white:#ffffff;--gray:#9e9e9e;--text:#222}
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans",sans-serif}
+      .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:16px}
+      .card{width:100%;max-width:420px;background:var(--white);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08);overflow:hidden}
+      .brand{display:flex;align-items:center;gap:12px;padding:16px 20px;background:linear-gradient(180deg,#ffebee,#ffffff)}
+      .logo{width:40px;height:40px;border-radius:8px;background:var(--red);display:grid;place-items:center;color:#fff;font-weight:700}
+      .title{font-size:18px;font-weight:700;color:var(--red-dark)}
+      .content{padding:20px}
+      .field{margin-bottom:14px}
+      label{display:block;font-size:13px;color:#444;margin-bottom:6px}
+      select,input{width:100%;padding:12px 14px;border:1px solid #e0e0e0;border-radius:10px;background:#fff;font-size:15px}
+      input[type="email"],input[type="password"]{background:#fff}
+      .btn{width:100%;padding:12px 16px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700;font-size:16px}
+      .btn:disabled{opacity:.7}
+      .links{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+      .link{color:var(--red);text-decoration:none;font-size:14px}
+      .error{margin-top:10px;color:var(--red-dark);font-size:14px}
+      .footer{padding:14px 20px;border-top:1px solid #eee;color:#666;font-size:12px}
+      .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:20px}
+      .modal{width:100%;max-width:420px;background:#fff;border-radius:14px}
+      .modal header{padding:14px 16px;border-bottom:1px solid #eee;font-weight:700;color:var(--red-dark)}
+      .modal .body{padding:16px}
+      .modal .actions{display:flex;gap:10px;padding:12px 16px;border-top:1px solid #eee}
+      .btn-secondary{flex:1;padding:12px 16px;border:1px solid #ddd;border-radius:10px;background:#fafafa;font-weight:600}
+      .btn-primary{flex:2;padding:12px 16px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700}
+      .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;display:none}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card" role="main">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">NW</div>
+          <div class="title">西北社區打卡系統</div>
+        </div>
+        <div class="content">
+          <form id="login-form">
+            <div class="field">
+              <label for="community">社區</label>
+              <select id="community" required>
+                <option value="" selected>請選擇社區</option>
+                <option value="taipei">西北台北社區</option>
+                <option value="taoyuan">西北桃園社區</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="email">電子郵件</label>
+              <input id="email" type="email" inputmode="email" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label for="password">密碼</label>
+              <input id="password" type="password" autocomplete="current-password" required>
+            </div>
+            <button id="login-btn" class="btn" type="submit">登入</button>
+            <div id="error" class="error" aria-live="polite"></div>
+            <div class="links">
+              <a href="#" id="open-register" class="link">註冊申請</a>
+              <a href="#" id="forgot" class="link">忘記密碼</a>
+            </div>
+          </form>
+        </div>
+        <div class="footer">以手機瀏覽最佳。使用 Firebase 與 GitHub Pages 架構。</div>
       </div>
-      <h1>2026西北社區打卡系統</h1>
-    </header>
-
-    <main class="content">
-      <form id="login-form" class="card" autocomplete="on">
-        <div class="field">
-          <div class="field-head">
-            <label for="email">電子郵件</label>
-            <label class="checkbox">
-              <input type="checkbox" id="remember">
-              <span>記住我</span>
-            </label>
-          </div>
-          <input id="email" name="email" type="email" inputmode="email" placeholder="name@example.com" required>
-        </div>
-
-        <div class="field password-field">
-          <div class="field-head">
-            <label for="password">密碼</label>
-            <div></div>
-          </div>
-          <div class="password-wrap">
-            <input id="password" name="password" type="password" placeholder="至少6位英數組合" minlength="6" required>
-            <button type="button" id="togglePassword" class="icon-btn icon-inside" aria-label="顯示密碼">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 5C7 5 3 9 3 12s4 7 9 7 9-4 9-7-4-7-9-7Zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z" fill="#616161"/></svg>
-            </button>
-          </div>
-        </div>
-        <button type="submit" class="btn primary full">登入</button>
-        <button type="button" id="openRegister" class="btn ghost full">註冊申請</button>
-        <div id="message" class="message" role="alert"></div>
-      </form>
-
-      <section class="roles" hidden>
-        <div class="role-chip">系統管理員</div>
-        <div class="role-chip">人事</div>
-        <div class="role-chip">主管</div>
-        <div class="role-chip">總幹事</div>
-        <div class="role-chip">秘書</div>
-        <div class="role-chip">清潔</div>
-        <div class="role-chip">機電</div>
-        <div class="role-chip">保全</div>
-      </section>
-    </main>
-
-    <footer class="footer">© 2026 西北保全</footer>
-  </div>
-
-  <div id="modal" class="modal" hidden>
-    <div class="modal-backdrop"></div>
-    <div class="modal-body">
-      <header class="modal-header">
-        <h2>註冊申請</h2>
-        <button type="button" id="closeModal" class="icon-btn" aria-label="關閉">關閉</button>
-      </header>
-      <form id="register-form" class="modal-content">
-        <div class="field">
-          <label for="reg-email">電子郵件</label>
-          <input id="reg-email" type="email" inputmode="email" placeholder="name@example.com" required>
-        </div>
-        <div class="field password-field">
-          <label for="reg-password">密碼</label>
-          <div class="password-wrap">
-            <input id="reg-password" type="password" placeholder="至少6位英數組合" minlength="6" required>
-            <button type="button" id="toggleRegPassword" class="icon-btn" aria-label="顯示密碼">顯示</button>
-          </div>
-        </div>
-        <div class="field">
-          <label for="reg-role">角色</label>
-          <select id="reg-role" required>
-            <option value="">請選擇</option>
-            <option>系統管理員</option>
-            <option>人事</option>
-            <option>主管</option>
-            <option>總幹事</option>
-            <option>秘書</option>
-            <option>清潔</option>
-            <option>機電</option>
-            <option>保全</option>
-          </select>
-        </div>
-        <button type="submit" class="btn primary">送出</button>
-        <div id="reg-message" class="message" role="alert"></div>
-      </form>
     </div>
-  </div>
-  
-</body>
+
+    <div id="modal-backdrop" class="modal-backdrop" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="register-title">
+        <header id="register-title">註冊申請</header>
+        <div class="body">
+          <form id="register-form">
+            <div class="field">
+              <label for="reg-name">姓名</label>
+              <input id="reg-name" type="text" required>
+            </div>
+            <div class="field">
+              <label for="reg-email">電子郵件</label>
+              <input id="reg-email" type="email" required>
+            </div>
+            <div class="field">
+              <label for="reg-phone">手機</label>
+              <input id="reg-phone" type="tel" inputmode="tel" required>
+            </div>
+            <div class="field">
+              <label for="reg-community">社區</label>
+              <select id="reg-community" required>
+                <option value="" selected>請選擇社區</option>
+                <option value="taipei">西北台北社區</option>
+                <option value="taoyuan">西北桃園社區</option>
+              </select>
+            </div>
+            <div class="actions">
+              <button type="button" id="close-register" class="btn-secondary">取消</button>
+              <button type="submit" id="submit-register" class="btn-primary">送出申請</button>
+            </div>
+            <div class="links" style="padding:0 16px 12px 16px">
+              <a href="#" id="external-register" class="link">改用外部申請連結</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <div id="fp-backdrop" class="modal-backdrop" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fp-title">
+        <header id="fp-title">重設密碼</header>
+        <div class="body">
+          <form id="fp-form">
+            <div class="field">
+              <label for="fp-email">電子郵件</label>
+              <input id="fp-email" type="email" required>
+            </div>
+            <div class="actions">
+              <button type="button" id="fp-cancel" class="btn-secondary">取消</button>
+              <button type="submit" id="fp-submit" class="btn-primary">寄送重設連結</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore-compat.js"></script>
+    <script>
+      const firebaseConfig = {
+        apiKey: "AIzaSyBa3EfodIJk4hZgH0zEHTlEGqSxncpkIbs",
+        authDomain: "nw-checkin-all-2026.firebaseapp.com",
+        projectId: "nw-checkin-all-2026",
+        storageBucket: "nw-checkin-all-2026.firebasestorage.app",
+        messagingSenderId: "840454751760",
+        appId: "1:840454751760:web:58bbfa83cb146f4fc7ac95",
+        measurementId: "G-NQ0W45T9CK"
+      }
+      let firebaseReady = false
+      try {
+        if (firebaseConfig.apiKey) {
+          firebase.initializeApp(firebaseConfig)
+          firebaseReady = true
+        }
+      } catch (e) {}
+
+      const qs = (s) => document.querySelector(s)
+      const loginForm = qs('#login-form')
+      const loginBtn = qs('#login-btn')
+      const errorBox = qs('#error')
+      const backdrop = qs('#modal-backdrop')
+      const openRegister = qs('#open-register')
+      const closeRegister = qs('#close-register')
+      const registerForm = qs('#register-form')
+      const externalRegister = qs('#external-register')
+      const toast = qs('#toast')
+      const fpBackdrop = qs('#fp-backdrop')
+      const fpForm = qs('#fp-form')
+      const fpCancel = qs('#fp-cancel')
+      const forgotLink = qs('#forgot')
+
+      function showToast(msg){
+        toast.textContent = msg
+        toast.style.display = 'block'
+        setTimeout(()=>{toast.style.display='none'}, 2400)
+      }
+      function openModal(){
+        backdrop.style.display = 'flex'
+        backdrop.setAttribute('aria-hidden','false')
+      }
+      function closeModal(){
+        backdrop.style.display = 'none'
+        backdrop.setAttribute('aria-hidden','true')
+      }
+      function openForgot(){
+        fpBackdrop.style.display = 'flex'
+        fpBackdrop.setAttribute('aria-hidden','false')
+      }
+      function closeForgot(){
+        fpBackdrop.style.display = 'none'
+        fpBackdrop.setAttribute('aria-hidden','true')
+      }
+
+      openRegister.addEventListener('click', (e)=>{e.preventDefault();openModal()})
+      closeRegister.addEventListener('click', ()=>closeModal())
+      backdrop.addEventListener('click', (e)=>{if(e.target===backdrop) closeModal()})
+      externalRegister.addEventListener('click', (e)=>{
+        e.preventDefault()
+        const url = ''
+        if (!url) { showToast('尚未設定外部申請連結') ; return }
+        window.open(url, 'register', 'width=420,height=680')
+      })
+      forgotLink.addEventListener('click', (e)=>{e.preventDefault();openForgot()})
+      fpCancel.addEventListener('click', ()=>closeForgot())
+      fpBackdrop.addEventListener('click', (e)=>{if(e.target===fpBackdrop) closeForgot()})
+      fpForm.addEventListener('submit', async (e)=>{
+        e.preventDefault()
+        const email = qs('#fp-email').value.trim()
+        if (!email) return
+        try {
+          if (firebaseReady) {
+            await firebase.auth().sendPasswordResetEmail(email)
+          } else {
+            await new Promise(r=>setTimeout(r,500))
+          }
+          closeForgot()
+          showToast('重設連結已寄出')
+        } catch (e2) {
+          showToast('寄送失敗，請稍後再試')
+        }
+      })
+
+      loginForm.addEventListener('submit', async (e)=>{
+        e.preventDefault()
+        errorBox.textContent = ''
+        const community = qs('#community').value.trim()
+        const email = qs('#email').value.trim()
+        const password = qs('#password').value
+        if (!community) { errorBox.textContent = '請先選擇社區' ; return }
+        loginBtn.disabled = true
+        loginBtn.textContent = '登入中…'
+        try {
+          if (firebaseReady) {
+            await firebase.auth().signInWithEmailAndPassword(email, password)
+          } else {
+            await new Promise(r=>setTimeout(r,800))
+          }
+          redirectToCommunity(community)
+        } catch (err) {
+          const code = err && err.code ? String(err.code) : ''
+          const map = {
+            'auth/invalid-email':'電子郵件格式不正確',
+            'auth/user-not-found':'查無此使用者',
+            'auth/wrong-password':'密碼錯誤',
+            'auth/too-many-requests':'嘗試次數過多，請稍後'
+          }
+          errorBox.textContent = map[code] || '登入失敗，請稍後再試'
+        } finally {
+          loginBtn.disabled = false
+          loginBtn.textContent = '登入'
+        }
+      })
+
+      registerForm.addEventListener('submit', async (e)=>{
+        e.preventDefault()
+        const name = qs('#reg-name').value.trim()
+        const email = qs('#reg-email').value.trim()
+        const phone = qs('#reg-phone').value.trim()
+        const community = qs('#reg-community').value.trim()
+        if (!name || !email || !phone || !community) return
+        try {
+          if (firebaseReady) {
+            await firebase.firestore().collection('registration_requests').add({
+              name,email,phone,community,createdAt:firebase.firestore.FieldValue.serverTimestamp()
+            })
+          }
+          closeModal()
+          showToast('已送出申請')
+        } catch (e2) {
+          showToast('送出失敗')
+        }
+      })
+
+      function redirectToCommunity(id){
+        const base = window.location.pathname.replace(/index\.html$/, '')
+        let prefix = base.endsWith('/') ? base : base + '/'
+        const target = prefix + 'communities/' + encodeURIComponent(id) + '/'
+        window.location.href = target
+      }
+    </script>
+  </body>
 </html>
+

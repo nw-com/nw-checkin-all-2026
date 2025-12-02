@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /registration_requests/{docId} {
+      allow create: if
+        request.resource.data.keys().hasAll(['name','email','phone','community','createdAt']) &&
+        request.resource.data.name is string &&
+        request.resource.data.email is string &&
+        request.resource.data.phone is string &&
+        request.resource.data.community is string;
+      allow read: if false;
+      allow update, delete: if false;
+    }
+
+    match /checkins/{docId} {
+      allow create: if request.auth != null &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.community is string &&
+        request.resource.data.at == request.time;
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+  }
+}
+
