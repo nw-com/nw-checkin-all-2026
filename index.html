@@ -13,17 +13,37 @@
       .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:16px}
       .card{width:100%;max-width:420px;background:var(--white);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
       .brand{display:flex;align-items:center;gap:12px;padding:16px 20px;background:linear-gradient(180deg,#ffebee,#ffffff)}
-      .logo{width:40px;height:40px;border-radius:8px;background:var(--red);display:grid;place-items:center;color:#fff;font-weight:700}
+      .logo{width:40px;height:40px;border-radius:50%;background:#fff;position:relative;border:2px solid var(--red)}
+      .logo .dial{position:absolute;left:50%;top:50%;width:28px;height:28px;border-radius:50%;background:#fff;border:2px solid var(--red-dark);transform:translate(-50%,-50%)}
+      .logo .center{position:absolute;left:50%;top:50%;width:4px;height:4px;border-radius:50%;background:var(--red-dark);transform:translate(-50%,-50%)}
+      .logo .hand{position:absolute;left:50%;top:50%;width:2px;background:var(--red-dark);border-radius:2px;transform-origin:50% 100%}
+      .logo .hand.hour{height:10px;transform:translate(-50%,-100%) rotate(300deg)}
+      .logo .hand.minute{height:14px;transform:translate(-50%,-100%) rotate(30deg)}
       .title{font-size:18px;font-weight:700;color:var(--red-dark)}
       .content{padding:20px;padding-bottom:calc(20px + env(safe-area-inset-bottom, 0px))}
       .field{margin-bottom:14px}
       label{display:block;font-size:13px;color:#444;margin-bottom:6px}
       select,input{width:100%;padding:12px 14px;border:1px solid #e0e0e0;border-radius:10px;background:#fff;font-size:15px}
+      .input-wrap{position:relative}
+      .input-wrap input{padding-right:44px}
+      .toggle-pwd{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:transparent;color:var(--red-dark);border:none;border-radius:8px;width:36px;height:32px;display:grid;place-items:center;transition:none}
+      .eye{width:18px;height:18px}
+      .eye-open{display:block}
+      .eye-closed{display:none}
+      .toggle-pwd.show .eye-open{display:none}
+      .toggle-pwd.show .eye-closed{display:block}
+      .remember{display:flex;align-items:center;gap:8px;font-size:13px;color:#444;margin-top:0;white-space:nowrap}
+      .field-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap}
+      .field-row label{white-space:nowrap}
+      .btn,.btn-secondary,.tab{transition:transform .15s ease, box-shadow .15s ease, background-color .15s ease, color .15s ease}
+      .btn:hover,.btn-secondary:hover,.tab:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.10)}
+      .btn:active,.btn-secondary:active,.tab:active{transform:translateY(0);box-shadow:0 4px 12px rgba(0,0,0,.08)}
       input[type="email"],input[type="password"]{background:#fff}
       .btn{width:100%;padding:12px 16px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700;font-size:16px}
       .btn:disabled{opacity:.7}
       .links{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
       .link{color:var(--red);text-decoration:none;font-size:14px}
+      .btn,.btn-secondary,.tab,.toggle-pwd,.link{cursor:pointer}
       .error{margin-top:10px;color:var(--red-dark);font-size:14px}
       .footer{padding:14px 20px;border-top:1px solid #eee;color:#666;font-size:12px;position:relative;z-index:1}
       .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:20px}
@@ -40,19 +60,28 @@
     <div class="wrap">
       <div class="card" role="main">
         <div class="brand">
-          <div class="logo" aria-hidden="true">NW</div>
+          <div class="logo" aria-hidden="true"><span class="dial"></span><span class="hand hour"></span><span class="hand minute"></span><span class="center"></span></div>
           <div class="title">西北社區打卡系統</div>
         </div>
         <div class="content">
           <form id="login-form">
             
             <div class="field">
-              <label for="email">電子郵件</label>
+              <div class="field-row">
+                <label for="email">電子郵件</label>
+                <label class="remember"><input type="checkbox" id="remember"> 記住我</label>
+              </div>
               <input id="email" type="email" inputmode="email" autocomplete="email" required>
             </div>
             <div class="field">
               <label for="password">密碼</label>
-              <input id="password" type="password" autocomplete="current-password" required>
+              <div class="input-wrap">
+                <input id="password" type="password" autocomplete="current-password" required>
+                <button id="toggle-pwd" type="button" class="toggle-pwd" aria-label="切換密碼顯示">
+                  <svg viewBox="0 0 24 24" class="eye eye-open" aria-hidden="true"><path fill="currentColor" d="M12 5c-5 0-9 7-9 7s4 7 9 7 9-7 9-7-4-7-9-7zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
+                  <svg viewBox="0 0 24 24" class="eye eye-closed" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M3 3l18 18M12 5c-5 0-9 7-9 7s2.1 3.7 5.3 5.7M21 12s-2.1-3.7-5.3-5.7"/></svg>
+                </button>
+              </div>
             </div>
             <button id="login-btn" class="btn" type="submit">登入</button>
             <div id="error" class="error" aria-live="polite"></div>
@@ -158,6 +187,9 @@
       const fpForm = qs('#fp-form')
       const fpCancel = qs('#fp-cancel')
       const forgotLink = qs('#forgot')
+      const remember = qs('#remember')
+      const togglePwd = qs('#toggle-pwd')
+      const pwdInput = qs('#password')
 
       function showToast(msg){
         toast.textContent = msg
@@ -210,6 +242,18 @@
         }
       })
 
+      // 密碼顯示切換
+      togglePwd.addEventListener('click', ()=>{
+        if (pwdInput.type === 'password') { pwdInput.type = 'text'; togglePwd.classList.add('show') }
+        else { pwdInput.type = 'password'; togglePwd.classList.remove('show') }
+      })
+
+      // 記住我：載入與保存
+      const savedEmail = localStorage.getItem('rememberEmail') || ''
+      const savedFlag = localStorage.getItem('rememberChecked') === '1'
+      if (savedEmail) { qs('#email').value = savedEmail }
+      remember.checked = savedFlag
+
       loginForm.addEventListener('submit', async (e)=>{
         e.preventDefault()
         errorBox.textContent = ''
@@ -223,6 +267,13 @@
           } else {
             await new Promise(r=>setTimeout(r,800))
           }
+          if (remember && remember.checked) {
+            localStorage.setItem('rememberEmail', email)
+            localStorage.setItem('rememberChecked', '1')
+          } else {
+            localStorage.removeItem('rememberEmail')
+            localStorage.removeItem('rememberChecked')
+          }
           await postLoginRedirect()
         } catch (err) {
           const code = err && err.code ? String(err.code) : ''
@@ -230,9 +281,13 @@
             'auth/invalid-email':'電子郵件格式不正確',
             'auth/user-not-found':'查無此使用者',
             'auth/wrong-password':'密碼錯誤',
-            'auth/too-many-requests':'嘗試次數過多，請稍後'
+            'auth/too-many-requests':'嘗試次數過多，請稍後',
+            'auth/network-request-failed':'網路連線失敗，請檢查網路',
+            'auth/invalid-api-key':'API Key 無效，請檢查設定',
+            'auth/configuration-not-found':'憑證設定錯誤，請檢查 authDomain'
           }
-          errorBox.textContent = map[code] || '登入失敗，請稍後再試'
+          const msg = map[code] || '登入失敗，請稍後再試'
+          errorBox.textContent = code ? (msg + '（' + code + '）') : msg
         } finally {
           loginBtn.disabled = false
           loginBtn.textContent = '登入'
