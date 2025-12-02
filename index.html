@@ -47,7 +47,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import ReactDOM from 'react-dom/client';
-        import { initializeApp } from 'firebase/app';
+        import { initializeApp, setLogLevel } from 'firebase/app';
         import { 
             getAuth,
             onAuthStateChanged,
@@ -110,6 +110,7 @@
         };
 
         const firebaseConfig = getFirebaseConfig();
+        setLogLevel('silent');
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = initializeFirestore(app, {
@@ -663,6 +664,12 @@
                 return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}    ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
             });
             
+            const switchTab = (tab) => {
+                setActiveTab(tab);
+                if (tab === 'settings') {
+                    setSettingsSubtab('account');
+                }
+            };
 
             useEffect(() => {
                 let mounted = true;
@@ -705,68 +712,88 @@
 
             useEffect(() => {
                 if (!user) return;
-                const commUnsub = onSnapshot(
-                    collection(db, 'artifacts', appId, 'public', 'data', 'communities'),
-                    (snap) => {
+                const ref = collection(db, 'artifacts', appId, 'public', 'data', 'communities');
+                let stopped = false;
+                const fetch = async () => {
+                    try {
+                        const snap = await getDocs(ref);
+                        if (stopped) return;
                         setCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    },
-                    (err) => {
+                    } catch (err) {
                         setFetchError('資料讀取權限不足，請更新 Firestore 規則');
                         console.error(err);
                     }
-                );
-                return () => commUnsub();
+                };
+                fetch();
+                const i = setInterval(fetch, 5000);
+                return () => { stopped = true; clearInterval(i); };
             }, [user]);
 
             useEffect(() => {
                 if (!user || !dbUser) return;
-                let unsubUsers = () => {};
-                let unsubAttendance = () => {};
-                let unsubMyAttendance = () => {};
+                let stopUsers = false;
+                let stopAttendance = false;
+                let stopMyAttendance = false;
 
-                if (dbUser.role === 'admin') {
-                    unsubUsers = onSnapshot(
-                        collection(db, 'artifacts', appId, 'public', 'data', 'users'),
-                        (snap) => {
+                if (dbUser.role === 'admin' && activeTab === 'settings' && settingsSubtab === 'account') {
+                    const ref = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                    const fetch = async () => {
+                        try {
+                            const snap = await getDocs(ref);
+                            if (stopUsers) return;
                             setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        },
-                        (err) => {
+                        } catch (err) {
                             setFetchError('資料讀取權限不足，請更新 Firestore 規則');
                             console.error(err);
                         }
-                    );
+                    };
+                    fetch();
+                    var usersInterval = setInterval(fetch, 5000);
                 }
 
                 if (['admin', 'manager', 'hr'].includes(dbUser.role)) {
-                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), orderBy('timestamp', 'desc'));
-                    unsubAttendance = onSnapshot(q, (snap) => {
-                        setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    }, (err) => {
-                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
-                        console.error(err);
-                    });
+                    const qAll = query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), orderBy('timestamp', 'desc'));
+                    const fetchAll = async () => {
+                        try {
+                            const snap = await getDocs(qAll);
+                            if (stopAttendance) return;
+                            setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch (err) {
+                            setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                            console.error(err);
+                        }
+                    };
+                    fetchAll();
+                    var attendanceInterval = setInterval(fetchAll, 5000);
                 }
 
-                if (dbUser.role === 'staff' || dbUser.role === 'manager') {
-                    const q = query(
+                if ((dbUser.role === 'staff' || dbUser.role === 'manager') && activeTab === 'home') {
+                    const qMine = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
                         where('userId', '==', dbUser.id),
                         orderBy('timestamp', 'desc')
                     );
-                    unsubMyAttendance = onSnapshot(q, (snap) => {
-                        setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    }, (err) => {
-                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
-                        console.error(err);
-                    });
+                    const fetchMine = async () => {
+                        try {
+                            const snap = await getDocs(qMine);
+                            if (stopMyAttendance) return;
+                            setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch (err) {
+                            setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                            console.error(err);
+                        }
+                    };
+                    fetchMine();
+                    var myInterval = setInterval(fetchMine, 5000);
                 }
 
                 return () => {
-                    unsubUsers();
-                    unsubAttendance();
-                    unsubMyAttendance();
+                    stopUsers = true; stopAttendance = true; stopMyAttendance = true;
+                    if (usersInterval) clearInterval(usersInterval);
+                    if (attendanceInterval) clearInterval(attendanceInterval);
+                    if (myInterval) clearInterval(myInterval);
                 };
-            }, [user, dbUser]);
+            }, [user, dbUser, activeTab, settingsSubtab]);
 
             
 
@@ -1068,22 +1095,22 @@
 
                     <div className="fixed bottom-0 left-0 right-0 z-50 h-[8vh] bg-white border-t border-gray-100">
                         <div className="max-w-md mx-auto h-full px-4 flex items-center justify-between">
-                            <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'home' ? 'text-red-600' : 'text-gray-600'}`}>
+                            <button onClick={() => switchTab('home')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'home' ? 'text-red-600' : 'text-gray-600'}`}>
                                 <Home className="w-5 h-5 mb-1" /> 首頁
                             </button>
-                            <button onClick={() => setActiveTab('overview')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'overview' ? 'text-red-600' : 'text-gray-600'}`}>
+                            <button onClick={() => switchTab('overview')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'overview' ? 'text-red-600' : 'text-gray-600'}`}>
                                 <BarChart3 className="w-5 h-5 mb-1" /> 總覽
                             </button>
-                            <button onClick={() => setActiveTab('clock')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'clock' ? 'text-red-600' : 'text-gray-600'}`}>
+                            <button onClick={() => switchTab('clock')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'clock' ? 'text-red-600' : 'text-gray-600'}`}>
                                 <ClipboardList className="w-5 h-5 mb-1" /> 打卡
                             </button>
-                            <button onClick={() => setActiveTab('community')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}>
+                            <button onClick={() => switchTab('community')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}>
                                 <Building2 className="w-5 h-5 mb-1" /> 社區
                             </button>
-                            <button onClick={() => setActiveTab('hr')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'hr' ? 'text-red-600' : 'text-gray-600'}`}>
+                            <button onClick={() => switchTab('hr')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'hr' ? 'text-red-600' : 'text-gray-600'}`}>
                                 <FileText className="w-5 h-5 mb-1" /> 人事
                             </button>
-                            <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'settings' ? 'text-red-600' : 'text-gray-600'}`}>
+                            <button onClick={() => switchTab('settings')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'settings' ? 'text-red-600' : 'text-gray-600'}`}>
                                 <Settings className="w-5 h-5 mb-1" /> 設定
                             </button>
                         </div>
