@@ -1,351 +1,1097 @@
-<!doctype html>
-<html lang="zh-Hant-TW">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>西北社區打卡系統</title>
-    <meta name="theme-color" content="#c62828">
-    <style>
-      :root{--red:#c62828;--red-dark:#b71c1c;--bg:#f5f5f7;--white:#ffffff;--gray:#9e9e9e;--text:#222}
-      *{box-sizing:border-box}
-      html,body{height:100%}
-      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans",sans-serif}
-      .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:16px}
-      .card{width:100%;max-width:420px;background:var(--white);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
-      .brand{display:flex;align-items:center;gap:12px;padding:16px 20px;background:linear-gradient(180deg,#ffebee,#ffffff)}
-      .logo{width:40px;height:40px;border-radius:50%;background:#fff;position:relative;border:2px solid var(--red)}
-      .logo .dial{position:absolute;left:50%;top:50%;width:28px;height:28px;border-radius:50%;background:#fff;border:2px solid var(--red-dark);transform:translate(-50%,-50%)}
-      .logo .center{position:absolute;left:50%;top:50%;width:4px;height:4px;border-radius:50%;background:var(--red-dark);transform:translate(-50%,-50%)}
-      .logo .hand{position:absolute;left:50%;top:50%;width:2px;background:var(--red-dark);border-radius:2px;transform-origin:50% 100%}
-      .logo .hand.hour{height:10px;transform:translate(-50%,-100%) rotate(300deg)}
-      .logo .hand.minute{height:14px;transform:translate(-50%,-100%) rotate(30deg)}
-      .title{font-size:18px;font-weight:700;color:var(--red-dark)}
-      .content{padding:20px;padding-bottom:calc(20px + env(safe-area-inset-bottom, 0px))}
-      .field{margin-bottom:14px}
-      label{display:block;font-size:13px;color:#444;margin-bottom:6px}
-      select,input{width:100%;padding:12px 14px;border:1px solid #e0e0e0;border-radius:10px;background:#fff;font-size:15px}
-      .input-wrap{position:relative}
-      .input-wrap input{padding-right:44px}
-      .toggle-pwd{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:transparent;color:var(--red-dark);border:none;border-radius:8px;width:36px;height:32px;display:grid;place-items:center;transition:none}
-      .eye{width:18px;height:18px}
-      .eye-open{display:block}
-      .eye-closed{display:none}
-      .toggle-pwd.show .eye-open{display:none}
-      .toggle-pwd.show .eye-closed{display:block}
-      .remember{display:flex;align-items:center;gap:8px;font-size:13px;color:#444;margin-top:0;white-space:nowrap}
-      .field-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap}
-      .field-row label{white-space:nowrap}
-      .btn,.btn-secondary,.tab{transition:transform .15s ease, box-shadow .15s ease, background-color .15s ease, color .15s ease}
-      .btn:hover,.btn-secondary:hover,.tab:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.10)}
-      .btn:active,.btn-secondary:active,.tab:active{transform:translateY(0);box-shadow:0 4px 12px rgba(0,0,0,.08)}
-      input[type="email"],input[type="password"]{background:#fff}
-      .btn{width:100%;padding:12px 16px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700;font-size:16px}
-      .btn:disabled{opacity:.7}
-      .links{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
-      .link{color:var(--red);text-decoration:none;font-size:14px}
-      .btn,.btn-secondary,.tab,.toggle-pwd,.link{cursor:pointer}
-      .error{margin-top:10px;color:var(--red-dark);font-size:14px}
-      .footer{padding:14px 20px;border-top:1px solid #eee;color:#666;font-size:12px;position:relative;z-index:1}
-      .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:20px}
-      .modal{width:100%;max-width:420px;background:#fff;border-radius:14px}
-      .modal header{padding:14px 16px;border-bottom:1px solid #eee;font-weight:700;color:var(--red-dark)}
-      .modal .body{padding:16px}
-      .modal .actions{display:flex;gap:10px;padding:12px 16px;border-top:1px solid #eee}
-      .btn-secondary{flex:1;padding:12px 16px;border:1px solid #ddd;border-radius:10px;background:#fafafa;font-weight:600}
-      .btn-primary{flex:2;padding:12px 16px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700}
-      .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;display:none}
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <div class="card" role="main">
-        <div class="brand">
-          <div class="logo" aria-hidden="true"><span class="dial"></span><span class="hand hour"></span><span class="hand minute"></span><span class="center"></span></div>
-          <div class="title">西北社區打卡系統</div>
-        </div>
-        <div class="content">
-          <form id="login-form">
-            
-            <div class="field">
-              <div class="field-row">
-                <label for="email">電子郵件</label>
-                <label class="remember"><input type="checkbox" id="remember"> 記住我</label>
-              </div>
-              <input id="email" type="email" inputmode="email" autocomplete="email" required>
-            </div>
-            <div class="field">
-              <label for="password">密碼</label>
-              <div class="input-wrap">
-                <input id="password" type="password" autocomplete="current-password" required>
-                <button id="toggle-pwd" type="button" class="toggle-pwd" aria-label="切換密碼顯示">
-                  <svg viewBox="0 0 24 24" class="eye eye-open" aria-hidden="true"><path fill="currentColor" d="M12 5c-5 0-9 7-9 7s4 7 9 7 9-7 9-7-4-7-9-7zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
-                  <svg viewBox="0 0 24 24" class="eye eye-closed" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M3 3l18 18M12 5c-5 0-9 7-9 7s2.1 3.7 5.3 5.7M21 12s-2.1-3.7-5.3-5.7"/></svg>
-                </button>
-              </div>
-            </div>
-            <button id="login-btn" class="btn" type="submit">登入</button>
-            <div id="error" class="error" aria-live="polite"></div>
-            <div class="links">
-              <a href="#" id="open-register" class="link">註冊申請</a>
-              <a href="#" id="forgot" class="link">忘記密碼</a>
-            </div>
-          </form>
-        </div>
-        
-      </div>
-    </div>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>安居管家 - 勤務打卡系統</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <div id="modal-backdrop" class="modal-backdrop" aria-hidden="true">
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="register-title">
-        <header id="register-title">註冊申請</header>
-        <div class="body">
-          <form id="register-form">
-            <div class="field">
-              <label for="reg-name">姓名</label>
-              <input id="reg-name" type="text" required>
-            </div>
-            <div class="field">
-              <label for="reg-email">電子郵件</label>
-              <input id="reg-email" type="email" required>
-            </div>
-            <div class="field">
-              <label for="reg-phone">手機</label>
-              <input id="reg-phone" type="tel" inputmode="tel" required>
-            </div>
-            <div class="field">
-              <label for="reg-community">社區</label>
-              <select id="reg-community" required>
-                <option value="" selected>請選擇社區</option>
-                <option value="taipei">西北台北社區</option>
-                <option value="taoyuan">西北桃園社區</option>
-              </select>
-            </div>
-            <div class="actions">
-              <button type="button" id="close-register" class="btn-secondary">取消</button>
-              <button type="submit" id="submit-register" class="btn-primary">送出申請</button>
-            </div>
-            <div class="links" style="padding:0 16px 12px 16px">
-              <a href="#" id="external-register" class="link">改用外部申請連結</a>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <div id="toast" class="toast"></div>
-
-    <div id="fp-backdrop" class="modal-backdrop" aria-hidden="true">
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fp-title">
-        <header id="fp-title">重設密碼</header>
-        <div class="body">
-          <form id="fp-form">
-            <div class="field">
-              <label for="fp-email">電子郵件</label>
-              <input id="fp-email" type="email" required>
-            </div>
-            <div class="actions">
-              <button type="button" id="fp-cancel" class="btn-secondary">取消</button>
-              <button type="submit" id="fp-submit" class="btn-primary">寄送重設連結</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore-compat.js"></script>
-    <script>
-      const firebaseConfig = {
-        apiKey: "AIzaSyBa3EfodIJk4hZgH0zEHTlEGqSxncpkIbs",
-        authDomain: "nw-checkin-all-2026.firebaseapp.com",
-        projectId: "nw-checkin-all-2026",
-        storageBucket: "nw-checkin-all-2026.firebasestorage.app",
-        messagingSenderId: "840454751760",
-        appId: "1:840454751760:web:58bbfa83cb146f4fc7ac95",
-        measurementId: "G-NQ0W45T9CK"
+    <!-- Import Map for Modules -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0"
       }
-      let firebaseReady = false
-      try {
-        if (firebaseConfig.apiKey) {
-          firebase.initializeApp(firebaseConfig)
-          firebaseReady = true
-        }
-      } catch (e) {}
-
-      const qs = (s) => document.querySelector(s)
-      const loginForm = qs('#login-form')
-      const loginBtn = qs('#login-btn')
-      const errorBox = qs('#error')
-      const backdrop = qs('#modal-backdrop')
-      const openRegister = qs('#open-register')
-      const closeRegister = qs('#close-register')
-      const registerForm = qs('#register-form')
-      const externalRegister = qs('#external-register')
-      const toast = qs('#toast')
-      const fpBackdrop = qs('#fp-backdrop')
-      const fpForm = qs('#fp-form')
-      const fpCancel = qs('#fp-cancel')
-      const forgotLink = qs('#forgot')
-      const remember = qs('#remember')
-      const togglePwd = qs('#toggle-pwd')
-      const pwdInput = qs('#password')
-
-      function showToast(msg){
-        toast.textContent = msg
-        toast.style.display = 'block'
-        setTimeout(()=>{toast.style.display='none'}, 2400)
-      }
-      function openModal(){
-        backdrop.style.display = 'flex'
-        backdrop.setAttribute('aria-hidden','false')
-      }
-      function closeModal(){
-        backdrop.style.display = 'none'
-        backdrop.setAttribute('aria-hidden','true')
-      }
-      function openForgot(){
-        fpBackdrop.style.display = 'flex'
-        fpBackdrop.setAttribute('aria-hidden','false')
-      }
-      function closeForgot(){
-        fpBackdrop.style.display = 'none'
-        fpBackdrop.setAttribute('aria-hidden','true')
-      }
-
-      openRegister.addEventListener('click', (e)=>{e.preventDefault();openModal()})
-      closeRegister.addEventListener('click', ()=>closeModal())
-      backdrop.addEventListener('click', (e)=>{if(e.target===backdrop) closeModal()})
-      externalRegister.addEventListener('click', (e)=>{
-        e.preventDefault()
-        const url = ''
-        if (!url) { showToast('尚未設定外部申請連結') ; return }
-        window.open(url, 'register', 'width=420,height=680')
-      })
-      forgotLink.addEventListener('click', (e)=>{e.preventDefault();openForgot()})
-      fpCancel.addEventListener('click', ()=>closeForgot())
-      fpBackdrop.addEventListener('click', (e)=>{if(e.target===fpBackdrop) closeForgot()})
-      fpForm.addEventListener('submit', async (e)=>{
-        e.preventDefault()
-        const email = qs('#fp-email').value.trim()
-        if (!email) return
-        try {
-          if (firebaseReady) {
-            await firebase.auth().sendPasswordResetEmail(email)
-          } else {
-            await new Promise(r=>setTimeout(r,500))
-          }
-          closeForgot()
-          showToast('重設連結已寄出')
-        } catch (e2) {
-          showToast('寄送失敗，請稍後再試')
-        }
-      })
-
-      // 密碼顯示切換
-      togglePwd.addEventListener('click', ()=>{
-        if (pwdInput.type === 'password') { pwdInput.type = 'text'; togglePwd.classList.add('show') }
-        else { pwdInput.type = 'password'; togglePwd.classList.remove('show') }
-      })
-
-      // 記住我：載入與保存
-      const savedEmail = localStorage.getItem('rememberEmail') || ''
-      const savedFlag = localStorage.getItem('rememberChecked') === '1'
-      if (savedEmail) { qs('#email').value = savedEmail }
-      remember.checked = savedFlag
-
-      loginForm.addEventListener('submit', async (e)=>{
-        e.preventDefault()
-        errorBox.textContent = ''
-        const email = qs('#email').value.trim()
-        const password = qs('#password').value
-        loginBtn.disabled = true
-        loginBtn.textContent = '登入中…'
-        try {
-          if (firebaseReady) {
-            await firebase.auth().signInWithEmailAndPassword(email, password)
-          } else {
-            await new Promise(r=>setTimeout(r,800))
-          }
-          if (remember && remember.checked) {
-            localStorage.setItem('rememberEmail', email)
-            localStorage.setItem('rememberChecked', '1')
-          } else {
-            localStorage.removeItem('rememberEmail')
-            localStorage.removeItem('rememberChecked')
-          }
-          await postLoginRedirect()
-        } catch (err) {
-          const code = err && err.code ? String(err.code) : ''
-          const map = {
-            'auth/invalid-email':'電子郵件格式不正確',
-            'auth/user-not-found':'查無此使用者',
-            'auth/wrong-password':'密碼錯誤',
-            'auth/too-many-requests':'嘗試次數過多，請稍後',
-            'auth/network-request-failed':'網路連線失敗，請檢查網路',
-            'auth/invalid-api-key':'API Key 無效，請檢查設定',
-            'auth/configuration-not-found':'憑證設定錯誤，請檢查 authDomain'
-          }
-          const msg = map[code] || '登入失敗，請稍後再試'
-          errorBox.textContent = code ? (msg + '（' + code + '）') : msg
-        } finally {
-          loginBtn.disabled = false
-          loginBtn.textContent = '登入'
-        }
-      })
-
-      registerForm.addEventListener('submit', async (e)=>{
-        e.preventDefault()
-        const name = qs('#reg-name').value.trim()
-        const email = qs('#reg-email').value.trim()
-        const phone = qs('#reg-phone').value.trim()
-        const community = qs('#reg-community').value.trim()
-        if (!name || !email || !phone || !community) return
-        try {
-          if (firebaseReady) {
-            await firebase.firestore().collection('registration_requests').add({
-              name,email,phone,community,createdAt:firebase.firestore.FieldValue.serverTimestamp()
-            })
-          }
-          closeModal()
-          showToast('已送出申請')
-        } catch (e2) {
-          showToast('送出失敗')
-        }
-      })
-
-      async function postLoginRedirect(){
-        const base = window.location.pathname.replace(/index\.html$/, '')
-        const prefix = base.endsWith('/') ? base : base + '/'
-        if (!firebaseReady) { window.location.href = prefix + 'app/'; return }
-        const u = firebase.auth().currentUser
-        if (!u) { window.location.href = prefix + 'app/'; return }
-        try {
-          const ref = firebase.firestore().collection('users').doc(u.uid)
-          const doc = await ref.get()
-          let data = doc.exists ? doc.data() : null
-          if (!data) {
-            await ref.set({
-              role: 'user',
-              community: '',
-              createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true })
-            data = { role:'user', community:'' }
-          }
-          const role = data && data.role ? String(data.role) : 'user'
-          const community = data && data.community ? String(data.community) : ''
-          if (role === 'admin') {
-            window.location.href = prefix + 'manage/'
-          } else if (community) {
-            window.location.href = prefix + 'communities/' + encodeURIComponent(community) + '/'
-          } else {
-            window.location.href = prefix + 'app/'
-          }
-        } catch(e) {
-          window.location.href = prefix + 'app/'
-        }
-      }
+    }
     </script>
-  </body>
-</html>
 
+    <style>
+        /* Mobile optimization */
+        body {
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+    <script src="./firebase-config.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { initializeApp } from 'firebase/app';
+        import { 
+            getAuth,
+            onAuthStateChanged,
+            signInWithCustomToken,
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword,
+            signOut
+        } from 'firebase/auth';
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            query, 
+            where, 
+            onSnapshot, 
+            orderBy, 
+            serverTimestamp,
+            getDocs
+        } from 'firebase/firestore';
+        import { 
+            Clock, 
+            LogOut, 
+            Shield, 
+            Users, 
+            FileText, 
+            Briefcase, 
+            AlertCircle, 
+            CheckCircle, 
+            MapPin, 
+            Calendar, 
+            LayoutDashboard,
+            Building2,
+            Eye,
+            EyeOff,
+            Home,
+            BarChart3,
+            ClipboardList,
+            Settings
+        } from 'lucide-react';
+
+        // --- Firebase Configuration ---
+        // 如果您在本地打開此檔案，請在此處填入您的 Firebase Config
+        const manualConfig = null; 
+        
+        // 嘗試從環境變數或手動設定中獲取配置
+        const getFirebaseConfig = () => {
+            if (manualConfig) return manualConfig;
+            if (typeof window !== 'undefined' && window.FIREBASE_CONFIG) {
+                return window.FIREBASE_CONFIG;
+            }
+            if (typeof __firebase_config !== 'undefined') {
+                try {
+                    return JSON.parse(__firebase_config);
+                } catch (e) {
+                    return {};
+                }
+            }
+            return {};
+        };
+
+        const firebaseConfig = getFirebaseConfig();
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // App ID logic for compatibility
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+
+        // --- Components ---
+
+        // 1. Loading Spinner (Red Theme)
+        const Loading = () => (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-600"></div>
+            </div>
+        );
+
+        // 2. Login Component (Mobile Optimized, Red Theme)
+        const Login = ({ onLogin, onRegister, isOnline, onOfflineEnter }) => {
+            const [email, setEmail] = useState('admin@sys.com');
+            const [password, setPassword] = useState('123456');
+            const [error, setError] = useState('');
+            const [isSeeding, setIsSeeding] = useState(false);
+            const [rememberMe, setRememberMe] = useState(true);
+            const [showPassword, setShowPassword] = useState(false);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                if (!email || !password) {
+                    setError('請輸入帳號密碼');
+                    return;
+                }
+                try {
+                    await onLogin(email, password, rememberMe);
+                } catch (e) {
+                    if (e && e.code === 'auth/network-request-failed') {
+                        setError('網路連線失敗，請確認網路與允許網域設定後重試');
+                    } else if (e && e.code === 'auth/invalid-email') {
+                        setError('Email 格式不正確');
+                    } else if (e && e.code === 'auth/invalid-credential') {
+                        setError('帳號或密碼錯誤');
+                    } else {
+                        setError('登入錯誤，請重試');
+                    }
+                }
+            };
+
+
+            return (
+                <div className="min-h-screen flex flex-col justify-center bg-gray-50 px-6 py-12">
+                    <div className="w-full max-w-sm mx-auto bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
+                        <div className="text-center mb-8">
+                            <div className="bg-red-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-red-200 transform rotate-3">
+                                <Clock className="text-white w-10 h-10" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-gray-800 tracking-tight">勤務打卡系統</h1>
+                            <p className="text-gray-400 text-sm mt-2">安居管家 · 智慧服務</p>
+                        </div>
+
+                        <form onSubmit={handleLogin} className="space-y-5">
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">帳號 (Email)</label>
+                                    <label className="flex items-center gap-1 text-[11px] text-gray-500">
+                                        <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> 記住我 48 小時
+                                    </label>
+                                </div>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition text-gray-700 font-medium"
+                                    placeholder="user@example.com"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">密碼</label>
+                                <div className="relative">
+                                    <input
+                                        type={showPassword ? 'text' : 'password'}
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="w-full pr-12 px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition text-gray-700 font-medium"
+                                        placeholder="••••••"
+                                    />
+                                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
+                                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {error && (
+                                <div className={`text-sm text-center p-3 rounded-xl font-medium ${error.includes('完成') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                                    {error}
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={!isOnline}
+                                className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold py-4 rounded-xl transition duration-200 shadow-lg shadow-red-200 text-lg disabled:opacity-50"
+                            >
+                                登入系統
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!isOnline}
+                                onClick={async () => {
+                                    if (!email || !password) {
+                                        setError('請輸入帳號密碼');
+                                        return;
+                                    }
+                                    try {
+                                        await onRegister(email, password, rememberMe);
+                                    } catch (e) {
+                                        if (e && e.code === 'auth/network-request-failed') {
+                                            setError('網路連線失敗，請確認網路與允許網域設定後重試');
+                                        } else if (e && e.code === 'auth/email-already-in-use') {
+                                            setError('Email 已被使用，請改用其他帳號');
+                                        } else if (e && e.code === 'auth/weak-password') {
+                                            setError('密碼強度不足');
+                                        } else {
+                                            setError('註冊錯誤，請重試');
+                                        }
+                                    }
+                                }}
+                                className="w-full mt-3 bg-white hover:bg-gray-50 text-red-600 font-bold py-3 rounded-xl transition border border-red-200 disabled:opacity-50"
+                            >
+                                註冊帳號
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onOfflineEnter}
+                                className="w-full mt-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition border border-gray-200"
+                            >
+                                離線模式進入
+                            </button>
+                            {!isOnline && (
+                                <div className="mt-3 text-center text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-xl py-2">
+                                    目前離線，請確認網路後再試
+                                </div>
+                            )}
+                        </form>
+
+                        
+                    </div>
+                </div>
+            );
+        };
+
+        // 3. Admin Dashboard (System Config)
+        const AdminDashboard = ({ currentUser, users, communities, onAddUser, onAddCommunity, subtab }) => {
+            const [newCommName, setNewCommName] = useState('');
+            const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
+
+            const handleAddComm = (e) => {
+                e.preventDefault();
+                if(newCommName) {
+                    onAddCommunity(newCommName);
+                    setNewCommName('');
+                }
+            };
+
+            const handleAddUser = (e) => {
+                e.preventDefault();
+                if(newUser.name && newUser.email && newUser.communityId) {
+                    onAddUser(newUser);
+                    setNewUser({ name: '', email: '', role: 'staff', communityId: '' });
+                }
+            };
+
+            return (
+                <div className="space-y-4 pb-20">
+                    <div className="grid grid-cols-1 gap-4">
+                        {subtab === 'account' && (
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                <Users className="w-5 h-5 mr-2 text-red-600" />
+                                人員管理
+                            </h3>
+                            <form onSubmit={handleAddUser} className="space-y-3 mb-6">
+                                <input 
+                                    className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" 
+                                    placeholder="姓名" 
+                                    value={newUser.name}
+                                    onChange={e => setNewUser({...newUser, name: e.target.value})}
+                                />
+                                <input 
+                                    className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" 
+                                    placeholder="Email (登入帳號)" 
+                                    value={newUser.email}
+                                    onChange={e => setNewUser({...newUser, email: e.target.value})}
+                                />
+                                <div className="flex gap-2">
+                                    <select 
+                                        className="bg-gray-50 border-0 p-3 rounded-xl text-sm flex-1 focus:ring-2 focus:ring-red-100"
+                                        value={newUser.role}
+                                        onChange={e => setNewUser({...newUser, role: e.target.value})}
+                                    >
+                                        <option value="staff">員工</option>
+                                        <option value="manager">管理層</option>
+                                        <option value="hr">人事</option>
+                                        <option value="admin">系統管理員</option>
+                                    </select>
+                                    <select 
+                                        className="bg-gray-50 border-0 p-3 rounded-xl text-sm flex-1 focus:ring-2 focus:ring-red-100"
+                                        value={newUser.communityId}
+                                        onChange={e => setNewUser({...newUser, communityId: e.target.value})}
+                                    >
+                                        <option value="">選擇社區</option>
+                                        {communities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                                <button className="w-full bg-gray-800 text-white py-3 rounded-xl text-sm font-bold hover:bg-black transition">新增人員</button>
+                            </form>
+                            <div className="max-h-60 overflow-y-auto space-y-2">
+                                {users.map(u => (
+                                    <div key={u.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl text-sm">
+                                        <div>
+                                            <div className="font-bold text-gray-700">{u.name}</div>
+                                            <div className="text-xs text-gray-400">{u.email}</div>
+                                        </div>
+                                        <span className="px-2 py-1 bg-white border border-gray-200 rounded text-xs font-mono text-gray-500">{u.role}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        )}
+
+                        {subtab === 'community' && (
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                <Building2 className="w-5 h-5 mr-2 text-red-600" />
+                                社區管理
+                            </h3>
+                            <form onSubmit={handleAddComm} className="flex gap-2 mb-6">
+                                <input 
+                                    className="flex-1 bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100"
+                                    placeholder="新增社區名稱..."
+                                    value={newCommName}
+                                    onChange={e => setNewCommName(e.target.value)}
+                                />
+                                <button className="bg-red-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
+                            </form>
+                            <div className="space-y-2">
+                                {communities.map(c => (
+                                    <div key={c.id} className="p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-100 flex justify-between items-center transition">
+                                        <span className="font-bold text-gray-700">{c.name}</span>
+                                        <span className="text-xs text-gray-400 font-mono">{c.id}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // 4. Staff Dashboard
+        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory }) => {
+            const [currentTime, setCurrentTime] = useState(new Date());
+
+            useEffect(() => {
+                const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+                return () => clearInterval(timer);
+            }, []);
+
+            const lastRecord = attendanceHistory[0];
+            const isWorking = lastRecord && lastRecord.type === 'in';
+
+            return (
+                <div className="max-w-md mx-auto space-y-4 pb-20">
+                    {/* Header Info Card */}
+                    <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-3xl shadow-xl shadow-red-200 overflow-hidden relative">
+                        <div className="absolute top-0 right-0 p-4 opacity-10">
+                            <Clock className="w-32 h-32 transform rotate-12 text-white" />
+                        </div>
+                        <div className="p-6 relative z-10 text-white">
+                            <div className="flex justify-between items-start mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold">{currentUser.name}</h2>
+                                    <p className="text-red-100 text-sm flex items-center gap-1 mt-1">
+                                        <Building2 className="w-3 h-3" />
+                                        {currentUser.communityName || '未分配'}
+                                    </p>
+                                </div>
+                                <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-mono">
+                                    {isWorking ? '工作中' : '未打卡'}
+                                </div>
+                            </div>
+                            <div className="text-center py-4">
+                                <div className="text-5xl font-bold font-mono tracking-wider drop-shadow-sm">
+                                    {currentTime.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute:'2-digit' })}
+                                </div>
+                                <p className="text-red-100 text-sm mt-2 opacity-80">
+                                    {currentTime.toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Big Action Button */}
+                    <div className="px-2">
+                        <button
+                            onClick={() => onClockIn(isWorking ? 'out' : 'in')}
+                            className={`w-full h-32 rounded-3xl flex flex-row items-center justify-center gap-4 shadow-lg transition-all transform active:scale-95 ${
+                                isWorking 
+                                ? 'bg-gray-800 text-white border-2 border-gray-700' 
+                                : 'bg-white text-red-600 border-2 border-red-100'
+                            }`}
+                        >
+                            {isWorking ? (
+                                <>
+                                    <div className="bg-gray-700 p-3 rounded-full">
+                                        <LogOut className="w-8 h-8" />
+                                    </div>
+                                    <div className="text-left">
+                                        <span className="block text-2xl font-bold">下班簽退</span>
+                                        <span className="text-xs text-gray-400">結束今日勤務</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="bg-red-50 p-3 rounded-full">
+                                        <MapPin className="w-8 h-8 text-red-600" />
+                                    </div>
+                                    <div className="text-left">
+                                        <span className="block text-2xl font-bold">上班打卡</span>
+                                        <span className="text-xs text-gray-400">紀錄開始時間</span>
+                                    </div>
+                                </>
+                            )}
+                        </button>
+                        
+                        <div className="mt-4 text-center">
+                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-xs text-gray-500 font-medium">
+                                <CheckCircle className="w-3 h-3 text-green-500" />
+                                GPS 定位訊號良好
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* History List */}
+                    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+                        <h3 className="font-bold text-gray-800 mb-4 text-sm flex items-center justify-between">
+                            <span>最近紀錄</span>
+                            <span className="text-xs text-gray-400 font-normal">顯示最近 5 筆</span>
+                        </h3>
+                        <div className="space-y-4">
+                            {attendanceHistory.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <div className="bg-gray-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2">
+                                        <Calendar className="w-5 h-5 text-gray-300" />
+                                    </div>
+                                    <p className="text-gray-400 text-xs">尚無打卡紀錄</p>
+                                </div>
+                            ) : (
+                                attendanceHistory.slice(0, 5).map((record, idx) => (
+                                    <div key={record.id} className="flex relative">
+                                        {idx !== attendanceHistory.slice(0, 5).length - 1 && (
+                                            <div className="absolute left-2.5 top-8 bottom-[-16px] w-0.5 bg-gray-100"></div>
+                                        )}
+                                        <div className={`relative z-10 w-5 h-5 rounded-full border-2 flex-shrink-0 mt-1 mr-4 ${record.type === 'in' ? 'border-red-500 bg-red-50' : 'border-gray-400 bg-gray-50'}`}></div>
+                                        <div className="flex-1 pb-1">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <div className={`font-bold text-sm ${record.type === 'in' ? 'text-gray-800' : 'text-gray-500'}`}>
+                                                        {record.type === 'in' ? '上班打卡' : '下班簽退'}
+                                                    </div>
+                                                    <div className="text-xs text-gray-400 mt-0.5">
+                                                        {new Date(record.timestamp.seconds * 1000).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+                                                <div className="text-sm font-mono font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
+                                                    {new Date(record.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // 5. Manager Dashboard
+        const ManagerDashboard = ({ currentUser, communities, allAttendance }) => {
+            const communityLogs = allAttendance.filter(a => a.communityId === currentUser.communityId);
+            const today = new Date().toLocaleDateString();
+
+            return (
+                <div className="space-y-4 pb-20">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                            <div className="text-gray-400 text-xs mb-1">今日打卡</div>
+                            <div className="text-2xl font-bold text-gray-800">
+                                {communityLogs.filter(l => new Date(l.timestamp?.seconds * 1000).toLocaleDateString() === today).length}
+                                <span className="text-xs text-gray-400 font-normal ml-1">次</span>
+                            </div>
+                        </div>
+                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                            <div className="text-gray-400 text-xs mb-1">目前在勤</div>
+                            <div className="text-2xl font-bold text-red-600">
+                                {communityLogs.filter(l => l.type === 'in' && new Date(l.timestamp?.seconds * 1000).toLocaleDateString() === today).length}
+                                <span className="text-xs text-gray-400 font-normal ml-1">人</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                            <h3 className="font-bold text-gray-700 text-sm">即時動態</h3>
+                            <span className="text-[10px] px-2 py-1 bg-red-50 text-red-600 rounded-full font-bold">
+                                {currentUser.communityName}
+                            </span>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                            {communityLogs.slice(0, 10).map(log => (
+                                <div key={log.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${log.type === 'in' ? 'bg-red-500' : 'bg-gray-400'}`}>
+                                            {log.userName.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-bold text-gray-800">{log.userName}</div>
+                                            <div className="text-xs text-gray-400">{log.userRole} · {log.type === 'in' ? '上班' : '下班'}</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs font-mono text-gray-600">
+                                            {log.timestamp ? new Date(log.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}
+                                        </div>
+                                        {log.type === 'in' && <div className="flex items-center justify-end text-[10px] text-green-500 gap-0.5 mt-0.5"><CheckCircle className="w-2 h-2"/> 正常</div>}
+                                    </div>
+                                </div>
+                            ))}
+                            {communityLogs.length === 0 && (
+                                <div className="p-8 text-center text-gray-400 text-sm">尚無今日資料</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // 6. HR Dashboard
+        const HRDashboard = ({ currentUser, communities, allAttendance }) => {
+            return (
+                <div className="space-y-4 pb-20">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                        <h2 className="text-lg font-bold text-gray-800 mb-4">人事管理中心</h2>
+                        <div className="flex gap-2 mb-6 overflow-x-auto pb-2 no-scrollbar">
+                            <button className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-100 transition border border-gray-200">
+                                <FileText className="w-4 h-4" /> 月報表
+                            </button>
+                            <button className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-100 transition border border-gray-200">
+                                <AlertCircle className="w-4 h-4" /> 異常檢視
+                            </button>
+                            <button className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-100 transition border border-gray-200">
+                                <Calendar className="w-4 h-4" /> 請假審核
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">各社區概況</h3>
+                            {communities.map(c => (
+                            <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                <span className="text-sm font-bold text-gray-700">{c.name}</span>
+                                <div className="flex gap-2 text-[10px] font-bold">
+                                <span className="bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-md">正常 98%</span>
+                                <span className="bg-red-50 text-red-600 px-2 py-1 rounded-md">異常 2%</span>
+                                </div>
+                            </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App Component ---
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [dbUser, setDbUser] = useState(null);
+            const [view, setView] = useState('login');
+            const [loading, setLoading] = useState(true);
+            const [communities, setCommunities] = useState([]);
+            const [usersList, setUsersList] = useState([]);
+            const [attendanceList, setAttendanceList] = useState([]);
+            const [myAttendance, setMyAttendance] = useState([]);
+            const [fetchError, setFetchError] = useState('');
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            const [offlineMode, setOfflineMode] = useState(false);
+            const [activeTab, setActiveTab] = useState('home');
+            const [settingsSubtab, setSettingsSubtab] = useState('account');
+            const [dateTime, setDateTime] = useState(() => {
+                const d = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}    ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            });
+            const loadLS = (k, d) => {
+                try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; }
+            };
+            const saveLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+            useEffect(() => {
+                let mounted = true;
+                const timer = setTimeout(() => {
+                    if (mounted) setLoading(false);
+                }, 3000);
+                const t = setInterval(() => {
+                    const d = new Date();
+                    const pad = (n) => String(n).padStart(2, '0');
+                    setDateTime(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}    ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`);
+                }, 1000);
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        }
+                    } catch (e) {
+                        console.error("Auth init error", e);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, (u) => {
+                    setUser(u);
+                    setLoading(false);
+                    clearTimeout(timer);
+                });
+                const onlineHandler = () => setIsOnline(true);
+                const offlineHandler = () => setIsOnline(false);
+                window.addEventListener('online', onlineHandler);
+                window.addEventListener('offline', offlineHandler);
+                return () => {
+                    mounted = false;
+                    unsubscribe();
+                    clearTimeout(timer);
+                    clearInterval(t);
+                    window.removeEventListener('online', onlineHandler);
+                    window.removeEventListener('offline', offlineHandler);
+                };
+            }, []);
+
+            useEffect(() => {
+                if (offlineMode) return;
+                if (!user) return;
+                const commUnsub = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'communities'),
+                    (snap) => {
+                        setCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                    },
+                    (err) => {
+                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                        console.error(err);
+                    }
+                );
+                return () => commUnsub();
+            }, [user, offlineMode]);
+
+            useEffect(() => {
+                if (offlineMode) return;
+                if (!user || !dbUser) return;
+                let unsubUsers = () => {};
+                let unsubAttendance = () => {};
+                let unsubMyAttendance = () => {};
+
+                if (dbUser.role === 'admin') {
+                    unsubUsers = onSnapshot(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+                        (snap) => {
+                            setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        },
+                        (err) => {
+                            setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                            console.error(err);
+                        }
+                    );
+                }
+
+                if (['admin', 'manager', 'hr'].includes(dbUser.role)) {
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), orderBy('timestamp', 'desc'));
+                    unsubAttendance = onSnapshot(q, (snap) => {
+                        setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                    }, (err) => {
+                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                        console.error(err);
+                    });
+                }
+
+                if (dbUser.role === 'staff' || dbUser.role === 'manager') {
+                    const q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
+                        where('userId', '==', dbUser.id),
+                        orderBy('timestamp', 'desc')
+                    );
+                    unsubMyAttendance = onSnapshot(q, (snap) => {
+                        setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                    }, (err) => {
+                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                        console.error(err);
+                    });
+                }
+
+                return () => {
+                    unsubUsers();
+                    unsubAttendance();
+                    unsubMyAttendance();
+                };
+            }, [user, dbUser, offlineMode]);
+
+            useEffect(() => {
+                if (!offlineMode) return;
+                const c = loadLS('offline_communities', []);
+                const u = loadLS('offline_users', []);
+                const a = loadLS('offline_attendance', []);
+                setCommunities(c);
+                setUsersList(u);
+                setAttendanceList(a);
+            }, [offlineMode]);
+
+            const seedData = async () => {
+                if (!user) return;
+                const baseCommRef = collection(db, 'artifacts', appId, 'public', 'data', 'communities');
+                const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                const comm1 = await addDoc(baseCommRef, { name: '帝寶社區', address: '台北市仁愛路' });
+                const comm2 = await addDoc(baseCommRef, { name: '信義之星', address: '台北市信義區' });
+                await addDoc(baseUserRef, { name: '系統管理員', email: 'admin@sys.com', password: '123', role: 'admin', communityId: 'SYSTEM' });
+                await addDoc(baseUserRef, { name: '李經理', email: 'manager@comm.com', password: '123', role: 'manager', communityId: comm1.id });
+                await addDoc(baseUserRef, { name: '陳人事', email: 'hr@comm.com', password: '123', role: 'hr', communityId: 'HQ' });
+                await addDoc(baseUserRef, { name: '王保全', email: 'staff@comm.com', password: '123', role: 'staff', communityId: comm1.id });
+            };
+
+            const signInWithRetry = async (email, password) => {
+                let i = 0;
+                const delays = [500, 1000, 2000];
+                while (true) {
+                    try {
+                        return await signInWithEmailAndPassword(auth, email, password);
+                    } catch (e) {
+                        if (e && e.code === 'auth/network-request-failed' && i < delays.length) {
+                            await new Promise(r => setTimeout(r, delays[i++]));
+                            continue;
+                        }
+                        throw e;
+                    }
+                }
+            };
+
+            const registerWithRetry = async (email, password) => {
+                let i = 0;
+                const delays = [500, 1000, 2000];
+                while (true) {
+                    try {
+                        return await createUserWithEmailAndPassword(auth, email, password);
+                    } catch (e) {
+                        if (e && e.code === 'auth/network-request-failed' && i < delays.length) {
+                            await new Promise(r => setTimeout(r, delays[i++]));
+                            continue;
+                        }
+                        throw e;
+                    }
+                }
+            };
+
+            const handleLogin = async (email, password, rememberMe = false) => {
+                setLoading(true);
+                try {
+                    await signInWithRetry(email, password);
+                    const q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'users'), 
+                        where('email', '==', email)
+                    );
+                    const snap = await getDocs(q);
+                    let userData;
+                    if (!snap.empty) {
+                        userData = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                    } else {
+                        const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                        const name = email.split('@')[0];
+                        const docRef = await addDoc(baseUserRef, { name, email, role: 'staff', communityId: 'HQ' });
+                        userData = { id: docRef.id, name, email, role: 'staff', communityId: 'HQ' };
+                    }
+                    const comm = communities.find(c => c.id === userData.communityId);
+                    userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
+                    setDbUser(userData);
+                    setView('dashboard');
+                    if (rememberMe) {
+                        try {
+                            localStorage.setItem('remember_until', String(Date.now() + 48 * 60 * 60 * 1000));
+                            localStorage.setItem('remember_user', JSON.stringify(userData));
+                        } catch {}
+                    }
+                } catch (e) {
+                    console.error(e);
+                    throw e;
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleRegister = async (email, password, rememberMe = false) => {
+                setLoading(true);
+                try {
+                    await registerWithRetry(email, password);
+                    const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                    const name = email.split('@')[0];
+                    const docRef = await addDoc(baseUserRef, { name, email, role: 'staff', communityId: 'HQ' });
+                    const userData = { id: docRef.id, name, email, role: 'staff', communityId: 'HQ' };
+                    const comm = communities.find(c => c.id === userData.communityId);
+                    userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
+                    setDbUser(userData);
+                    setView('dashboard');
+                    if (rememberMe) {
+                        try {
+                            localStorage.setItem('remember_until', String(Date.now() + 48 * 60 * 60 * 1000));
+                            localStorage.setItem('remember_user', JSON.stringify(userData));
+                        } catch {}
+                    }
+                } catch (e) {
+                    console.error(e);
+                    throw e;
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const enterOfflineMode = () => {
+                const c = loadLS('offline_communities', []);
+                const u = loadLS('offline_users', []);
+                if (c.length === 0 || u.length === 0) {
+                    const comm1 = { id: 'comm1', name: '帝寶社區', address: '台北市仁愛路' };
+                    const comm2 = { id: 'comm2', name: '信義之星', address: '台北市信義區' };
+                    const adminUser = { id: 'u_admin', name: '本地管理員', email: 'local@dev', role: 'admin', communityId: 'SYSTEM' };
+                    saveLS('offline_communities', [comm1, comm2]);
+                    saveLS('offline_users', [adminUser]);
+                }
+                setOfflineMode(true);
+                const u2 = loadLS('offline_users', []);
+                const me = u2[0] || { id: 'local', name: '本地使用者', email: 'local@dev', role: 'staff', communityId: 'HQ' };
+                setDbUser(me);
+                setView('dashboard');
+            };
+
+            const handleLogout = async () => {
+                await signOut(auth);
+                setDbUser(null);
+                setView('login');
+                try {
+                    localStorage.removeItem('remember_until');
+                    localStorage.removeItem('remember_user');
+                } catch {}
+            };
+
+            const handleClockIn = async (type) => {
+                if (offlineMode) {
+                    const a = loadLS('offline_attendance', []);
+                    const item = { id: String(Date.now()), userId: dbUser.id, userName: dbUser.name, userRole: dbUser.role, communityId: dbUser.communityId, type, timestamp: { seconds: Math.floor(Date.now()/1000) }, device: 'Web Browser', location: '25.0330, 121.5654' };
+                    const na = [item, ...a];
+                    saveLS('offline_attendance', na);
+                    setMyAttendance(na.filter(x => x.userId === dbUser.id));
+                    setAttendanceList(na);
+                    return;
+                }
+                if (!user || !dbUser) return;
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                        userId: dbUser.id,
+                        userName: dbUser.name,
+                        userRole: dbUser.role,
+                        communityId: dbUser.communityId,
+                        type: type,
+                        timestamp: serverTimestamp(),
+                        device: 'Web Browser',
+                        location: '25.0330, 121.5654'
+                    });
+                } catch (e) {
+                    console.error("Clock error", e);
+                    alert("打卡失敗，請重試");
+                }
+            };
+
+            const handleAddUser = async (userData) => {
+                if (offlineMode) {
+                    const u = loadLS('offline_users', []);
+                    const nu = [{ id: String(Date.now()), ...userData }, ...u];
+                    saveLS('offline_users', nu);
+                    setUsersList(nu);
+                    return;
+                }
+                if (!user) return;
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123' });
+            };
+
+            const handleAddCommunity = async (name) => {
+                if (offlineMode) {
+                    const c = loadLS('offline_communities', []);
+                    const nc = [{ id: String(Date.now()), name }, ...c];
+                    saveLS('offline_communities', nc);
+                    setCommunities(nc);
+                    return;
+                }
+                if (!user) return;
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name });
+            };
+
+            if (loading) return <Loading />;
+
+            if (view === 'login') {
+                return <Login onLogin={handleLogin} onRegister={handleRegister} isOnline={isOnline} onOfflineEnter={enterOfflineMode} />;
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
+                    {/* Mobile Navbar */}
+                    <header className="bg-white fixed top-0 left-0 right-0 z-50 border-b border-gray-100 h-[8vh]">
+                        <div className="max-w-md mx-auto px-4 h-full flex justify-between items-center">
+                            <div className="flex items中心 gap-2">
+                                <div className="bg-red-600 p-1.5 rounded-lg">
+                                    <Shield className="w-4 h-4 text-white" />
+                                </div>
+                                <span className="font-bold text-gray-800 tracking-tight">安居管家</span>
+                            </div>
+                            
+                            <div className="flex items中心 gap-3">
+                                <div className="text-right hidden sm:block">
+                                    <div className="text-xs font-bold text-gray-800">{dbUser?.name}</div>
+                                </div>
+                                <button 
+                                    onClick={handleLogout}
+                                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+                                >
+                                    <LogOut className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                        {fetchError && (
+                            <div className="bg-yellow-50 border-t border-yellow-200 text-yellow-800 text-xs px-4 py-2">
+                                {fetchError}
+                            </div>
+                        )}
+                    </header>
+
+                    <div className="fixed top-[8vh] left-0 right-0 z-40 h-[8vh] bg-white border-b border-gray-100">
+                        <div className="max-w-md mx-auto px-4 h-full flex items-center gap-2 overflow-x-auto no-scrollbar">
+                            {activeTab === 'home' && (
+                                <div className="w-full flex justify-center">
+                                    <div className="text-xl font-bold text-red-600">{dateTime}</div>
+                                </div>
+                            )}
+                            {activeTab === 'overview' && (
+                                <div className="w-full flex justify-center">
+                                    <div className="text-xl font-bold text-red-600">{dateTime}</div>
+                                </div>
+                            )}
+                            {activeTab === 'clock' && (
+                                <div className="flex gap-2">
+                                    <button className="px-3 py-2 text-xs font-bold rounded-lg bg-red-50 text-red-600">紀錄</button>
+                                    <button className="px-3 py-2 text-xs font-bold rounded-lg bg-red-50 text-red-600">請假</button>
+                                    <button className="px-3 py-2 text-xs font-bold rounded-lg bg-red-50 text-red-600">扣點</button>
+                                </div>
+                            )}
+                            {activeTab === 'community' && (
+                                <button className="px-3 py-2 text-xs font-bold rounded-lg bg-red-50 text-red-600">全部</button>
+                            )}
+                            {activeTab === 'hr' && (
+                                <button className="px-3 py-2 text-xs font-bold rounded-lg bg-red-50 text-red-600">報表</button>
+                            )}
+                            {activeTab === 'settings' && (
+                                <div className="flex gap-2">
+                                    <button onClick={() => setSettingsSubtab('general')} className={`px-3 py-2 text-xs font-bold rounded-lg ${settingsSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>一般</button>
+                                    <button onClick={() => setSettingsSubtab('account')} className={`px-3 py-2 text-xs font-bold rounded-lg ${settingsSubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>帳號</button>
+                                    <button onClick={() => setSettingsSubtab('community')} className={`px-3 py-2 text-xs font-bold rounded-lg ${settingsSubtab === 'community' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>社區</button>
+                                    <button onClick={() => setSettingsSubtab('system')} className={`px-3 py-2 text-xs font-bold rounded-lg ${settingsSubtab === 'system' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>系統</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Main Content Area - Mobile Container */}
+                    <main className="absolute top-[16vh] left-0 right-0 h-[76vh] overflow-y-auto">
+                        <div className="w-full max-w-md mx-auto px-4 py-4">
+                        
+                        {/* Role Based Views */}
+                        {dbUser?.role === 'staff' && (
+                            <StaffDashboard 
+                                currentUser={dbUser} 
+                                onClockIn={handleClockIn} 
+                                attendanceHistory={myAttendance}
+                            />
+                        )}
+
+                        {dbUser?.role === 'manager' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                        <Briefcase className="w-5 h-5 text-red-600" />
+                                        管理概覽
+                                    </h2>
+                                    <span className="text-xs text-gray-400 bg-white px-2 py-1 rounded border">經理權限</span>
+                                </div>
+                                
+                                <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                                    <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">個人勤務</h3>
+                                    <StaffDashboard 
+                                        currentUser={dbUser} 
+                                        onClockIn={handleClockIn} 
+                                        attendanceHistory={myAttendance}
+                                    />
+                                </div>
+
+                                <div className="pt-4 border-t border-gray-200">
+                                    <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">團隊動態</h3>
+                                    <ManagerDashboard 
+                                        currentUser={dbUser} 
+                                        communities={communities} 
+                                        allAttendance={attendanceList}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {dbUser?.role === 'hr' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
+                                    <LayoutDashboard className="w-5 h-5 text-red-600" /> 人事管理中心
+                                </div>
+                                <HRDashboard 
+                                    currentUser={dbUser} 
+                                    communities={communities} 
+                                    allAttendance={attendanceList}
+                                />
+                            </div>
+                        )}
+
+                        {dbUser?.role === 'admin' && activeTab === 'settings' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
+                                    <Shield className="w-5 h-5 text-red-600" /> 系統設定
+                                </div>
+                                <AdminDashboard 
+                                    currentUser={dbUser} 
+                                    users={usersList} 
+                                    communities={communities}
+                                    onAddUser={handleAddUser}
+                                    onAddCommunity={handleAddCommunity}
+                                    subtab={settingsSubtab}
+                                />
+                            </div>
+                        )}
+                        </div>
+                    </main>
+
+                    <div className="fixed bottom-0 left-0 right-0 z-50 h-[8vh] bg-white border-t border-gray-100">
+                        <div className="max-w-md mx-auto h-full px-4 flex items-center justify-between">
+                            <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'home' ? 'text-red-600' : 'text-gray-600'}`}>
+                                <Home className="w-5 h-5 mb-1" /> 首頁
+                            </button>
+                            <button onClick={() => setActiveTab('overview')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'overview' ? 'text-red-600' : 'text-gray-600'}`}>
+                                <BarChart3 className="w-5 h-5 mb-1" /> 總覽
+                            </button>
+                            <button onClick={() => setActiveTab('clock')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'clock' ? 'text-red-600' : 'text-gray-600'}`}>
+                                <ClipboardList className="w-5 h-5 mb-1" /> 打卡
+                            </button>
+                            <button onClick={() => setActiveTab('community')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}>
+                                <Building2 className="w-5 h-5 mb-1" /> 社區
+                            </button>
+                            <button onClick={() => setActiveTab('hr')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'hr' ? 'text-red-600' : 'text-gray-600'}`}>
+                                <FileText className="w-5 h-5 mb-1" /> 人事
+                            </button>
+                            <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'settings' ? 'text-red-600' : 'text-gray-600'}`}>
+                                <Settings className="w-5 h-5 mb-1" /> 設定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
