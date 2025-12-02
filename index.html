@@ -126,7 +126,7 @@
         );
 
         // 2. Login Component (Mobile Optimized, Red Theme)
-        const Login = ({ onLogin, onRegister, isOnline, onOfflineEnter }) => {
+        const Login = ({ onLogin, onRegister, isOnline }) => {
             const [email, setEmail] = useState('admin@sys.com');
             const [password, setPassword] = useState('123456');
             const [error, setError] = useState('');
@@ -238,13 +238,7 @@
                             >
                                 註冊帳號
                             </button>
-                            <button
-                                type="button"
-                                onClick={onOfflineEnter}
-                                className="w-full mt-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition border border-gray-200"
-                            >
-                                離線模式進入
-                            </button>
+                            
                             {!isOnline && (
                                 <div className="mt-3 text-center text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-xl py-2">
                                     目前離線，請確認網路後再試
@@ -657,7 +651,6 @@
             const [myAttendance, setMyAttendance] = useState([]);
             const [fetchError, setFetchError] = useState('');
             const [isOnline, setIsOnline] = useState(navigator.onLine);
-            const [offlineMode, setOfflineMode] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [dateTime, setDateTime] = useState(() => {
@@ -665,10 +658,7 @@
                 const pad = (n) => String(n).padStart(2, '0');
                 return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}    ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
             });
-            const loadLS = (k, d) => {
-                try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; }
-            };
-            const saveLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+            
 
             useEffect(() => {
                 let mounted = true;
@@ -710,7 +700,6 @@
             }, []);
 
             useEffect(() => {
-                if (offlineMode) return;
                 if (!user) return;
                 const commUnsub = onSnapshot(
                     collection(db, 'artifacts', appId, 'public', 'data', 'communities'),
@@ -723,10 +712,9 @@
                     }
                 );
                 return () => commUnsub();
-            }, [user, offlineMode]);
+            }, [user]);
 
             useEffect(() => {
-                if (offlineMode) return;
                 if (!user || !dbUser) return;
                 let unsubUsers = () => {};
                 let unsubAttendance = () => {};
@@ -774,17 +762,9 @@
                     unsubAttendance();
                     unsubMyAttendance();
                 };
-            }, [user, dbUser, offlineMode]);
+            }, [user, dbUser]);
 
-            useEffect(() => {
-                if (!offlineMode) return;
-                const c = loadLS('offline_communities', []);
-                const u = loadLS('offline_users', []);
-                const a = loadLS('offline_attendance', []);
-                setCommunities(c);
-                setUsersList(u);
-                setAttendanceList(a);
-            }, [offlineMode]);
+            
 
             const seedData = async () => {
                 if (!user) return;
@@ -892,22 +872,7 @@
                 }
             };
 
-            const enterOfflineMode = () => {
-                const c = loadLS('offline_communities', []);
-                const u = loadLS('offline_users', []);
-                if (c.length === 0 || u.length === 0) {
-                    const comm1 = { id: 'comm1', name: '帝寶社區', address: '台北市仁愛路' };
-                    const comm2 = { id: 'comm2', name: '信義之星', address: '台北市信義區' };
-                    const adminUser = { id: 'u_admin', name: '本地管理員', email: 'local@dev', role: 'admin', communityId: 'SYSTEM' };
-                    saveLS('offline_communities', [comm1, comm2]);
-                    saveLS('offline_users', [adminUser]);
-                }
-                setOfflineMode(true);
-                const u2 = loadLS('offline_users', []);
-                const me = u2[0] || { id: 'local', name: '本地使用者', email: 'local@dev', role: 'staff', communityId: 'HQ' };
-                setDbUser(me);
-                setView('dashboard');
-            };
+            
 
             const handleLogout = async () => {
                 await signOut(auth);
@@ -920,15 +885,6 @@
             };
 
             const handleClockIn = async (type) => {
-                if (offlineMode) {
-                    const a = loadLS('offline_attendance', []);
-                    const item = { id: String(Date.now()), userId: dbUser.id, userName: dbUser.name, userRole: dbUser.role, communityId: dbUser.communityId, type, timestamp: { seconds: Math.floor(Date.now()/1000) }, device: 'Web Browser', location: '25.0330, 121.5654' };
-                    const na = [item, ...a];
-                    saveLS('offline_attendance', na);
-                    setMyAttendance(na.filter(x => x.userId === dbUser.id));
-                    setAttendanceList(na);
-                    return;
-                }
                 if (!user || !dbUser) return;
                 try {
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
@@ -948,25 +904,11 @@
             };
 
             const handleAddUser = async (userData) => {
-                if (offlineMode) {
-                    const u = loadLS('offline_users', []);
-                    const nu = [{ id: String(Date.now()), ...userData }, ...u];
-                    saveLS('offline_users', nu);
-                    setUsersList(nu);
-                    return;
-                }
                 if (!user) return;
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123' });
             };
 
             const handleAddCommunity = async (name) => {
-                if (offlineMode) {
-                    const c = loadLS('offline_communities', []);
-                    const nc = [{ id: String(Date.now()), name }, ...c];
-                    saveLS('offline_communities', nc);
-                    setCommunities(nc);
-                    return;
-                }
                 if (!user) return;
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name });
             };
@@ -974,7 +916,7 @@
             if (loading) return <Loading />;
 
             if (view === 'login') {
-                return <Login onLogin={handleLogin} onRegister={handleRegister} isOnline={isOnline} onOfflineEnter={enterOfflineMode} />;
+                return <Login onLogin={handleLogin} onRegister={handleRegister} isOnline={isOnline} />;
             }
 
             return (
