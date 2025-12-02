@@ -266,8 +266,17 @@
         const u = firebase.auth().currentUser
         if (!u) { window.location.href = prefix + 'app/'; return }
         try {
-          const doc = await firebase.firestore().collection('users').doc(u.uid).get()
-          const data = doc.exists ? doc.data() : {}
+          const ref = firebase.firestore().collection('users').doc(u.uid)
+          const doc = await ref.get()
+          let data = doc.exists ? doc.data() : null
+          if (!data) {
+            await ref.set({
+              role: 'user',
+              community: '',
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true })
+            data = { role:'user', community:'' }
+          }
           const role = data && data.role ? String(data.role) : 'user'
           const community = data && data.community ? String(data.community) : ''
           if (role === 'admin') {
