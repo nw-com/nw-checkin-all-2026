@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>主頁｜西北社區打卡系統</title>
+    <style>
+      :root{--red:#c62828;--red-dark:#b71c1c;--bg:#f5f5f7;--white:#ffffff;--text:#222;--muted:#666}
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans",sans-serif}
+      .a{position:fixed;top:0;left:0;right:0;height:8vh;min-height:56px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1000}
+      .brand{display:flex;align-items:center;gap:10px}
+      .logo{width:32px;height:32px;border-radius:8px;background:var(--red);display:grid;place-items:center;color:#fff;font-weight:700}
+      .title{font-size:16px;font-weight:700;color:var(--red-dark)}
+      .a .actions{display:flex;gap:10px}
+      .btn{padding:8px 12px;border:none;border-radius:8px;background:var(--red);color:#fff;font-weight:700}
+      .btn-secondary{padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#333;font-weight:600}
+      .b{position:fixed;top:8vh;left:0;right:0;height:8vh;min-height:48px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;gap:10px;padding:0 14px;z-index:900}
+      .tab{padding:8px 12px;border-radius:999px;border:1px solid #eee;background:#fafafa;color:#333}
+      .tab.active{background:#ffecee;color:#b71c1c;border-color:#f8cacc}
+      .content{position:absolute;top:16vh;bottom:8vh;left:0;right:0;overflow:auto;padding:10px}
+      .c,.d{background:#fff;border-radius:12px;box-shadow:0 6px 16px rgba(0,0,0,.06);padding:14px}
+      .c{height:38vh;min-height:280px;margin-bottom:10px}
+      .d{height:38vh;min-height:280px}
+      .e{position:fixed;bottom:0;left:0;right:0;height:8vh;min-height:56px;background:#fff;border-top:1px solid #eee;display:flex;align-items:center;justify-content:space-around;padding:0 10px;z-index:1000}
+      .e .nav{flex:1;display:grid;place-items:center}
+      .e .nav a{color:#333;text-decoration:none;font-weight:700}
+      .e .nav.active a{color:var(--red)}
+      .muted{color:var(--muted)}
+    </style>
+  </head>
+  <body>
+    <header class="a">
+      <div class="brand">
+        <div class="logo">NW</div>
+        <div class="title">主頁</div>
+      </div>
+      <div class="actions">
+        <button id="admin" class="btn-secondary">管理</button>
+        <button id="signout" class="btn">登出</button>
+      </div>
+    </header>
+    <nav class="b">
+      <button class="tab active" id="sub-home">子分頁 A</button>
+      <button class="tab" id="sub-b">子分頁 B</button>
+    </nav>
+    <main class="content">
+      <section class="c" id="section-c">
+        <h3 style="margin-top:0">頁中上區域</h3>
+        <div id="user-info" class="muted">載入使用者資料中…</div>
+      </section>
+      <section class="d" id="section-d">
+        <h3 style="margin-top:0">頁中下區域</h3>
+        <div id="community-info" class="muted">載入社區資訊中…</div>
+      </section>
+    </main>
+    <footer class="e">
+      <div class="nav active" id="nav-home"><a href="#">首頁</a></div>
+      <div class="nav" id="nav-settings"><a href="#">設定</a></div>
+    </footer>
+
+    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore-compat.js"></script>
+    <script>
+      const firebaseConfig = {
+        apiKey: "AIzaSyBa3EfodIJk4hZgH0zEHTlEGqSxncpkIbs",
+        authDomain: "nw-checkin-all-2026.firebaseapp.com",
+        projectId: "nw-checkin-all-2026",
+        storageBucket: "nw-checkin-all-2026.firebasestorage.app",
+        messagingSenderId: "840454751760",
+        appId: "1:840454751760:web:58bbfa83cb146f4fc7ac95",
+        measurementId: "G-NQ0W45T9CK"
+      }
+      firebase.initializeApp(firebaseConfig)
+      const auth = firebase.auth()
+      const db = firebase.firestore()
+
+      const userInfo = document.querySelector('#user-info')
+      const communityInfo = document.querySelector('#community-info')
+      const adminBtn = document.querySelector('#admin')
+      const signoutBtn = document.querySelector('#signout')
+
+      auth.onAuthStateChanged(async (u)=>{
+        if (!u) { window.location.href = '../index.html'; return }
+        try {
+          const doc = await db.collection('users').doc(u.uid).get()
+          const data = doc.exists ? doc.data() : {}
+          const role = data.role || 'user'
+          const community = data.community || ''
+          userInfo.textContent = '使用者：' + (u.email || u.uid) + (role==='admin'?'（管理員）':'')
+          communityInfo.textContent = community ? ('社區：' + community) : '尚未設定社區'
+          adminBtn.style.display = role==='admin' ? 'inline-block' : 'none'
+        } catch(e) {
+          userInfo.textContent = '使用者：' + (u.email || u.uid)
+          communityInfo.textContent = '無法取得社區資訊'
+          adminBtn.style.display = 'none'
+        }
+      })
+
+      adminBtn.addEventListener('click', ()=>{ window.location.href = '../manage/' })
+      signoutBtn.addEventListener('click', async ()=>{ await auth.signOut(); window.location.href = '../index.html' })
+
+      const navHome = document.querySelector('#nav-home')
+      const navSettings = document.querySelector('#nav-settings')
+      const subHome = document.querySelector('#sub-home')
+      const subB = document.querySelector('#sub-b')
+      function setFooter(active){
+        navHome.classList.toggle('active', active==='home')
+        navSettings.classList.toggle('active', active==='settings')
+        const c = document.querySelector('#section-c')
+        const d = document.querySelector('#section-d')
+        if (active==='home') {
+          c.querySelector('h3').textContent = '頁中上：首頁內容'
+          d.querySelector('h3').textContent = '頁中下：首頁內容'
+        } else {
+          c.querySelector('h3').textContent = '頁中上：設定'
+          d.querySelector('h3').textContent = '頁中下：設定'
+        }
+      }
+      navHome.addEventListener('click', (e)=>{e.preventDefault();setFooter('home')})
+      navSettings.addEventListener('click', (e)=>{e.preventDefault();setFooter('settings')})
+      subHome.addEventListener('click', ()=>{subHome.classList.add('active');subB.classList.remove('active')})
+      subB.addEventListener('click', ()=>{subB.classList.add('active');subHome.classList.remove('active')})
+      setFooter('home')
+    </script>
+  </body>
+</html>
+

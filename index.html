@@ -11,11 +11,11 @@
       html,body{height:100%}
       body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans",sans-serif}
       .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:16px}
-      .card{width:100%;max-width:420px;background:var(--white);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08);overflow:hidden}
+      .card{width:100%;max-width:420px;background:var(--white);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
       .brand{display:flex;align-items:center;gap:12px;padding:16px 20px;background:linear-gradient(180deg,#ffebee,#ffffff)}
       .logo{width:40px;height:40px;border-radius:8px;background:var(--red);display:grid;place-items:center;color:#fff;font-weight:700}
       .title{font-size:18px;font-weight:700;color:var(--red-dark)}
-      .content{padding:20px}
+      .content{padding:20px;padding-bottom:calc(20px + env(safe-area-inset-bottom, 0px))}
       .field{margin-bottom:14px}
       label{display:block;font-size:13px;color:#444;margin-bottom:6px}
       select,input{width:100%;padding:12px 14px;border:1px solid #e0e0e0;border-radius:10px;background:#fff;font-size:15px}
@@ -25,7 +25,7 @@
       .links{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
       .link{color:var(--red);text-decoration:none;font-size:14px}
       .error{margin-top:10px;color:var(--red-dark);font-size:14px}
-      .footer{padding:14px 20px;border-top:1px solid #eee;color:#666;font-size:12px}
+      .footer{padding:14px 20px;border-top:1px solid #eee;color:#666;font-size:12px;position:relative;z-index:1}
       .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:20px}
       .modal{width:100%;max-width:420px;background:#fff;border-radius:14px}
       .modal header{padding:14px 16px;border-bottom:1px solid #eee;font-weight:700;color:var(--red-dark)}
@@ -45,14 +45,7 @@
         </div>
         <div class="content">
           <form id="login-form">
-            <div class="field">
-              <label for="community">社區</label>
-              <select id="community" required>
-                <option value="" selected>請選擇社區</option>
-                <option value="taipei">西北台北社區</option>
-                <option value="taoyuan">西北桃園社區</option>
-              </select>
-            </div>
+            
             <div class="field">
               <label for="email">電子郵件</label>
               <input id="email" type="email" inputmode="email" autocomplete="email" required>
@@ -69,7 +62,7 @@
             </div>
           </form>
         </div>
-        <div class="footer">以手機瀏覽最佳。使用 Firebase 與 GitHub Pages 架構。</div>
+        
       </div>
     </div>
 
@@ -220,10 +213,8 @@
       loginForm.addEventListener('submit', async (e)=>{
         e.preventDefault()
         errorBox.textContent = ''
-        const community = qs('#community').value.trim()
         const email = qs('#email').value.trim()
         const password = qs('#password').value
-        if (!community) { errorBox.textContent = '請先選擇社區' ; return }
         loginBtn.disabled = true
         loginBtn.textContent = '登入中…'
         try {
@@ -232,7 +223,7 @@
           } else {
             await new Promise(r=>setTimeout(r,800))
           }
-          redirectToCommunity(community)
+          await postLoginRedirect()
         } catch (err) {
           const code = err && err.code ? String(err.code) : ''
           const map = {
@@ -268,11 +259,27 @@
         }
       })
 
-      function redirectToCommunity(id){
+      async function postLoginRedirect(){
         const base = window.location.pathname.replace(/index\.html$/, '')
-        let prefix = base.endsWith('/') ? base : base + '/'
-        const target = prefix + 'communities/' + encodeURIComponent(id) + '/'
-        window.location.href = target
+        const prefix = base.endsWith('/') ? base : base + '/'
+        if (!firebaseReady) { window.location.href = prefix + 'app/'; return }
+        const u = firebase.auth().currentUser
+        if (!u) { window.location.href = prefix + 'app/'; return }
+        try {
+          const doc = await firebase.firestore().collection('users').doc(u.uid).get()
+          const data = doc.exists ? doc.data() : {}
+          const role = data && data.role ? String(data.role) : 'user'
+          const community = data && data.community ? String(data.community) : ''
+          if (role === 'admin') {
+            window.location.href = prefix + 'manage/'
+          } else if (community) {
+            window.location.href = prefix + 'communities/' + encodeURIComponent(community) + '/'
+          } else {
+            window.location.href = prefix + 'app/'
+          }
+        } catch(e) {
+          window.location.href = prefix + 'app/'
+        }
       }
     </script>
   </body>
