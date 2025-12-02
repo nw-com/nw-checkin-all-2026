@@ -135,6 +135,8 @@
       const communityInfo = document.querySelector('#community-info')
       const adminBtn = document.querySelector('#admin')
       const signoutBtn = document.querySelector('#signout')
+      let currentRole = 'user'
+      let currentUid = ''
 
       auth.onAuthStateChanged(async (u)=>{
         if (!u) { window.location.href = '../index.html'; return }
@@ -143,6 +145,8 @@
           const data = doc.exists ? doc.data() : {}
           const role = data.role || 'user'
           const community = data.community || ''
+          currentRole = role
+          currentUid = u.uid
           userInfo.textContent = '使用者：' + (u.email || u.uid) + (role==='admin'?'（管理員）':'')
           communityInfo.textContent = community ? ('社區：' + community) : '尚未設定社區'
           adminBtn.style.display = role==='admin' ? 'inline-block' : 'none'
@@ -222,6 +226,7 @@
           panel.innerHTML = `
             <div class="table-wrap">
             <div class="table">
+              <div id="acct-msg" style="margin:6px 0"></div>
               <div class="thead">
                 <div class="cell">大頭照</div>
                 <div class="cell">姓名</div>
@@ -250,7 +255,11 @@
       let editingIndex = -1
       async function loadAccountsFromFirestore(){
         try{
-          const snap = await db.collection('accounts').get()
+          let q = db.collection('accounts')
+          if (currentRole !== 'admin' && currentUid) {
+            q = q.where('createdBy','==', currentUid)
+          }
+          const snap = await q.get()
           const remote = snap.docs.map(d=>({id:d.id, ...d.data()}))
           const local = JSON.parse(localStorage.getItem('accounts')||'[]')
           const emails = new Set(remote.map(a=>a.email))
@@ -331,6 +340,20 @@
         }
         document.querySelector('#acct-backdrop').style.display='flex'
         document.querySelector('#acct-backdrop').setAttribute('aria-hidden','false')
+        const submitBtn = document.getElementById('acct-submit')
+        const msg = document.getElementById('acct-modal-msg')
+        if (submitBtn) {
+          submitBtn.onclick = ()=>{
+            const form = document.getElementById('acct-form')
+            if (!form) return
+            if (!form.checkValidity()) {
+              if (msg) { msg.textContent = '請完整填寫必填欄位'; msg.style.color = '#b71c1c' }
+              return
+            }
+            if (msg) { msg.textContent = '送出中…'; msg.style.color = '#666' }
+            handleAccountSubmit()
+          }
+        }
       }
       function closeAccountModal(){
         document.querySelector('#acct-backdrop').style.display='none'
@@ -358,11 +381,59 @@
         }
         r.readAsDataURL(file)
       }
+      async function withTimeout(promise, ms){
+        let t
+        const timeout = new Promise((_, reject)=>{ t = setTimeout(()=>reject(new Error('timeout')), ms) })
+        try { const res = await Promise.race([promise, timeout]); return res } finally { clearTimeout(t) }
+      }
+      async function handleAccountSubmit(){
+        const msgEl = document.getElementById('acct-modal-msg') || document.getElementById('acct-msg')
+        const val = (id)=>{ const el = document.getElementById(id); return el ? String(el.value||'').trim() : '' }
+        const avatar = val('acct-avatar-data')
+        const name = val('acct-name')
+        const title = val('acct-title')
+        const email = val('acct-email')
+        const phone = val('acct-phone')
+        const role = '幹部'
+        const status = '在職'
+        const payload = {avatar,name,title,email,phone,role,status,createdBy:(auth.currentUser&&auth.currentUser.uid)||''}
+        try{
+          const docidEl = document.getElementById('acct-docid')
+          const docId = docidEl ? docidEl.value : ''
+          if (editingIndex>=0){
+            const existing = accounts[editingIndex]||{}
+            const id = docId || existing.id
+            if (id){ await withTimeout(db.collection('accounts').doc(id).set(payload, {merge:true}), 3000) }
+            accounts[editingIndex] = {...existing, ...payload, id}
+          } else {
+            const ref = await withTimeout(db.collection('accounts').add({...payload, createdAt: firebase.firestore.FieldValue.serverTimestamp()}), 3000)
+            accounts.push({...payload, id: ref.id})
+          }
+          if (msgEl) { msgEl.textContent = '已儲存'; msgEl.style.color = '#2e7d32' }
+        }catch(e){
+          if (msgEl) { msgEl.textContent = '雲端儲存失敗，已暫存於本機：' + (e && e.code ? e.code : e && e.message ? e.message : '未知錯誤'); msgEl.style.color = '#b71c1c' }
+          if (editingIndex>=0){ const existing = accounts[editingIndex]||{}; accounts[editingIndex] = {...existing, ...payload} } else { accounts.push(payload) }
+        }
+        localStorage.setItem('accounts', JSON.stringify(accounts))
+        renderAccountRows()
+        closeAccountModal()
+      }
       document.addEventListener('click', (e)=>{
         if (e.target && e.target.id==='acct-cancel') closeAccountModal()
         const backdrop = document.querySelector('#acct-backdrop')
         if (e.target===backdrop) closeAccountModal()
         if (e.target && e.target.id==='add-account') { editingIndex=-1; openAccountModal(null) }
+        if (e.target && e.target.id==='acct-submit') {
+          const form = document.getElementById('acct-form')
+          const msg = document.getElementById('acct-modal-msg')
+          if (form) {
+            if (!form.checkValidity()) {
+              if (msg) { msg.textContent = '請完整填寫必填欄位'; msg.style.color = '#b71c1c' }
+              return
+            }
+            form.requestSubmit()
+          }
+        }
       })
       document.addEventListener('change', (e)=>{
         if (e.target && e.target.id==='acct-avatar'){
@@ -404,6 +475,11 @@
               accounts.push({...payload, id: ref.id})
             }
           }catch(e){
+            const msgEl = document.getElementById('acct-msg')
+            if (msgEl) {
+              msgEl.textContent = '雲端儲存失敗，已暫存於本機：' + (e && e.code ? e.code : '未知錯誤')
+              msgEl.style.color = '#b71c1c'
+            }
             // 若 Firestore 寫入失敗，先以本地保存
             if (editingIndex>=0){
               const existing = accounts[editingIndex]||{}
@@ -453,7 +529,8 @@
     <div id="acct-backdrop" class="modal-backdrop" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="acct-title">
         <header id="acct-title">新增帳號</header>
-      <div class="body">
+        <div class="body">
+          <div id="acct-modal-msg" class="muted" style="margin-bottom:8px"></div>
         <form id="acct-form">
           <div style="margin-bottom:10px">
             <label for="acct-avatar">上傳大頭照</label>
@@ -483,7 +560,7 @@
             </div>
             <div class="actions">
               <button type="button" id="acct-cancel" class="btn-secondary">取消</button>
-              <button type="submit" class="btn">新增</button>
+              <button type="button" id="acct-submit" class="btn">新增</button>
             </div>
           </form>
         </div>
