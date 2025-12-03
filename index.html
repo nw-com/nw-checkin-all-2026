@@ -40,13 +40,15 @@
             scrollbar-width: none;
         }
     </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="./firebase-config.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-900 font-sans antialiased">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect } from 'react';
+        import React, { useState, useEffect, useRef } from 'react';
         import ReactDOM from 'react-dom/client';
         import { initializeApp, setLogLevel } from 'firebase/app';
         import { 
@@ -283,6 +285,41 @@
             const [confirmDelete, setConfirmDelete] = useState(null);
             const [toast, setToast] = useState('');
             const [editingUserId, setEditingUserId] = useState(null);
+            const [showCommunityModal, setShowCommunityModal] = useState(false);
+            const [communityForm, setCommunityForm] = useState({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 });
+            const [communitySaving, setCommunitySaving] = useState(false);
+            const [communityError, setCommunityError] = useState('');
+            const [mapTarget, setMapTarget] = useState(null);
+
+            const communityMapElRef = useRef(null);
+            const communityLeafletRef = useRef(null);
+            const communityCircleRef = useRef(null);
+
+            useEffect(()=>{
+                const lat = parseFloat(communityForm.coordLat);
+                const lng = parseFloat(communityForm.coordLng);
+                if (!showCommunityModal || !lat || !lng) return;
+                if (typeof L === 'undefined') return;
+                if (!communityLeafletRef.current && communityMapElRef.current) {
+                    communityLeafletRef.current = L.map(communityMapElRef.current).setView([lat, lng], 16);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '' }).addTo(communityLeafletRef.current);
+                } else if (communityLeafletRef.current) {
+                    communityLeafletRef.current.setView([lat, lng], 16);
+                }
+                if (communityCircleRef.current) {
+                    communityCircleRef.current.remove();
+                    communityCircleRef.current = null;
+                }
+                communityCircleRef.current = L.circle([lat, lng], { radius: communityForm.radiusMeters || 0, color: '#dc2626' }).addTo(communityLeafletRef.current);
+            }, [showCommunityModal, communityForm.coordLat, communityForm.coordLng, communityForm.radiusMeters]);
+
+            useEffect(()=>{
+                if (!showCommunityModal && communityLeafletRef.current) {
+                    communityLeafletRef.current.remove();
+                    communityLeafletRef.current = null;
+                    communityCircleRef.current = null;
+                }
+            }, [showCommunityModal]);
 
             useEffect(()=>{ if (!toast) return; const t = setTimeout(()=>setToast(''), 2000); return ()=>clearTimeout(t); }, [toast]);
 
@@ -362,7 +399,7 @@
                                 </div>
                                 {showRoleModal && (
                                     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
-                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
                                             <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯角色</h4>
                                             <div className="space-y-3">
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">角色名稱</label>
@@ -439,7 +476,7 @@
                                 </div>
                                 {showCompanyModal && (
                                     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
-                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
                                             <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯公司</h4>
                                             <div className="space-y-3">
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">公司編號</label>
@@ -494,7 +531,7 @@
                                 </div>
                                 {showAreaModal && (
                                     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
-                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
                                             <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯區域</h4>
                                             <div className="space-y-3">
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">區域編號</label>
@@ -514,6 +551,7 @@
                         </div>
                         )}
                         {subtab === 'account' && (
+                        <>
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                 <Users className="w-5 h-5 mr-2 text-red-600" />
@@ -565,7 +603,7 @@
                             </div>
                             {showAddModal && (
                                 <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
-                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
                                         <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯人員</h4>
                                         <div className="space-y-3">
                                             <label className="block text-xs font-bold text-gray-500 uppercase">角色</label>
@@ -602,11 +640,11 @@
                         </div>
                         {confirmDelete && (
                             <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
-                                <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6">
-                                    <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':'人員'}「{confirmDelete.label}」？</div>
+                                <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
+                                    <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
                                     <div className="flex justify-end gap-2">
                                         <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                        <button onClick={async()=>{ try { if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } setConfirmDelete(null); setToast('刪除成功'); } catch(e) { console.error(e); setConfirmDelete(null);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">刪除</button>
+                                        <button onClick={async()=>{ try { if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } setConfirmDelete(null); setToast('刪除成功'); } catch(e) { console.error(e); setConfirmDelete(null);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">刪除</button>
                                     </div>
                                 </div>
                             </div>
@@ -614,31 +652,159 @@
                         {toast && (
                             <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-xl">{toast}</div>
                         )}
+                        </>
                         )}
 
                         {subtab === 'community' && (
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                 <Building2 className="w-5 h-5 mr-2 text-red-600" />
-                                社區管理
+                                社區列表
                             </h3>
-                            <form onSubmit={handleAddComm} className="flex gap-2 mb-6">
-                                <input 
-                                    className="flex-1 bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100"
-                                    placeholder="新增社區名稱..."
-                                    value={newCommName}
-                                    onChange={e => setNewCommName(e.target.value)}
-                                />
-                                <button className="bg-red-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
-                            </form>
-                            <div className="space-y-2">
-                                {communities.map(c => (
-                                    <div key={c.id} className="p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-100 flex justify-between items-center transition">
-                                        <span className="font-bold text-gray-700">{c.name}</span>
-                                        <span className="text-xs text-gray-400 font-mono">{c.id}</span>
-                                    </div>
-                                ))}
+                            <div className="mb-4">
+                                <button onClick={()=>{ setCommunityForm({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 }); setShowCommunityModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
+                            <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                                <div className="flex flex-row gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1600px] text-left">
+                                    <div className="w-[120px]">社區編號</div>
+                                    <div className="w-[160px]">社區名稱</div>
+                                    <div className="w-[140px]">所屬公司</div>
+                                    <div className="w-[120px]">所屬區域</div>
+                                    <div className="w-[80px]">總幹事數</div>
+                                    <div className="w-[80px]">秘書數</div>
+                                    <div className="w-[80px]">清潔數</div>
+                                    <div className="w-[80px]">機電數</div>
+                                    <div className="w-[80px]">保全數</div>
+                                    <div className="w-[80px]">白天哨數</div>
+                                    <div className="w-[80px]">晚上哨數</div>
+                                    <div className="w-[200px]">社區地址</div>
+                                    <div className="w-[160px]">社區座標</div>
+                                    <div className="w-[120px]">社區地圖</div>
+                                    <div className="w-[140px]">設定打卡範圍(公尺)</div>
+                                    <div className="w-[160px]">操作</div>
+                                </div>
+                                <div className="space-y-2">
+                                    {communities.map(c => {
+                                        const companyName = (function(){ const cm = companies.find(x=>x.id === c.companyId); return cm ? cm.name : '-'; })();
+                                        const areaName = (function(){ const ar = areas.find(x=>x.id === c.areaId); return ar ? ar.name : '-'; })();
+                                        const coord = (c.coordLat && c.coordLng) ? `${c.coordLat}, ${c.coordLng}` : '-';
+                                        return (
+                                            <div key={c.id} className="flex flex-row gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1600px]">
+                                                <div className="w-[120px] font-bold text-gray-700">{c.id}</div>
+                                                <div className="w-[160px] text-gray-700">{c.name || '-'}</div>
+                                                <div className="w-[140px] text-gray-700">{companyName}</div>
+                                                <div className="w-[120px] text-gray-700">{areaName}</div>
+                                                <div className="w-[80px] text-gray-700">{c.gmCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{c.secretaryCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{c.cleanCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{c.mechCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{c.guardCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{c.dayGuardCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{c.nightGuardCount || 0}</div>
+                                                <div className="w-[200px] text-gray-700">{c.address || '-'}</div>
+                                                <div className="w-[160px] text-gray-700">{coord}</div>
+                                                <div className="w-[120px]">
+                                                    <button onClick={()=>{ if (c.coordLat && c.coordLng) { setMapTarget({ name: c.name, lat: c.coordLat, lng: c.coordLng }); } }} className="px-2 py-1 rounded bg-gray-800 text-white">社區地圖</button>
+                                                </div>
+                                                <div className="w-[140px] text-gray-700">{c.radiusMeters || 0}</div>
+                                                <div className="w-[160px] flex gap-2 justify-start">
+                                                    <button onClick={()=>{ setCommunityForm({ id:c.id, name:c.name || '', companyId:c.companyId || '', areaId:c.areaId || '', gmCount:c.gmCount || 0, secretaryCount:c.secretaryCount || 0, cleanCount:c.cleanCount || 0, mechCount:c.mechCount || 0, guardCount:c.guardCount || 0, dayGuardCount:c.dayGuardCount || 0, nightGuardCount:c.nightGuardCount || 0, address:c.address || '', coordLat:c.coordLat || '', coordLng:c.coordLng || '', radiusMeters:c.radiusMeters || 100 }); setShowCommunityModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={()=>{ setConfirmDelete({ type:'community', id:c.id, label:c.name || c.id }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            {showCommunityModal && (
+                                <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯社區</h4>
+                                        <div className="space-y-3">
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">社區編號</label>
+                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={communityForm.id} onChange={e=>setCommunityForm(prev=>({...prev, id: e.target.value}))} />
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">社區名稱</label>
+                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={communityForm.name} onChange={e=>setCommunityForm(prev=>({...prev, name: e.target.value}))} />
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">所屬公司</label>
+                                            <select className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={communityForm.companyId} onChange={e=>setCommunityForm(prev=>({...prev, companyId: e.target.value}))}>
+                                                <option value="">選擇公司</option>
+                                                {companies.map(cm => <option key={cm.id} value={cm.id}>{cm.name}</option>)}
+                                            </select>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">所屬區域</label>
+                                            <select className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={communityForm.areaId} onChange={e=>setCommunityForm(prev=>({...prev, areaId: e.target.value}))}>
+                                                <option value="">選擇區域</option>
+                                                {areas.map(ar => <option key={ar.id} value={ar.id}>{ar.name}</option>)}
+                                            </select>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">總幹事數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.gmCount} onChange={e=>setCommunityForm(prev=>({...prev, gmCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">秘書數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.secretaryCount} onChange={e=>setCommunityForm(prev=>({...prev, secretaryCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">清潔數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.cleanCount} onChange={e=>setCommunityForm(prev=>({...prev, cleanCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">機電數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.mechCount} onChange={e=>setCommunityForm(prev=>({...prev, mechCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">保全數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.guardCount} onChange={e=>setCommunityForm(prev=>({...prev, guardCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">白天哨數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.dayGuardCount} onChange={e=>setCommunityForm(prev=>({...prev, dayGuardCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">晚上哨數</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.nightGuardCount} onChange={e=>setCommunityForm(prev=>({...prev, nightGuardCount: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                            </div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">社區地址</label>
+                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.address} onChange={e=>setCommunityForm(prev=>({...prev, address: e.target.value}))} onBlur={async(e)=>{ const addr = e.target.value.trim(); if (addr) { try { const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`); const d = await r.json(); if (d && d[0]) { setCommunityForm(prev=>({...prev, coordLat: d[0].lat, coordLng: d[0].lon})); } } catch{} } }} />
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">社區座標</label>
+                                                    <div className="flex gap-2">
+                                                        <input className="flex-1 bg-gray-50 border-0 p-3 rounded-xl text-sm" placeholder="緯度" value={communityForm.coordLat} onChange={e=>setCommunityForm(prev=>({...prev, coordLat: e.target.value}))} />
+                                                        <input className="flex-1 bg-gray-50 border-0 p-3 rounded-xl text-sm" placeholder="經度" value={communityForm.coordLng} onChange={e=>setCommunityForm(prev=>({...prev, coordLng: e.target.value}))} />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">設定打卡範圍(公尺)</label>
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.radiusMeters} onChange={e=>setCommunityForm(prev=>({...prev, radiusMeters: parseInt(e.target.value||'0',10)}))} />
+                                                </div>
+                                            </div>
+                                            {(communityForm.coordLat && communityForm.coordLng) && (
+                                                <div className="mt-3">
+                                                    <div ref={communityMapElRef} className="w-full h-48 rounded-xl border"></div>
+                                                </div>
+                                            )}
+                                            {communityError && <div className="text-xs text-red-600">{communityError}</div>}
+                                        </div>
+                                        <div className="flex justify-end gap-2 mt-4">
+                                            <button onClick={()=>setShowCommunityModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!id || !name) { setCommunityError('請輸入社區編號與社區名稱'); return; } const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, address: communityForm.address||'', coordLat: communityForm.coordLat||'', coordLng: communityForm.coordLng||'', radiusMeters: communityForm.radiusMeters||0 }; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setShowCommunityModal(false); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } catch(e) { console.error(e); setCommunityError('儲存失敗，請稍後重試'); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {mapTarget && (
+                                <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">{mapTarget.name || '社區地圖'}</h4>
+                                        <iframe title="map-view" className="w-full h-80 rounded-xl border" src={`https://www.google.com/maps?q=${mapTarget.lat},${mapTarget.lng}&z=16&output=embed`}></iframe>
+                                        <div className="flex justify-end gap-2 mt-4">
+                                            <button onClick={()=>setMapTarget(null)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">關閉</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         )}
                     </div>
