@@ -40,9 +40,8 @@
             scrollbar-width: none;
         }
     </style>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="./firebase-config.js"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&loading=async"></script>
 </head>
 <body class="bg-gray-100 text-gray-900 font-sans antialiased">
     <div id="root"></div>
@@ -121,8 +120,8 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = initializeFirestore(app, {
-            experimentalForceLongPolling: true,
-            useFetchStreams: false
+            experimentalAutoDetectLongPolling: true,
+            ignoreUndefinedProperties: true
         });
         
         // App ID logic for compatibility
@@ -282,6 +281,8 @@
             const [areaForm, setAreaForm] = useState({ id: '', name: '' });
             const [areaSaving, setAreaSaving] = useState(false);
             const [areaError, setAreaError] = useState('');
+            const [userSaving, setUserSaving] = useState(false);
+            const [userError, setUserError] = useState('');
             const [confirmDelete, setConfirmDelete] = useState(null);
             const [toast, setToast] = useState('');
             const [editingUserId, setEditingUserId] = useState(null);
@@ -290,36 +291,106 @@
             const [communitySaving, setCommunitySaving] = useState(false);
             const [communityError, setCommunityError] = useState('');
             const [mapTarget, setMapTarget] = useState(null);
+            const mapTargetElRef = useRef(null);
+            const mapTargetMapRef = useRef(null);
+            const mapTargetCircleRef = useRef(null);
 
             const communityMapElRef = useRef(null);
-            const communityLeafletRef = useRef(null);
-            const communityCircleRef = useRef(null);
+            const communityGMapRef = useRef(null);
+            const communityGCircleRef = useRef(null);
+            const communityGMarkerRef = useRef(null);
+            const communityGClickListenerRef = useRef(null);
 
             useEffect(()=>{
+                if (!showCommunityModal) return;
+                if (!window.google || !window.google.maps) return;
                 const lat = parseFloat(communityForm.coordLat);
                 const lng = parseFloat(communityForm.coordLng);
-                if (!showCommunityModal || !lat || !lng) return;
-                if (typeof L === 'undefined') return;
-                if (!communityLeafletRef.current && communityMapElRef.current) {
-                    communityLeafletRef.current = L.map(communityMapElRef.current).setView([lat, lng], 16);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '' }).addTo(communityLeafletRef.current);
-                } else if (communityLeafletRef.current) {
-                    communityLeafletRef.current.setView([lat, lng], 16);
+                const hasCoords = !isNaN(lat) && !isNaN(lng);
+                const defaultCenter = { lat: 25.0330, lng: 121.5654 };
+                const center = hasCoords ? { lat, lng } : defaultCenter;
+                if (!communityGMapRef.current && communityMapElRef.current) {
+                    communityGMapRef.current = new google.maps.Map(communityMapElRef.current, { center, zoom: 16 });
+                } else if (communityGMapRef.current) {
+                    communityGMapRef.current.setCenter(center);
+                    communityGMapRef.current.setZoom(16);
                 }
-                if (communityCircleRef.current) {
-                    communityCircleRef.current.remove();
-                    communityCircleRef.current = null;
+                if (hasCoords) {
+                    if (!communityGMarkerRef.current) {
+                        communityGMarkerRef.current = new google.maps.Marker({ position: center, map: communityGMapRef.current });
+                    } else {
+                        communityGMarkerRef.current.setPosition(center);
+                    }
                 }
-                communityCircleRef.current = L.circle([lat, lng], { radius: communityForm.radiusMeters || 0, color: '#dc2626' }).addTo(communityLeafletRef.current);
+                if (communityGCircleRef.current) {
+                    communityGCircleRef.current.setMap(null);
+                    communityGCircleRef.current = null;
+                }
+                if (hasCoords) {
+                    communityGCircleRef.current = new google.maps.Circle({ center, radius: communityForm.radiusMeters || 0, strokeColor: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.15, map: communityGMapRef.current });
+                }
+                if (communityGClickListenerRef.current) {
+                    google.maps.event.removeListener(communityGClickListenerRef.current);
+                    communityGClickListenerRef.current = null;
+                }
+                communityGClickListenerRef.current = google.maps.event.addListener(communityGMapRef.current, 'click', (e) => {
+                    const latLng = e.latLng;
+                    const newLat = latLng.lat();
+                    const newLng = latLng.lng();
+                    setCommunityForm(prev => ({ ...prev, coordLat: newLat, coordLng: newLng }));
+                    if (!communityGMarkerRef.current) {
+                        communityGMarkerRef.current = new google.maps.Marker({ position: latLng, map: communityGMapRef.current });
+                    } else {
+                        communityGMarkerRef.current.setPosition(latLng);
+                    }
+                });
             }, [showCommunityModal, communityForm.coordLat, communityForm.coordLng, communityForm.radiusMeters]);
 
             useEffect(()=>{
-                if (!showCommunityModal && communityLeafletRef.current) {
-                    communityLeafletRef.current.remove();
-                    communityLeafletRef.current = null;
-                    communityCircleRef.current = null;
+                if (!showCommunityModal && communityGMapRef.current) {
+                    if (communityGClickListenerRef.current) {
+                        google.maps.event.removeListener(communityGClickListenerRef.current);
+                        communityGClickListenerRef.current = null;
+                    }
+                    communityGMarkerRef.current = null;
+                    communityGCircleRef.current = null;
+                    communityGMapRef.current = null;
                 }
             }, [showCommunityModal]);
+
+            useEffect(() => {
+                if (!mapTarget) return;
+                const init = () => {
+                    if (!mapTargetElRef.current) return;
+                    const center = { lat: mapTarget.lat, lng: mapTarget.lng };
+                    if (!mapTargetMapRef.current) {
+                        mapTargetMapRef.current = new google.maps.Map(mapTargetElRef.current, { center, zoom: 16 });
+                    } else {
+                        mapTargetMapRef.current.setCenter(center);
+                        mapTargetMapRef.current.setZoom(16);
+                    }
+                    new google.maps.Marker({ position: center, map: mapTargetMapRef.current });
+                    if (mapTargetCircleRef.current) {
+                        mapTargetCircleRef.current.setMap(null);
+                        mapTargetCircleRef.current = null;
+                    }
+                    mapTargetCircleRef.current = new google.maps.Circle({ center, radius: mapTarget.radius || 0, strokeColor: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.15, map: mapTargetMapRef.current });
+                };
+                if (window.google && window.google.maps) {
+                    init();
+                } else {
+                    const script = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+                    if (script) {
+                        const handler = () => init();
+                        script.addEventListener('load', handler, { once: true });
+                        return () => { script.removeEventListener('load', handler); };
+                    }
+                }
+                return () => {
+                    mapTargetCircleRef.current = null;
+                    mapTargetMapRef.current = null;
+                };
+            }, [mapTarget]);
 
             useEffect(()=>{ if (!toast) return; const t = setTimeout(()=>setToast(''), 2000); return ()=>clearTimeout(t); }, [toast]);
 
@@ -357,6 +428,14 @@
                 }
             };
 
+            const formatDateTime = (v) => {
+                if (!v) return '-';
+                const d = v && typeof v.toDate === 'function' ? v.toDate() : new Date(v);
+                if (!d || isNaN(d.getTime())) return '-';
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            };
+
             return (
                 <div className="space-y-4 pb-20">
                     <div className="grid grid-cols-1 gap-4">
@@ -370,29 +449,32 @@
                                     <button onClick={() => { setRoleForm({ name: '', permissions: [] }); setShowRoleModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
+                                    <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1020px] text-left">
                                         <div>角色名稱</div>
                                         <div>權限</div>
                                         <div>操作</div>
+                                        <div>紀錄</div>
                                     </div>
                                     <div className="space-y-2">
                                         {roles.length === 0 ? (
-                                            <div className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
+                                            <div className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1020px]">
                                                 <div className="font-bold text-gray-300 min-w-[160px]">—</div>
                                                 <div className="text-gray-300 min-w-[420px]">—</div>
                                                 <div className="flex gap-2 justify-start min-w-[180px]">
                                                     <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">編輯</button>
                                                     <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">刪除</button>
                                                 </div>
+                                                <div className="min-w-[240px] text-gray-300">—</div>
                                             </div>
                                         ) : roles.map(r => (
-                                            <div key={r.id} className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
+                                            <div key={r.id} className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1020px]">
                                                 <div className="font-bold text-gray-700 min-w-[160px]">{r.name}</div>
                                                 <div className="text-gray-700 min-w-[420px]">{(r.permissions || []).map(p => pages.find(x=>x.key===p)?.label || p).join('、') || '-'}</div>
                                                 <div className="flex gap-2 justify-start min-w-[180px]">
                                                 <button onClick={()=>{ setRoleForm({ name: r.name, permissions: r.permissions || [] }); setShowRoleModal(true); setRoleForm(prev=>({ ...prev, id: r.id })); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'role', id:r.id, label:r.name }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
+                                                <div className="min-w-[240px] text-gray-700">{r.updatedByName ? `${r.updatedByName} ${formatDateTime(r.updatedAt)}` : '-'}</div>
                                             </div>
                                         ))}
                                     </div>
@@ -421,7 +503,7 @@
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowRoleModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSaving(true); if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions }); setToast('儲存成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions }); setToast('新增成功'); } setShowRoleModal(false); } catch (e) { console.error(e); setRoleError('儲存失敗，請稍後重試'); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSaving(true); if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowRoleModal(false); } catch (e) { console.error(e); setRoleError('儲存失敗，請稍後重試'); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -436,16 +518,17 @@
                                     <button onClick={() => { setCompanyForm({ id: '', name: '' }); setShowCompanyModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-5 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
+                                    <div className="grid grid-cols-6 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1000px] text-left">
                                         <div>公司編號</div>
                                         <div>公司名稱</div>
                                         <div>幹部數</div>
                                         <div>員工數</div>
                                         <div>操作</div>
+                                        <div>紀錄</div>
                                     </div>
                                     <div className="space-y-2">
                                         {companies.length === 0 ? (
-                                            <div className="grid grid-cols-5 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
+                                            <div className="grid grid-cols-6 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1000px]">
                                                 <div className="font-bold text-gray-300">—</div>
                                                 <div className="text-gray-300">—</div>
                                                 <div className="text-gray-300">0</div>
@@ -454,13 +537,14 @@
                                                     <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">編輯</button>
                                                     <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">刪除</button>
                                                 </div>
+                                                <div className="text-gray-300">—</div>
                                             </div>
                                         ) : companies.map(c => {
                                             const execCount = users.filter(u => u.companyId === c.id && u.role === 'hr').length;
                                             const staffRoles = ['總幹事','秘書','清潔','機電','保全'];
                                             const staffCount = users.filter(u => u.companyId === c.id && staffRoles.includes(u.role)).length;
                                             return (
-                                            <div key={c.id} className="grid grid-cols-5 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
+                                            <div key={c.id} className="grid grid-cols-6 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1000px]">
                                                 <div className="font-bold text-gray-700">{c.id}</div>
                                                 <div className="text-gray-700">{c.name}</div>
                                                 <div className="text-gray-700">{execCount}</div>
@@ -469,6 +553,7 @@
                                                 <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name }); setShowCompanyModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'company', id:c.id, label:c.name }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
+                                                <div className="text-gray-700">{c.updatedByName ? `${c.updatedByName} ${formatDateTime(c.updatedAt)}` : '-'}</div>
                                             </div>
                                             );
                                         })}
@@ -487,7 +572,7 @@
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowCompanyModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError('儲存失敗，請稍後重試'); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError('儲存失敗，請稍後重試'); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -502,29 +587,32 @@
                                     <button onClick={() => { setAreaForm({ id: '', name: '' }); setShowAreaModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] text-left">
+                                    <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
                                         <div>區域編號</div>
                                         <div>區域名稱</div>
                                         <div>操作</div>
+                                        <div>紀錄</div>
                                     </div>
                                     <div className="space-y-2">
                                         {areas.length === 0 ? (
-                                            <div className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[600px]">
+                                            <div className="grid grid-cols-4 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
                                                 <div className="font-bold text-gray-300">—</div>
                                                 <div className="text-gray-300">—</div>
                                                 <div className="flex gap-2 justify-start">
                                                     <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">編輯</button>
                                                     <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">刪除</button>
                                                 </div>
+                                                <div className="text-gray-300">—</div>
                                             </div>
                                         ) : areas.map(a => (
-                                            <div key={a.id} className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[600px]">
+                                            <div key={a.id} className="grid grid-cols-4 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
                                                 <div className="font-bold text-gray-700">{a.id}</div>
                                                 <div className="text-gray-700">{a.name}</div>
                                                 <div className="flex gap-2 justify-start">
                                                 <button onClick={()=>{ setAreaForm({ id: a.id, name: a.name }); setShowAreaModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'area', id:a.id, label:a.name }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
+                                                <div className="text-gray-700">{a.updatedByName ? `${a.updatedByName} ${formatDateTime(a.updatedAt)}` : '-'}</div>
                                             </div>
                                         ))}
                                     </div>
@@ -542,7 +630,7 @@
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowAreaModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSaving(true); if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); setToast('新增成功'); } setShowAreaModal(false); } catch (e) { console.error(e); setAreaError('儲存失敗，請稍後重試'); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSaving(true); if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowAreaModal(false); } catch (e) { console.error(e); setAreaError('儲存失敗，請稍後重試'); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -561,7 +649,7 @@
                                 <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
                             <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="grid grid-cols-9 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1100px] text-left">
+                                <div className="grid grid-cols-10 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1300px] text-left">
                                     <div>角色</div>
                                     <div>大頭照</div>
                                     <div>職稱</div>
@@ -571,10 +659,11 @@
                                     <div>服務社區</div>
                                     <div>狀況</div>
                                     <div>操作</div>
+                                    <div>紀錄</div>
                                 </div>
                                 <div className="space-y-2">
                                     {users.map(u => (
-                                        <div key={u.id} className="grid grid-cols-9 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1100px]">
+                                        <div key={u.id} className="grid grid-cols-10 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1300px]">
                                             <div className="font-bold text-gray-700">
                                                 {({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[u.role] || u.role)}
                                             </div>
@@ -597,6 +686,7 @@
                                                 <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityId: u.communityId || '', avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                             </div>
+                                            <div className="text-gray-700">{u.updatedByName ? `${u.updatedByName} ${formatDateTime(u.updatedAt)}` : '-'}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -630,10 +720,11 @@
                                                 {communities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                             </select>
                                         </div>
-                                        <div className="flex justify-end gap-2 mt-4">
-                                            <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                            <button onClick={async()=>{ if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...modalUser, status: modalUser.status || '在職' }); setToast('儲存成功'); } else { onAddUser({ ...modalUser, status: '在職' }); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
-                                        </div>
+                                            {userError && <div className="text-xs text-red-600">{userError}</div>}
+                                            <div className="flex justify-end gap-2 mt-4">
+                                                <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...modalUser, status: modalUser.status || '在職', updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await handleAddUser({ ...modalUser, status: '在職' }); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); } catch(e) { console.error(e); setUserError('儲存失敗，請稍後重試'); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            </div>
                                     </div>
                                 </div>
                             )}
@@ -665,7 +756,7 @@
                                 <button onClick={()=>{ setCommunityForm({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 }); setShowCommunityModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
                             <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="flex flex-row gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1600px] text-left">
+                                <div className="flex flex-row gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1820px] text-left">
                                     <div className="w-[120px]">社區編號</div>
                                     <div className="w-[160px]">社區名稱</div>
                                     <div className="w-[140px]">所屬公司</div>
@@ -682,6 +773,7 @@
                                     <div className="w-[120px]">社區地圖</div>
                                     <div className="w-[140px]">設定打卡範圍(公尺)</div>
                                     <div className="w-[160px]">操作</div>
+                                    <div className="w-[220px]">紀錄</div>
                                 </div>
                                 <div className="space-y-2">
                                     {communities.map(c => {
@@ -689,7 +781,7 @@
                                         const areaName = (function(){ const ar = areas.find(x=>x.id === c.areaId); return ar ? ar.name : '-'; })();
                                         const coord = (c.coordLat && c.coordLng) ? `${c.coordLat}, ${c.coordLng}` : '-';
                                         return (
-                                            <div key={c.id} className="flex flex-row gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1600px]">
+                                            <div key={c.id} className="flex flex-row gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1820px]">
                                                 <div className="w-[120px] font-bold text-gray-700">{c.id}</div>
                                                 <div className="w-[160px] text-gray-700">{c.name || '-'}</div>
                                                 <div className="w-[140px] text-gray-700">{companyName}</div>
@@ -704,13 +796,14 @@
                                                 <div className="w-[200px] text-gray-700">{c.address || '-'}</div>
                                                 <div className="w-[160px] text-gray-700">{coord}</div>
                                                 <div className="w-[120px]">
-                                                    <button onClick={()=>{ if (c.coordLat && c.coordLng) { setMapTarget({ name: c.name, lat: c.coordLat, lng: c.coordLng }); } }} className="px-2 py-1 rounded bg-gray-800 text-white">社區地圖</button>
+                                                    <button onClick={()=>{ if (c.coordLat && c.coordLng) { setMapTarget({ name: c.name, lat: parseFloat(c.coordLat), lng: parseFloat(c.coordLng), radius: c.radiusMeters || 0 }); } }} className="px-2 py-1 rounded bg-gray-800 text-white">社區地圖</button>
                                                 </div>
                                                 <div className="w-[140px] text-gray-700">{c.radiusMeters || 0}</div>
                                                 <div className="w-[160px] flex gap-2 justify-start">
                                                     <button onClick={()=>{ setCommunityForm({ id:c.id, name:c.name || '', companyId:c.companyId || '', areaId:c.areaId || '', gmCount:c.gmCount || 0, secretaryCount:c.secretaryCount || 0, cleanCount:c.cleanCount || 0, mechCount:c.mechCount || 0, guardCount:c.guardCount || 0, dayGuardCount:c.dayGuardCount || 0, nightGuardCount:c.nightGuardCount || 0, address:c.address || '', coordLat:c.coordLat || '', coordLng:c.coordLng || '', radiusMeters:c.radiusMeters || 100 }); setShowCommunityModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
                                                     <button onClick={()=>{ setConfirmDelete({ type:'community', id:c.id, label:c.name || c.id }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
+                                                <div className="w-[220px] text-gray-700">{c.updatedByName ? `${c.updatedByName} ${formatDateTime(c.updatedAt)}` : '-'}</div>
                                             </div>
                                         );
                                     })}
@@ -766,30 +859,25 @@
                                                 </div>
                                             </div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">社區地址</label>
-                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.address} onChange={e=>setCommunityForm(prev=>({...prev, address: e.target.value}))} onBlur={async(e)=>{ const addr = e.target.value.trim(); if (addr) { try { const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`); const d = await r.json(); if (d && d[0]) { setCommunityForm(prev=>({...prev, coordLat: d[0].lat, coordLng: d[0].lon})); } } catch{} } }} />
+                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.address} onChange={e=>setCommunityForm(prev=>({...prev, address: e.target.value}))} onBlur={async(e)=>{ const addr = e.target.value.trim(); if (!addr) return; try { if (window.google && window.google.maps) { const gc = new google.maps.Geocoder(); gc.geocode({ address: addr }, (res, status)=>{ if (status === 'OK' && res && res[0]) { const loc = res[0].geometry.location; setCommunityForm(prev=>({...prev, coordLat: loc.lat(), coordLng: loc.lng()})); } }); } else { const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`); const d = await r.json(); if (d && d[0]) { setCommunityForm(prev=>({...prev, coordLat: d[0].lat, coordLng: d[0].lon})); } } } catch {} }} />
                                             <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase">社區座標</label>
-                                                    <div className="flex gap-2">
-                                                        <input className="flex-1 bg-gray-50 border-0 p-3 rounded-xl text-sm" placeholder="緯度" value={communityForm.coordLat} onChange={e=>setCommunityForm(prev=>({...prev, coordLat: e.target.value}))} />
-                                                        <input className="flex-1 bg-gray-50 border-0 p-3 rounded-xl text-sm" placeholder="經度" value={communityForm.coordLng} onChange={e=>setCommunityForm(prev=>({...prev, coordLng: e.target.value}))} />
-                                                    </div>
+                                                <div className="col-span-2">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">社區座標（緯度, 經度）</label>
+                                                    <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" placeholder="例如：25.0330, 121.5654" value={(communityForm.coordLat!=='' && communityForm.coordLng!=='') ? `${communityForm.coordLat}, ${communityForm.coordLng}` : ''} onChange={e=>{ const v = e.target.value; const parts = v.split(','); if (parts.length >= 2) { const lat = parts[0].trim(); const lng = parts[1].trim(); setCommunityForm(prev=>({...prev, coordLat: lat, coordLng: lng})); } else { setCommunityForm(prev=>({...prev, coordLat: v.trim(), coordLng: prev.coordLng})); } }} />
                                                 </div>
-                                                <div>
+                                                <div className="col-span-2">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase">設定打卡範圍(公尺)</label>
                                                     <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm" value={communityForm.radiusMeters} onChange={e=>setCommunityForm(prev=>({...prev, radiusMeters: parseInt(e.target.value||'0',10)}))} />
                                                 </div>
                                             </div>
-                                            {(communityForm.coordLat && communityForm.coordLng) && (
-                                                <div className="mt-3">
-                                                    <div ref={communityMapElRef} className="w-full h-48 rounded-xl border"></div>
-                                                </div>
-                                            )}
+                                            <div className="mt-3">
+                                                <div ref={communityMapElRef} className="w-full h-48 rounded-xl border"></div>
+                                            </div>
                                             {communityError && <div className="text-xs text-red-600">{communityError}</div>}
                                         </div>
                                         <div className="flex justify-end gap-2 mt-4">
                                             <button onClick={()=>setShowCommunityModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!id || !name) { setCommunityError('請輸入社區編號與社區名稱'); return; } const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, address: communityForm.address||'', coordLat: communityForm.coordLat||'', coordLng: communityForm.coordLng||'', radiusMeters: communityForm.radiusMeters||0 }; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setShowCommunityModal(false); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } catch(e) { console.error(e); setCommunityError('儲存失敗，請稍後重試'); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!id || !name) { setCommunityError('請輸入社區編號與社區名稱'); return; } const latNum = communityForm.coordLat !== '' && communityForm.coordLat != null ? parseFloat(communityForm.coordLat) : undefined; const lngNum = communityForm.coordLng !== '' && communityForm.coordLng != null ? parseFloat(communityForm.coordLng) : undefined; const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, address: communityForm.address||'', coordLat: latNum, coordLng: lngNum, radiusMeters: communityForm.radiusMeters||0, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setShowCommunityModal(false); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } catch(e) { console.error(e); setCommunityError('儲存失敗，請稍後重試'); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                         </div>
                                     </div>
                                 </div>
@@ -798,7 +886,7 @@
                                 <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
                                     <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
                                         <h4 className="text-lg font-bold text-gray-800 mb-4">{mapTarget.name || '社區地圖'}</h4>
-                                        <iframe title="map-view" className="w-full h-80 rounded-xl border" src={`https://www.google.com/maps?q=${mapTarget.lat},${mapTarget.lng}&z=16&output=embed`}></iframe>
+                                        <div ref={mapTargetElRef} className="w-full h-80 rounded-xl border"></div>
                                         <div className="flex justify-end gap-2 mt-4">
                                             <button onClick={()=>setMapTarget(null)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">關閉</button>
                                         </div>
@@ -1423,12 +1511,12 @@
 
             const handleAddUser = async (userData) => {
                 if (!user) return;
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123' });
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123', updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() });
             };
 
             const handleAddCommunity = async (name) => {
                 if (!user) return;
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name });
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() });
             };
 
             if (loading) return <Loading />;
@@ -1446,7 +1534,7 @@
                                 <div className="bg-red-600 p-1.5 rounded-lg">
                                     <Clock className="w-4 h-4 text-white" />
                                 </div>
-                                <span className="font-bold text-gray-800 tracking-tight">西北社區打卡系統</span>
+                                <span className="font-bold text-gray-800 tracking-tight">西北打卡系統</span>
                             </div>
                             
                             <div className="flex items-center gap-3">
