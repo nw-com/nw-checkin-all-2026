@@ -272,17 +272,19 @@
             const [roleForm, setRoleForm] = useState({ name: '', permissions: [] });
             const [roleSaving, setRoleSaving] = useState(false);
             const [roleError, setRoleError] = useState('');
-            const [roleSuccess, setRoleSuccess] = useState('');
             const [showCompanyModal, setShowCompanyModal] = useState(false);
             const [companyForm, setCompanyForm] = useState({ id: '', name: '' });
             const [companySaving, setCompanySaving] = useState(false);
             const [companyError, setCompanyError] = useState('');
-            const [companySuccess, setCompanySuccess] = useState('');
             const [showAreaModal, setShowAreaModal] = useState(false);
             const [areaForm, setAreaForm] = useState({ id: '', name: '' });
             const [areaSaving, setAreaSaving] = useState(false);
             const [areaError, setAreaError] = useState('');
-            const [areaSuccess, setAreaSuccess] = useState('');
+            const [confirmDelete, setConfirmDelete] = useState(null);
+            const [toast, setToast] = useState('');
+            const [editingUserId, setEditingUserId] = useState(null);
+
+            useEffect(()=>{ if (!toast) return; const t = setTimeout(()=>setToast(''), 2000); return ()=>clearTimeout(t); }, [toast]);
 
             const handleAvatarUpload = (file) => {
                 if (!file) return;
@@ -331,19 +333,28 @@
                                     <button onClick={() => { setRoleForm({ name: '', permissions: [] }); setShowRoleModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] overflow-x-auto">
+                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
                                         <div>角色名稱</div>
                                         <div>權限</div>
                                         <div>操作</div>
                                     </div>
                                     <div className="space-y-2">
-                                        {roles.map(r => (
-                                            <div key={r.id} className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px] overflow-x-auto">
+                                        {roles.length === 0 ? (
+                                            <div className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
+                                                <div className="font-bold text-gray-300 min-w-[160px]">—</div>
+                                                <div className="text-gray-300 min-w-[420px]">—</div>
+                                                <div className="flex gap-2 justify-start min-w-[180px]">
+                                                    <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">編輯</button>
+                                                    <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">刪除</button>
+                                                </div>
+                                            </div>
+                                        ) : roles.map(r => (
+                                            <div key={r.id} className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
                                                 <div className="font-bold text-gray-700 min-w-[160px]">{r.name}</div>
                                                 <div className="text-gray-700 min-w-[420px]">{(r.permissions || []).map(p => pages.find(x=>x.key===p)?.label || p).join('、') || '-'}</div>
-                                                <div className="flex gap-2 min-w-[180px]">
-                                                    <button onClick={()=>{ setRoleForm({ name: r.name, permissions: r.permissions || [] }); setShowRoleModal(true); setRoleForm(prev=>({ ...prev, id: r.id })); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
-                                                    <button onClick={async()=>{ await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', r.id)); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                <div className="flex gap-2 justify-start min-w-[180px]">
+                                                <button onClick={()=>{ setRoleForm({ name: r.name, permissions: r.permissions || [] }); setShowRoleModal(true); setRoleForm(prev=>({ ...prev, id: r.id })); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setConfirmDelete({ type:'role', id:r.id, label:r.name }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
                                             </div>
                                         ))}
@@ -370,11 +381,10 @@
                                                     ))}
                                                 </div>
                                                 {roleError && <div className="text-xs text-red-600">{roleError}</div>}
-                                                {roleSuccess && <div className="text-xs text-green-600">{roleSuccess}</div>}
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowRoleModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSuccess(''); setRoleSaving(true); if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions }); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions }); } setRoleSuccess('已儲存'); setShowRoleModal(false); } catch (e) { console.error(e); setRoleError('儲存失敗，請稍後重試'); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSaving(true); if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions }); setToast('儲存成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions }); setToast('新增成功'); } setShowRoleModal(false); } catch (e) { console.error(e); setRoleError('儲存失敗，請稍後重試'); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -389,7 +399,7 @@
                                     <button onClick={() => { setCompanyForm({ id: '', name: '' }); setShowCompanyModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-5 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] overflow-x-auto">
+                                    <div className="grid grid-cols-5 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
                                         <div>公司編號</div>
                                         <div>公司名稱</div>
                                         <div>幹部數</div>
@@ -397,19 +407,30 @@
                                         <div>操作</div>
                                     </div>
                                     <div className="space-y-2">
-                                        {companies.map(c => {
+                                        {companies.length === 0 ? (
+                                            <div className="grid grid-cols-5 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
+                                                <div className="font-bold text-gray-300">—</div>
+                                                <div className="text-gray-300">—</div>
+                                                <div className="text-gray-300">0</div>
+                                                <div className="text-gray-300">0</div>
+                                                <div className="flex gap-2 justify-start">
+                                                    <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">編輯</button>
+                                                    <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">刪除</button>
+                                                </div>
+                                            </div>
+                                        ) : companies.map(c => {
                                             const execCount = users.filter(u => u.companyId === c.id && u.role === 'hr').length;
                                             const staffRoles = ['總幹事','秘書','清潔','機電','保全'];
                                             const staffCount = users.filter(u => u.companyId === c.id && staffRoles.includes(u.role)).length;
                                             return (
-                                            <div key={c.id} className="grid grid-cols-5 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px] overflow-x-auto">
+                                            <div key={c.id} className="grid grid-cols-5 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px]">
                                                 <div className="font-bold text-gray-700">{c.id}</div>
                                                 <div className="text-gray-700">{c.name}</div>
                                                 <div className="text-gray-700">{execCount}</div>
                                                 <div className="text-gray-700">{staffCount}</div>
-                                                <div className="flex gap-2">
-                                                    <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name }); setShowCompanyModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
-                                                    <button onClick={async()=>{ await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', c.id)); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                <div className="flex gap-2 justify-start">
+                                                <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name }); setShowCompanyModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setConfirmDelete({ type:'company', id:c.id, label:c.name }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
                                             </div>
                                             );
@@ -426,11 +447,10 @@
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">公司名稱</label>
                                                 <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={companyForm.name} onChange={e=>setCompanyForm(prev=>({...prev, name: e.target.value}))} />
                                                 {companyError && <div className="text-xs text-red-600">{companyError}</div>}
-                                                {companySuccess && <div className="text-xs text-green-600">{companySuccess}</div>}
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowCompanyModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySuccess(''); setCompanySaving(true); if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); } setCompanySuccess('已儲存'); setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError('儲存失敗，請稍後重試'); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError('儲存失敗，請稍後重試'); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -445,19 +465,28 @@
                                     <button onClick={() => { setAreaForm({ id: '', name: '' }); setShowAreaModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] overflow-x-auto">
+                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] text-left">
                                         <div>區域編號</div>
                                         <div>區域名稱</div>
                                         <div>操作</div>
                                     </div>
                                     <div className="space-y-2">
-                                        {areas.map(a => (
-                                            <div key={a.id} className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[600px] overflow-x-auto">
+                                        {areas.length === 0 ? (
+                                            <div className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[600px]">
+                                                <div className="font-bold text-gray-300">—</div>
+                                                <div className="text-gray-300">—</div>
+                                                <div className="flex gap-2 justify-start">
+                                                    <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">編輯</button>
+                                                    <button disabled className="px-2 py-1 rounded bg-gray-200 text-gray-400">刪除</button>
+                                                </div>
+                                            </div>
+                                        ) : areas.map(a => (
+                                            <div key={a.id} className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[600px]">
                                                 <div className="font-bold text-gray-700">{a.id}</div>
                                                 <div className="text-gray-700">{a.name}</div>
-                                                <div className="flex gap-2">
-                                                    <button onClick={()=>{ setAreaForm({ id: a.id, name: a.name }); setShowAreaModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
-                                                    <button onClick={async()=>{ await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', a.id)); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                <div className="flex gap-2 justify-start">
+                                                <button onClick={()=>{ setAreaForm({ id: a.id, name: a.name }); setShowAreaModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setConfirmDelete({ type:'area', id:a.id, label:a.name }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                                 </div>
                                             </div>
                                         ))}
@@ -473,11 +502,10 @@
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">區域名稱</label>
                                                 <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={areaForm.name} onChange={e=>setAreaForm(prev=>({...prev, name: e.target.value}))} />
                                                 {areaError && <div className="text-xs text-red-600">{areaError}</div>}
-                                                {areaSuccess && <div className="text-xs text-green-600">{areaSuccess}</div>}
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowAreaModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSuccess(''); setAreaSaving(true); if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); } setAreaSuccess('已儲存'); setShowAreaModal(false); } catch (e) { console.error(e); setAreaError('儲存失敗，請稍後重試'); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSaving(true); if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); setToast('新增成功'); } setShowAreaModal(false); } catch (e) { console.error(e); setAreaError('儲存失敗，請稍後重試'); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -492,10 +520,10 @@
                                 人員管理
                             </h3>
                             <div className="mb-4">
-                                <button onClick={() => setShowAddModal(true)} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
+                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
                             <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="grid grid-cols-9 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1100px] overflow-x-auto">
+                                <div className="grid grid-cols-9 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1100px] text-left">
                                     <div>角色</div>
                                     <div>大頭照</div>
                                     <div>職稱</div>
@@ -508,7 +536,7 @@
                                 </div>
                                 <div className="space-y-2">
                                     {users.map(u => (
-                                        <div key={u.id} className="grid grid-cols-9 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1100px] overflow-x-auto">
+                                        <div key={u.id} className="grid grid-cols-9 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1100px]">
                                             <div className="font-bold text-gray-700">
                                                 {({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[u.role] || u.role)}
                                             </div>
@@ -527,9 +555,9 @@
                                                 {(function(){ const c = communities.find(c => c.id === u.communityId); return c ? c.name : '-'; })()}
                                             </div>
                                             <div className="text-gray-700">{u.status || '在職'}</div>
-                                            <div className="flex gap-2">
-                                                <button className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
-                                                <button className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                            <div className="flex gap-2 justify-start">
+                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityId: u.communityId || '', avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                             </div>
                                         </div>
                                     ))}
@@ -538,7 +566,7 @@
                             {showAddModal && (
                                 <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
                                     <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
-                                        <h4 className="text-lg font-bold text-gray-800 mb-4">新增人員</h4>
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯人員</h4>
                                         <div className="space-y-3">
                                             <label className="block text-xs font-bold text-gray-500 uppercase">角色</label>
                                             <select className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.role} onChange={e=>setModalUser(prev=>({...prev, role: e.target.value}))}>
@@ -565,13 +593,27 @@
                                             </select>
                                         </div>
                                         <div className="flex justify-end gap-2 mt-4">
-                                            <button onClick={()=>setShowAddModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                            <button onClick={()=>{ onAddUser({ ...modalUser, status: '在職' }); setShowAddModal(false); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                            <button onClick={async()=>{ if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...modalUser, status: modalUser.status || '在職' }); setToast('儲存成功'); } else { onAddUser({ ...modalUser, status: '在職' }); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                         </div>
                                     </div>
                                 </div>
                             )}
                         </div>
+                        {confirmDelete && (
+                            <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
+                                <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6">
+                                    <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':'人員'}「{confirmDelete.label}」？</div>
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                        <button onClick={async()=>{ try { if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } setConfirmDelete(null); setToast('刪除成功'); } catch(e) { console.error(e); setConfirmDelete(null);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">刪除</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {toast && (
+                            <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-xl">{toast}</div>
+                        )}
                         )}
 
                         {subtab === 'community' && (
@@ -1234,14 +1276,14 @@
                     {/* Mobile Navbar */}
                     <header className="bg-white fixed top-0 left-0 right-0 z-50 border-b border-gray-100 h-[8vh]">
                         <div className="max-w-md mx-auto px-4 h-full flex justify-between items-center">
-                            <div className="flex items中心 gap-2">
+                            <div className="flex items-center gap-2">
                                 <div className="bg-red-600 p-1.5 rounded-lg">
                                     <Clock className="w-4 h-4 text-white" />
                                 </div>
                                 <span className="font-bold text-gray-800 tracking-tight">西北社區打卡系統</span>
                             </div>
                             
-                            <div className="flex items中心 gap-3">
+                            <div className="flex items-center gap-3">
                                 <div className="text-right hidden sm:block">
                                     <div className="text-xs font-bold text-gray-800">{dbUser?.name}</div>
                                 </div>
