@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>安居管家 - 勤務打卡系統</title>
+    <title>西北打卡系統</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23dc2626'/%3E%3Cpath d='M12 20a8 8 0 1 0-8-8 8 8 0 0 0 8 8Z' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='M12 8v4l3 1' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -66,7 +67,11 @@
             onSnapshot, 
             orderBy, 
             serverTimestamp,
-            getDocs
+            getDocs,
+            updateDoc,
+            setDoc,
+            deleteDoc,
+            doc
         } from 'firebase/firestore';
         import { 
             Clock, 
@@ -258,11 +263,26 @@
         };
 
         // 3. Admin Dashboard (System Config)
-        const AdminDashboard = ({ currentUser, users, communities, onAddUser, onAddCommunity, subtab }) => {
+        const AdminDashboard = ({ currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab }) => {
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
             const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '' });
+            const [showRoleModal, setShowRoleModal] = useState(false);
+            const [roleForm, setRoleForm] = useState({ name: '', permissions: [] });
+            const [roleSaving, setRoleSaving] = useState(false);
+            const [roleError, setRoleError] = useState('');
+            const [roleSuccess, setRoleSuccess] = useState('');
+            const [showCompanyModal, setShowCompanyModal] = useState(false);
+            const [companyForm, setCompanyForm] = useState({ id: '', name: '' });
+            const [companySaving, setCompanySaving] = useState(false);
+            const [companyError, setCompanyError] = useState('');
+            const [companySuccess, setCompanySuccess] = useState('');
+            const [showAreaModal, setShowAreaModal] = useState(false);
+            const [areaForm, setAreaForm] = useState({ id: '', name: '' });
+            const [areaSaving, setAreaSaving] = useState(false);
+            const [areaError, setAreaError] = useState('');
+            const [areaSuccess, setAreaSuccess] = useState('');
 
             const handleAvatarUpload = (file) => {
                 if (!file) return;
@@ -301,6 +321,170 @@
             return (
                 <div className="space-y-4 pb-20">
                     <div className="grid grid-cols-1 gap-4">
+                        {subtab === 'general' && (
+                        <div className="space-y-6">
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                    <Shield className="w-5 h-5 mr-2 text-red-600" /> 角色列表
+                                </h3>
+                                <div className="mb-4">
+                                    <button onClick={() => { setRoleForm({ name: '', permissions: [] }); setShowRoleModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
+                                </div>
+                                <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] overflow-x-auto">
+                                        <div>角色名稱</div>
+                                        <div>權限</div>
+                                        <div>操作</div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {roles.map(r => (
+                                            <div key={r.id} className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px] overflow-x-auto">
+                                                <div className="font-bold text-gray-700 min-w-[160px]">{r.name}</div>
+                                                <div className="text-gray-700 min-w-[420px]">{(r.permissions || []).map(p => pages.find(x=>x.key===p)?.label || p).join('、') || '-'}</div>
+                                                <div className="flex gap-2 min-w-[180px]">
+                                                    <button onClick={()=>{ setRoleForm({ name: r.name, permissions: r.permissions || [] }); setShowRoleModal(true); setRoleForm(prev=>({ ...prev, id: r.id })); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={async()=>{ await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', r.id)); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {showRoleModal && (
+                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                            <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯角色</h4>
+                                            <div className="space-y-3">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">角色名稱</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={roleForm.name} onChange={e=>setRoleForm(prev=>({...prev, name: e.target.value}))} placeholder="例如：系統管理員" />
+                                                <div className="text-[11px] text-gray-500">常用：系統管理員、管理層、人事、幹部、總幹事、秘書、清潔、機電、保全</div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">權限</label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {pages.map(p => (
+                                                        <label key={p.key} className="flex items-center gap-2 text-sm bg-gray-50 px-3 py-2 rounded-xl">
+                                                            <input type="checkbox" checked={roleForm.permissions.includes(p.key)} onChange={(e)=>{
+                                                                const checked = e.target.checked;
+                                                                setRoleForm(prev=>({ ...prev, permissions: checked ? [...prev.permissions, p.key] : prev.permissions.filter(x=>x!==p.key) }));
+                                                            }} />
+                                                            <span>{p.label}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                                {roleError && <div className="text-xs text-red-600">{roleError}</div>}
+                                                {roleSuccess && <div className="text-xs text-green-600">{roleSuccess}</div>}
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-4">
+                                                <button onClick={()=>setShowRoleModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSuccess(''); setRoleSaving(true); if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions }); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions }); } setRoleSuccess('已儲存'); setShowRoleModal(false); } catch (e) { console.error(e); setRoleError('儲存失敗，請稍後重試'); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                    <Building2 className="w-5 h-5 mr-2 text-red-600" /> 公司列表
+                                </h3>
+                                <div className="mb-4">
+                                    <button onClick={() => { setCompanyForm({ id: '', name: '' }); setShowCompanyModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
+                                </div>
+                                <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                                    <div className="grid grid-cols-5 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] overflow-x-auto">
+                                        <div>公司編號</div>
+                                        <div>公司名稱</div>
+                                        <div>幹部數</div>
+                                        <div>員工數</div>
+                                        <div>操作</div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {companies.map(c => {
+                                            const execCount = users.filter(u => u.companyId === c.id && u.role === 'hr').length;
+                                            const staffRoles = ['總幹事','秘書','清潔','機電','保全'];
+                                            const staffCount = users.filter(u => u.companyId === c.id && staffRoles.includes(u.role)).length;
+                                            return (
+                                            <div key={c.id} className="grid grid-cols-5 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[800px] overflow-x-auto">
+                                                <div className="font-bold text-gray-700">{c.id}</div>
+                                                <div className="text-gray-700">{c.name}</div>
+                                                <div className="text-gray-700">{execCount}</div>
+                                                <div className="text-gray-700">{staffCount}</div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name }); setShowCompanyModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={async()=>{ await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', c.id)); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                </div>
+                                            </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                {showCompanyModal && (
+                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                            <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯公司</h4>
+                                            <div className="space-y-3">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">公司編號</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={companyForm.id} onChange={e=>setCompanyForm(prev=>({...prev, id: e.target.value}))} />
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">公司名稱</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={companyForm.name} onChange={e=>setCompanyForm(prev=>({...prev, name: e.target.value}))} />
+                                                {companyError && <div className="text-xs text-red-600">{companyError}</div>}
+                                                {companySuccess && <div className="text-xs text-green-600">{companySuccess}</div>}
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-4">
+                                                <button onClick={()=>setShowCompanyModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySuccess(''); setCompanySaving(true); if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim() }); } setCompanySuccess('已儲存'); setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError('儲存失敗，請稍後重試'); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                    <LayoutDashboard className="w-5 h-5 mr-2 text-red-600" /> 區域列表
+                                </h3>
+                                <div className="mb-4">
+                                    <button onClick={() => { setAreaForm({ id: '', name: '' }); setShowAreaModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
+                                </div>
+                                <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] overflow-x-auto">
+                                        <div>區域編號</div>
+                                        <div>區域名稱</div>
+                                        <div>操作</div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {areas.map(a => (
+                                            <div key={a.id} className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[600px] overflow-x-auto">
+                                                <div className="font-bold text-gray-700">{a.id}</div>
+                                                <div className="text-gray-700">{a.name}</div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={()=>{ setAreaForm({ id: a.id, name: a.name }); setShowAreaModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={async()=>{ await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', a.id)); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {showAreaModal && (
+                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6">
+                                            <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯區域</h4>
+                                            <div className="space-y-3">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">區域編號</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={areaForm.id} onChange={e=>setAreaForm(prev=>({...prev, id: e.target.value}))} />
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">區域名稱</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={areaForm.name} onChange={e=>setAreaForm(prev=>({...prev, name: e.target.value}))} />
+                                                {areaError && <div className="text-xs text-red-600">{areaError}</div>}
+                                                {areaSuccess && <div className="text-xs text-green-600">{areaSuccess}</div>}
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-4">
+                                                <button onClick={()=>setShowAreaModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
+                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSuccess(''); setAreaSaving(true); if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim() }); } setAreaSuccess('已儲存'); setShowAreaModal(false); } catch (e) { console.error(e); setAreaError('儲存失敗，請稍後重試'); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        )}
                         {subtab === 'account' && (
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -658,16 +842,27 @@
             const [isOnline, setIsOnline] = useState(navigator.onLine);
             const [activeTab, setActiveTab] = useState('home');
             const [settingsSubtab, setSettingsSubtab] = useState('account');
+            const [roles, setRoles] = useState([]);
+            const [companies, setCompanies] = useState([]);
+            const [areas, setAreas] = useState([]);
             const [dateTime, setDateTime] = useState(() => {
                 const d = new Date();
                 const pad = (n) => String(n).padStart(2, '0');
                 return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}    ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
             });
+            const availablePages = [
+                { key: 'home', label: '首頁' },
+                { key: 'overview', label: '總覽' },
+                { key: 'clock', label: '打卡' },
+                { key: 'community', label: '社區' },
+                { key: 'hr', label: '人事' },
+                { key: 'settings', label: '設定' }
+            ];
             
             const switchTab = (tab) => {
                 setActiveTab(tab);
                 if (tab === 'settings') {
-                    setSettingsSubtab('account');
+                    setSettingsSubtab('general');
                 }
             };
 
@@ -695,6 +890,42 @@
                     setUser(u);
                     setLoading(false);
                     clearTimeout(timer);
+                    if (u) {
+                        let restored = null;
+                        try {
+                            const until = parseInt(localStorage.getItem('remember_until') || '0', 10);
+                            const stored = localStorage.getItem('remember_user');
+                            if (until && until > Date.now() && stored) {
+                                restored = JSON.parse(stored);
+                            }
+                        } catch {}
+                        if (restored) {
+                            setDbUser(restored);
+                            setView('dashboard');
+                        } else {
+                            (async () => {
+                                try {
+                                    const q = query(
+                                        collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+                                        where('email', '==', u.email || '')
+                                    );
+                                    const snap = await getDocs(q);
+                                    if (!snap.empty) {
+                                        const data = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                                        const comm = communities.find(c => c.id === data.communityId);
+                                        data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
+                                        setDbUser(data);
+                                        setView('dashboard');
+                                    } else {
+                                        setView('dashboard');
+                                    }
+                                } catch {}
+                            })();
+                        }
+                    } else {
+                        setDbUser(null);
+                        setView('login');
+                    }
                 });
                 const onlineHandler = () => setIsOnline(true);
                 const offlineHandler = () => setIsOnline(false);
@@ -735,7 +966,7 @@
                 let stopAttendance = false;
                 let stopMyAttendance = false;
 
-                if (dbUser.role === 'admin' && activeTab === 'settings' && settingsSubtab === 'account') {
+                if (dbUser && activeTab === 'settings' && settingsSubtab === 'account') {
                     const ref = collection(db, 'artifacts', appId, 'public', 'data', 'users');
                     const fetch = async () => {
                         try {
@@ -749,6 +980,46 @@
                     };
                     fetch();
                     var usersInterval = setInterval(fetch, 5000);
+                }
+
+                if (dbUser && activeTab === 'settings' && settingsSubtab === 'general') {
+                    const refRoles = collection(db, 'artifacts', appId, 'public', 'data', 'roles');
+                    const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
+                    const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
+                    const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                    const fetchRoles = async () => {
+                        try {
+                            const snap = await getDocs(refRoles);
+                            if (stopUsers) return;
+                            setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch (err) { console.error(err); }
+                    };
+                    const fetchCompanies = async () => {
+                        try {
+                            const snap = await getDocs(refCompanies);
+                            if (stopAttendance) return;
+                            setCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch (err) { console.error(err); }
+                    };
+                    const fetchAreas = async () => {
+                        try {
+                            const snap = await getDocs(refAreas);
+                            if (stopMyAttendance) return;
+                            setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch (err) { console.error(err); }
+                    };
+                    const fetchUsersForCounts = async () => {
+                        try {
+                            const snap = await getDocs(refUsers);
+                            if (stopUsers) return;
+                            setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch (err) { console.error(err); }
+                    };
+                    fetchRoles(); fetchCompanies(); fetchAreas(); fetchUsersForCounts();
+                    var rolesInterval = setInterval(fetchRoles, 5000);
+                    var companiesInterval = setInterval(fetchCompanies, 5000);
+                    var areasInterval = setInterval(fetchAreas, 5000);
+                    var usersForCountsInterval = setInterval(fetchUsersForCounts, 5000);
                 }
 
                 if (['admin', 'manager', 'hr'].includes(dbUser.role)) {
@@ -792,6 +1063,10 @@
                     if (usersInterval) clearInterval(usersInterval);
                     if (attendanceInterval) clearInterval(attendanceInterval);
                     if (myInterval) clearInterval(myInterval);
+                    if (rolesInterval) clearInterval(rolesInterval);
+                    if (companiesInterval) clearInterval(companiesInterval);
+                    if (areasInterval) clearInterval(areasInterval);
+                    if (usersForCountsInterval) clearInterval(usersForCountsInterval);
                 };
             }, [user, dbUser, activeTab, settingsSubtab]);
 
@@ -856,8 +1131,10 @@
                     } else {
                         const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
                         const name = email.split('@')[0];
-                        const docRef = await addDoc(baseUserRef, { name, email, role: 'staff', communityId: 'HQ' });
-                        userData = { id: docRef.id, name, email, role: 'staff', communityId: 'HQ' };
+                        const defaultRole = email === 'admin@sys.com' ? 'admin' : 'staff';
+                        const defaultCommunity = defaultRole === 'admin' ? 'SYSTEM' : 'HQ';
+                        const docRef = await addDoc(baseUserRef, { name, email, role: defaultRole, communityId: defaultCommunity });
+                        userData = { id: docRef.id, name, email, role: defaultRole, communityId: defaultCommunity };
                     }
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
@@ -883,8 +1160,10 @@
                     await registerWithRetry(email, password);
                     const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
                     const name = email.split('@')[0];
-                    const docRef = await addDoc(baseUserRef, { name, email, role: 'staff', communityId: 'HQ' });
-                    const userData = { id: docRef.id, name, email, role: 'staff', communityId: 'HQ' };
+                    const defaultRole = email === 'admin@sys.com' ? 'admin' : 'staff';
+                    const defaultCommunity = defaultRole === 'admin' ? 'SYSTEM' : 'HQ';
+                    const docRef = await addDoc(baseUserRef, { name, email, role: defaultRole, communityId: defaultCommunity });
+                    const userData = { id: docRef.id, name, email, role: defaultRole, communityId: defaultCommunity };
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
                     setDbUser(userData);
@@ -1075,7 +1354,7 @@
                             </div>
                         )}
 
-                        {dbUser?.role === 'admin' && activeTab === 'settings' && (
+                        {dbUser && activeTab === 'settings' && (
                             <div className="space-y-6">
                                 <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
                                     <Shield className="w-5 h-5 text-red-600" /> 系統設定
@@ -1084,6 +1363,10 @@
                                     currentUser={dbUser} 
                                     users={usersList} 
                                     communities={communities}
+                                    roles={roles}
+                                    companies={companies}
+                                    areas={areas}
+                                    pages={availablePages}
                                     onAddUser={handleAddUser}
                                     onAddCommunity={handleAddCommunity}
                                     subtab={settingsSubtab}
