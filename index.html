@@ -1453,6 +1453,7 @@
             const [resetPasswordSaving, setResetPasswordSaving] = useState(false);
             const [showCameraModal, setShowCameraModal] = useState(false);
             const [clockType, setClockType] = useState('in');
+            const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
             const [dateTime, setDateTime] = useState(() => {
                 const d = new Date();
                 const pad = (n) => String(n).padStart(2, '0');
@@ -1473,6 +1474,34 @@
                     setSettingsSubtab('general');
                 }
             };
+
+            useEffect(() => {
+                if (!navigator.geolocation) {
+                    setGpsStatus({ type: 'error', message: '不支援 GPS' });
+                    return;
+                }
+
+                const success = () => {
+                    setGpsStatus({ type: 'success', message: 'GPS 訊號良好' });
+                };
+
+                const error = (err) => {
+                    let msg = 'GPS 訊號異常';
+                    if (err.code === 1) msg = '無 GPS 權限'; // PERMISSION_DENIED
+                    else if (err.code === 2) msg = '無法偵測位置'; // POSITION_UNAVAILABLE
+                    else if (err.code === 3) msg = 'GPS 連線逾時'; // TIMEOUT
+                    
+                    setGpsStatus({ type: 'error', message: msg });
+                };
+
+                const id = navigator.geolocation.watchPosition(success, error, {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                });
+
+                return () => navigator.geolocation.clearWatch(id);
+            }, []);
 
             useEffect(() => {
                 let mounted = true;
@@ -2125,9 +2154,15 @@
                         <div className="max-w-md mx-auto px-4 h-full flex items-center gap-2 overflow-x-auto no-scrollbar">
                             {activeTab === 'home' && (
                                 <div className="w-full flex justify-center">
-                                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-xs text-gray-500 font-medium">
-                                        <CheckCircle className="w-3 h-3 text-green-500" />
-                                        GPS 定位訊號良好
+                                    <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium ${
+                                        gpsStatus.type === 'success' ? 'bg-green-100 text-green-700' : 
+                                        gpsStatus.type === 'loading' ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                    }`}>
+                                        {gpsStatus.type === 'success' ? <CheckCircle className="w-3 h-3 text-green-600" /> :
+                                         gpsStatus.type === 'loading' ? <RefreshCw className="w-3 h-3 animate-spin text-yellow-600" /> :
+                                         <AlertCircle className="w-3 h-3 text-red-600" />}
+                                        {gpsStatus.message}
                                     </div>
                                 </div>
                             )}
