@@ -49,14 +49,15 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import ReactDOM from 'react-dom/client';
-        import { initializeApp, setLogLevel } from 'firebase/app';
+        import { initializeApp, setLogLevel, deleteApp } from 'firebase/app';
         import { 
             getAuth,
             onAuthStateChanged,
             signInWithCustomToken,
             signInWithEmailAndPassword,
             createUserWithEmailAndPassword,
-            signOut
+            signOut,
+            sendPasswordResetEmail
         } from 'firebase/auth';
         import { 
             getFirestore, 
@@ -92,7 +93,8 @@
             Home,
             BarChart3,
             ClipboardList,
-            Settings
+            Settings,
+            X
         } from 'lucide-react';
 
         // --- Firebase Configuration ---
@@ -120,7 +122,6 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = initializeFirestore(app, {
-            experimentalAutoDetectLongPolling: true,
             ignoreUndefinedProperties: true
         });
         
@@ -264,7 +265,7 @@
         };
 
         // 3. Admin Dashboard (System Config)
-        const AdminDashboard = ({ currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab }) => {
+        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab }) => {
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
@@ -412,22 +413,6 @@
                 reader.readAsDataURL(file);
             };
 
-            const handleAddComm = (e) => {
-                e.preventDefault();
-                if(newCommName) {
-                    onAddCommunity(newCommName);
-                    setNewCommName('');
-                }
-            };
-
-            const handleAddUser = (e) => {
-                e.preventDefault();
-                if(newUser.name && newUser.email && newUser.communityId) {
-                    onAddUser(newUser);
-                    setNewUser({ name: '', email: '', role: 'staff', communityId: '' });
-                }
-            };
-
             const formatDateTime = (v) => {
                 if (!v) return '-';
                 const d = v && typeof v.toDate === 'function' ? v.toDate() : new Date(v);
@@ -503,7 +488,7 @@
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowRoleModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSaving(true); if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowRoleModal(false); } catch (e) { console.error(e); setRoleError('儲存失敗，請稍後重試'); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={roleSaving} onClick={async()=>{ try { setRoleError(''); setRoleSaving(true); if (!user) { setRoleError('沒有登入權限，請先登入'); return; } if (!roleForm.name.trim()) { setRoleError('請輸入角色名稱'); return; } if (roleForm.id) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', roleForm.id), { name: roleForm.name.trim(), permissions: roleForm.permissions, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'roles'), { name: roleForm.name.trim(), permissions: roleForm.permissions, updatedByName: '新增', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowRoleModal(false); } catch (e) { console.error(e); setRoleError(`儲存失敗：${e.code || e.message}`); } finally { setRoleSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -572,7 +557,7 @@
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowCompanyModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError('儲存失敗，請稍後重試'); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!user) { setCompanyError('沒有登入權限，請先登入'); return; } if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: '新增', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError(`儲存失敗：${e.code || e.message}`); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -630,7 +615,7 @@
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowAreaModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSaving(true); if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowAreaModal(false); } catch (e) { console.error(e); setAreaError('儲存失敗，請稍後重試'); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSaving(true); if (!user) { setAreaError('沒有登入權限，請先登入'); return; } if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: '新增', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowAreaModal(false); } catch (e) { console.error(e); setAreaError(`儲存失敗：${e.code || e.message}`); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -649,7 +634,7 @@
                                 <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
                             <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="grid grid-cols-10 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1300px] text-left">
+                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_120px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1500px] text-left">
                                     <div>角色</div>
                                     <div>大頭照</div>
                                     <div>職稱</div>
@@ -663,7 +648,7 @@
                                 </div>
                                 <div className="space-y-2">
                                     {users.map(u => (
-                                        <div key={u.id} className="grid grid-cols-10 gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1300px]">
+                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_120px_250px_80px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-xl text-xs whitespace-nowrap min-w-[1500px]">
                                             <div className="font-bold text-gray-700">
                                                 {({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[u.role] || u.role)}
                                             </div>
@@ -679,11 +664,18 @@
                                             <div className="text-gray-700">{u.email || '-'}</div>
                                             <div className="text-gray-700">{u.phone || '-'}</div>
                                             <div className="text-gray-700">
-                                                {(function(){ const c = communities.find(c => c.id === u.communityId); return c ? c.name : '-'; })()}
+                                                {(function(){ 
+                                                    const ids = u.communityIds || (u.communityId ? [u.communityId] : []);
+                                                    if (ids.length === 0) return '-';
+                                                    return ids.map(id => {
+                                                        const c = communities.find(c => c.id === id);
+                                                        return c ? c.name : id;
+                                                    }).join('、');
+                                                })()}
                                             </div>
                                             <div className="text-gray-700">{u.status || '在職'}</div>
                                             <div className="flex gap-2 justify-start">
-                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityId: u.communityId || '', avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded bg-red-600 text-white">刪除</button>
                                             </div>
                                             <div className="text-gray-700">{u.updatedByName ? `${u.updatedByName} ${formatDateTime(u.updatedAt)}` : '-'}</div>
@@ -715,15 +707,51 @@
                                             <label className="block text-xs font-bold text-gray-500 uppercase">手機號碼（預設密碼）</label>
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.phone} onChange={e=>setModalUser(prev=>({...prev, phone: e.target.value}))} />
                                             <label className="block text-xs font-bold text-gray-500 uppercase">服務社區</label>
-                                            <select className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.communityId} onChange={e=>setModalUser(prev=>({...prev, communityId: e.target.value}))}>
-                                                <option value="">選擇社區</option>
-                                                {communities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                            </select>
+                                            <div className="space-y-2 border border-gray-200 rounded-xl p-3 max-h-40 overflow-y-auto bg-gray-50">
+                                                <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                                                    <label className="flex items-center gap-2 text-xs font-bold text-red-600 cursor-pointer select-none">
+                                                        <input type="checkbox" 
+                                                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                                                            checked={communities.length > 0 && modalUser.communityIds?.length === communities.length}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setModalUser(prev => ({ ...prev, communityIds: communities.map(c => c.id) }));
+                                                                } else {
+                                                                    setModalUser(prev => ({ ...prev, communityIds: [] }));
+                                                                }
+                                                            }}
+                                                        />
+                                                        全選
+                                                    </label>
+                                                </div>
+                                                {communities.map(c => (
+                                                    <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer select-none hover:bg-gray-100 p-1 rounded">
+                                                        <input type="checkbox" 
+                                                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                                                            checked={modalUser.communityIds?.includes(c.id)}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked;
+                                                                setModalUser(prev => {
+                                                                    const currentIds = prev.communityIds || [];
+                                                                    let newIds;
+                                                                    if (checked) {
+                                                                        newIds = [...currentIds, c.id];
+                                                                    } else {
+                                                                        newIds = currentIds.filter(id => id !== c.id);
+                                                                    }
+                                                                    return { ...prev, communityIds: newIds };
+                                                                });
+                                                            }}
+                                                        />
+                                                        <span className="text-gray-700">[{c.id}] {c.name}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
                                         </div>
                                             {userError && <div className="text-xs text-red-600">{userError}</div>}
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...modalUser, status: modalUser.status || '在職', updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await handleAddUser({ ...modalUser, status: '在職' }); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); } catch(e) { console.error(e); setUserError('儲存失敗，請稍後重試'); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={userSaving} onClick={async()=>{ try { console.log('Save button clicked', modalUser); setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { console.log('Calling onAddUser'); await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], avatarUrl:'' }); } catch(e) { console.error('Save failed:', e); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                             </div>
                                     </div>
                                 </div>
@@ -877,7 +905,7 @@
                                         </div>
                                         <div className="flex justify-end gap-2 mt-4">
                                             <button onClick={()=>setShowCommunityModal(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700">取消</button>
-                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!id || !name) { setCommunityError('請輸入社區編號與社區名稱'); return; } const latNum = communityForm.coordLat !== '' && communityForm.coordLat != null ? parseFloat(communityForm.coordLat) : undefined; const lngNum = communityForm.coordLng !== '' && communityForm.coordLng != null ? parseFloat(communityForm.coordLng) : undefined; const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, address: communityForm.address||'', coordLat: latNum, coordLng: lngNum, radiusMeters: communityForm.radiusMeters||0, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setShowCommunityModal(false); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } catch(e) { console.error(e); setCommunityError('儲存失敗，請稍後重試'); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
+                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); if (!user) { setCommunityError('沒有登入權限，請先登入'); return; } const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!name) { setCommunityError('請輸入社區名稱'); return; } const latNum = communityForm.coordLat !== '' && communityForm.coordLat != null ? parseFloat(communityForm.coordLat) : undefined; const lngNum = communityForm.coordLng !== '' && communityForm.coordLng != null ? parseFloat(communityForm.coordLng) : undefined; const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, address: communityForm.address||'', coordLat: latNum, coordLng: lngNum, radiusMeters: communityForm.radiusMeters||0, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }; if (id) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { ...payload, updatedByName: '新增' }); setToast('新增成功'); } setShowCommunityModal(false); } catch(e) { console.error(e); setCommunityError(`儲存失敗：${e.code || e.message}`); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-xl bg-red-600 text-white">儲存</button>
                                         </div>
                                     </div>
                                 </div>
@@ -1141,6 +1169,7 @@
             const [roles, setRoles] = useState([]);
             const [companies, setCompanies] = useState([]);
             const [areas, setAreas] = useState([]);
+            const [showProfileModal, setShowProfileModal] = useState(false);
             const [dateTime, setDateTime] = useState(() => {
                 const d = new Date();
                 const pad = (n) => String(n).padStart(2, '0');
@@ -1334,7 +1363,7 @@
                     var attendanceInterval = setInterval(fetchAll, 5000);
                 }
 
-                if ((dbUser.role === 'staff' || dbUser.role === 'manager') && activeTab === 'home') {
+                if (activeTab === 'home') {
                     const qMine = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
                         where('userId', '==', dbUser.id),
@@ -1481,6 +1510,7 @@
             
 
             const handleLogout = async () => {
+                setShowProfileModal(false);
                 await signOut(auth);
                 setDbUser(null);
                 setView('login');
@@ -1488,6 +1518,46 @@
                     localStorage.removeItem('remember_until');
                     localStorage.removeItem('remember_user');
                 } catch {}
+            };
+
+            const handleProfileAvatarUpload = async (file) => {
+                if (!file || !dbUser) return;
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64String = reader.result;
+                    try {
+                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', dbUser.id), {
+                            avatarUrl: base64String,
+                            updatedAt: serverTimestamp()
+                         });
+                         const newUser = { ...dbUser, avatarUrl: base64String };
+                         setDbUser(newUser);
+                         
+                         // 如果有使用"記住我"，也要同步更新 localStorage
+                         try {
+                             if (localStorage.getItem('remember_user')) {
+                                 localStorage.setItem('remember_user', JSON.stringify(newUser));
+                             }
+                         } catch (e) {}
+                         
+                         alert('大頭照更新成功');
+                    } catch (e) {
+                        console.error(e);
+                        alert('更新大頭照失敗');
+                    }
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handleResetPassword = async () => {
+                if (!dbUser || !dbUser.email) return;
+                try {
+                    await sendPasswordResetEmail(auth, dbUser.email);
+                    alert(`重設密碼信件已發送至 ${dbUser.email}`);
+                } catch (e) {
+                    console.error(e);
+                    alert('發送重設密碼信件失敗: ' + e.message);
+                }
             };
 
             const handleClockIn = async (type) => {
@@ -1510,13 +1580,42 @@
             };
 
             const handleAddUser = async (userData) => {
+                console.log('App handleAddUser called with:', userData);
                 if (!user) return;
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123', updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() });
+
+                // Create user in Firebase Auth using a secondary app instance to avoid signing out the current admin
+                const secondaryAppName = `secondaryApp-${Date.now()}`;
+                let secondaryApp;
+                try {
+                    secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+                    const secondaryAuth = getAuth(secondaryApp);
+                    const password = '123456'; // Default password (min 6 chars)
+                    await createUserWithEmailAndPassword(secondaryAuth, userData.email, password);
+                    await signOut(secondaryAuth);
+                } catch (error) {
+                    console.error("Error creating auth user:", error);
+                    if (error.code === 'auth/email-already-in-use') {
+                         alert('該 Email 已經註冊過帳號');
+                         if (secondaryApp) await deleteApp(secondaryApp);
+                         return; 
+                    }
+                    alert(`建立帳號失敗: ${error.message}`);
+                    if (secondaryApp) await deleteApp(secondaryApp);
+                    return;
+                } finally {
+                    if (secondaryApp) {
+                        try {
+                            await deleteApp(secondaryApp);
+                        } catch (e) { console.error(e); }
+                    }
+                }
+
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123456', updatedByName: '新增', updatedAt: serverTimestamp() });
             };
 
             const handleAddCommunity = async (name) => {
                 if (!user) return;
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name, updatedByName: (dbUser && dbUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() });
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name, updatedByName: '新增', updatedAt: serverTimestamp() });
             };
 
             if (loading) return <Loading />;
@@ -1542,10 +1641,16 @@
                                     <div className="text-xs font-bold text-gray-800">{dbUser?.name}</div>
                                 </div>
                                 <button 
-                                    onClick={handleLogout}
-                                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+                                    onClick={() => setShowProfileModal(true)}
+                                    className="relative w-9 h-9 rounded-full overflow-hidden border-2 border-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 transition"
                                 >
-                                    <LogOut className="w-5 h-5" />
+                                    {dbUser?.avatarUrl ? (
+                                        <img src={dbUser.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600">
+                                            {dbUser?.name ? dbUser.name.charAt(0) : <Users className="w-5 h-5" />}
+                                        </div>
+                                    )}
                                 </button>
                             </div>
                         </div>
@@ -1555,6 +1660,74 @@
                             </div>
                         )}
                     </header>
+
+                    {showProfileModal && (
+                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-fade-in-up">
+                                <div className="relative h-24 bg-gradient-to-r from-red-600 to-red-500">
+                                    <button onClick={() => setShowProfileModal(false)} className="absolute top-3 right-3 p-1 bg-black/20 text-white rounded-full hover:bg-black/40 transition">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                                <div className="px-6 pb-6">
+                                    <div className="relative -mt-12 mb-4 flex justify-center">
+                                        <div className="relative group">
+                                            <div className="w-40 h-40 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white">
+                                                {dbUser?.avatarUrl ? (
+                                                    <img src={dbUser.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full bg-gray-100 flex items-center justify-center text-3xl font-bold text-gray-400">
+                                                        {dbUser?.name ? dbUser.name.charAt(0) : '?'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <label className="absolute bottom-2 right-2 p-2 bg-gray-800 text-white rounded-full cursor-pointer shadow-md hover:bg-gray-700 transition transform hover:scale-105">
+                                                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleProfileAvatarUpload(e.target.files?.[0])} />
+                                                <Settings className="w-4 h-4" />
+                                            </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="text-center mb-6">
+                                        <h3 className="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">
+                                            個人資訊 {({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[dbUser?.role] || dbUser?.role)}
+                                        </h3>
+                                        <h2 className="text-xl font-bold text-gray-800">{dbUser?.name}</h2>
+                                        <p className="text-xs text-gray-500">{dbUser?.title || '未設定職稱'}</p>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                                            <span className="text-sm font-bold text-gray-600">本月計點</span>
+                                            <span className="text-lg font-bold text-gray-800">0</span>
+                                        </div>
+                                        
+                                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                                            <span className="text-sm font-bold text-gray-600">通知</span>
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input type="checkbox" defaultChecked className="sr-only peer" />
+                                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
+                                            </label>
+                                        </div>
+
+                                        <button 
+                                            onClick={handleResetPassword}
+                                            className="w-full flex items-center justify-center gap-2 p-3 bg-gray-50 text-gray-700 font-bold rounded-xl hover:bg-gray-100 transition text-sm"
+                                        >
+                                            <Shield className="w-4 h-4" /> 重設密碼
+                                        </button>
+
+                                        <button 
+                                            onClick={handleLogout}
+                                            className="w-full flex items-center justify-center gap-2 p-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition text-sm shadow-md shadow-red-200"
+                                        >
+                                            <LogOut className="w-4 h-4" /> 登出系統
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="fixed top-[8vh] left-0 right-0 z-40 h-[8vh] bg-white border-b border-gray-100">
                         <div className="max-w-md mx-auto px-4 h-full flex items-center gap-2 overflow-x-auto no-scrollbar">
@@ -1597,12 +1770,14 @@
                         <div className="w-full max-w-md mx-auto px-4 py-4">
                         
                         {/* Role Based Views */}
-                        {dbUser?.role === 'staff' && activeTab === 'home' && (
-                            <StaffDashboard 
-                                currentUser={dbUser} 
-                                onClockIn={handleClockIn} 
-                                attendanceHistory={myAttendance}
-                            />
+                        {activeTab === 'home' && (
+                            <div className="space-y-6 mb-6">
+                                <StaffDashboard 
+                                    currentUser={dbUser} 
+                                    onClockIn={handleClockIn} 
+                                    attendanceHistory={myAttendance}
+                                />
+                            </div>
                         )}
 
                         {dbUser?.role === 'manager' && (
@@ -1614,17 +1789,6 @@
                                     </h2>
                                     <span className="text-xs text-gray-400 bg-white px-2 py-1 rounded border">經理權限</span>
                                 </div>
-                                
-                                {activeTab === 'home' && (
-                                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-                                        <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">個人勤務</h3>
-                                        <StaffDashboard 
-                                            currentUser={dbUser} 
-                                            onClockIn={handleClockIn} 
-                                            attendanceHistory={myAttendance}
-                                        />
-                                    </div>
-                                )}
 
                                 <div className="pt-4 border-t border-gray-200">
                                     <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">團隊動態</h3>
@@ -1656,6 +1820,7 @@
                                     <Shield className="w-5 h-5 text-red-600" /> 系統設定
                                 </div>
                                 <AdminDashboard 
+                                    user={user}
                                     currentUser={dbUser} 
                                     users={usersList} 
                                     communities={communities}
