@@ -151,10 +151,11 @@
         );
 
         // 1.5 Camera Modal
-        const CameraModal = ({ isOpen, onClose, onConfirm, type, userName }) => {
+        const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, workSite }) => {
             const videoRef = useRef(null);
             const canvasRef = useRef(null);
             const mapRef = useRef(null);
+            const workSiteCircleRef = useRef(null);
             const [stream, setStream] = useState(null);
             const [image, setImage] = useState(null);
             const [location, setLocation] = useState(null);
@@ -174,6 +175,10 @@
                     setLocation(null);
                     setAddress('定位中...');
                     setError('');
+                    if (workSiteCircleRef.current) {
+                        workSiteCircleRef.current.setMap(null);
+                        workSiteCircleRef.current = null;
+                    }
                 }
             }, [isOpen]);
 
@@ -266,6 +271,96 @@
                 );
             };
 
+            const handleRelocate = () => {
+                setLocation(null);
+                if (workSiteCircleRef.current) {
+                    workSiteCircleRef.current.setMap(null);
+                    workSiteCircleRef.current = null;
+                }
+                startLocation();
+            };
+
+            const handleShowWorkSite = () => {
+                if (!workSite) {
+                    alert('未找到您的服務單位資料');
+                    return;
+                }
+                
+                let wsLocation = null;
+                if (workSite.lat && workSite.lng) {
+                    wsLocation = { lat: parseFloat(workSite.lat), lng: parseFloat(workSite.lng) };
+                } else if (workSite.location && typeof workSite.location === 'string') {
+                    const parts = workSite.location.split(',');
+                    if (parts.length === 2) {
+                        const lat = parseFloat(parts[0].trim());
+                        const lng = parseFloat(parts[1].trim());
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            wsLocation = { lat, lng };
+                        }
+                    }
+                }
+
+                if (!wsLocation) {
+                    alert('服務單位未設定有效的 GPS 座標');
+                    return;
+                }
+
+                if (mapRef.current && window.google && window.google.maps) {
+                    const mapInstance = new google.maps.Map(mapRef.current, {
+                        center: wsLocation,
+                        zoom: 17,
+                        disableDefaultUI: true,
+                        zoomControl: true,
+                    });
+
+                    // Current Position Marker
+                    if (location) {
+                        new google.maps.Marker({
+                            position: location,
+                            map: mapInstance,
+                            title: "目前位置",
+                            icon: {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 7,
+                                fillColor: "#4285F4",
+                                fillOpacity: 1,
+                                strokeColor: "white",
+                                strokeWeight: 2,
+                            },
+                        });
+                    }
+
+                    // Work Site Circle
+                    if (workSiteCircleRef.current) {
+                        workSiteCircleRef.current.setMap(null);
+                    }
+                    
+                    workSiteCircleRef.current = new google.maps.Circle({
+                        strokeColor: "#FF0000",
+                        strokeOpacity: 0.8,
+                        strokeWeight: 2,
+                        fillColor: "#FF0000",
+                        fillOpacity: 0.15,
+                        map: mapInstance,
+                        center: wsLocation,
+                        radius: 100 // Default 100m if not specified
+                    });
+
+                    // Work Site Marker
+                    new google.maps.Marker({
+                        position: wsLocation,
+                        map: mapInstance,
+                        title: workSite.name || "服務單位",
+                        label: {
+                            text: "打卡點",
+                            color: "white",
+                            fontSize: "12px",
+                            fontWeight: "bold"
+                        }
+                    });
+                }
+            };
+
             const nextToCamera = () => {
                 setStep('camera');
                 startCamera();
@@ -341,7 +436,27 @@
                                 <div className="w-full h-full flex flex-col">
                                     <div className="flex-1 relative w-full h-full">
                                         {location ? (
-                                            <div ref={mapRef} className="w-full h-full"></div>
+                                            <div className="relative w-full h-full">
+                                                <div ref={mapRef} className="w-full h-full"></div>
+                                                
+                                                {/* Relocate Button */}
+                                                <button 
+                                                    onClick={handleRelocate}
+                                                    className="absolute bottom-4 right-4 bg-white p-3 rounded-full shadow-lg hover:bg-gray-100 z-10"
+                                                    title="重新定位"
+                                                >
+                                                    <RefreshCw className="w-6 h-6 text-gray-700" />
+                                                </button>
+
+                                                {/* Show Work Site Button */}
+                                                <button 
+                                                    onClick={handleShowWorkSite}
+                                                    className="absolute top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-red-700 z-10 font-bold text-sm flex items-center gap-2"
+                                                    title="顯示打卡點範圍"
+                                                >
+                                                    <MapPin className="w-4 h-4" /> 打卡點
+                                                </button>
+                                            </div>
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-500 flex-col gap-2">
                                                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-red-600"></div>
@@ -1481,8 +1596,22 @@
                     return;
                 }
 
-                const success = () => {
-                    setGpsStatus({ type: 'success', message: 'GPS 訊號良好' });
+                const success = (pos) => {
+                    const { accuracy } = pos.coords;
+                    let source = 'GPS 衛星';
+                    let type = 'success';
+                    
+                    if (accuracy > 100) {
+                        source = 'Wi-Fi/基地台粗略';
+                        type = 'warning';
+                    } else if (accuracy > 30) {
+                        source = 'Wi-Fi/行動網路';
+                    }
+
+                    setGpsStatus({ 
+                        type: type, 
+                        message: `${source}定位 (誤差 ${Math.round(accuracy)}m)` 
+                    });
                 };
 
                 const error = (err) => {
@@ -2157,10 +2286,12 @@
                                     <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium ${
                                         gpsStatus.type === 'success' ? 'bg-green-100 text-green-700' : 
                                         gpsStatus.type === 'loading' ? 'bg-yellow-100 text-yellow-700' :
+                                        gpsStatus.type === 'warning' ? 'bg-blue-100 text-blue-700' :
                                         'bg-red-100 text-red-700'
                                     }`}>
                                         {gpsStatus.type === 'success' ? <CheckCircle className="w-3 h-3 text-green-600" /> :
                                          gpsStatus.type === 'loading' ? <RefreshCw className="w-3 h-3 animate-spin text-yellow-600" /> :
+                                         gpsStatus.type === 'warning' ? <AlertCircle className="w-3 h-3 text-blue-600" /> :
                                          <AlertCircle className="w-3 h-3 text-red-600" />}
                                         {gpsStatus.message}
                                     </div>
@@ -2296,6 +2427,7 @@
                         onConfirm={handleCameraConfirm}
                         type={clockType}
                         userName={dbUser?.name}
+                        workSite={communities.find(c => c.id === dbUser?.communityId)}
                     />
                 </div>
             );
