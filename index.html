@@ -2639,30 +2639,57 @@
             };
 
             const handleCameraConfirm = async (imageBlob, location, address) => {
-                if (!user || !dbUser) return;
+                if (!user || !dbUser) {
+                    alert('使用者狀態異常，請重新登入');
+                    return;
+                }
+                
+                const withTimeout = (promise, ms, msg) => {
+                    return Promise.race([
+                        promise,
+                        new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms))
+                    ]);
+                };
+
                 try {
                     // Upload Image
                     const filename = `attendance/${dbUser.id}/${Date.now()}.jpg`;
                     const imgRef = storageRef(storage, filename);
-                    await uploadBytes(imgRef, imageBlob);
-                    const photoUrl = await getDownloadURL(imgRef);
+                    
+                    await withTimeout(
+                        uploadBytes(imgRef, imageBlob), 
+                        30000, 
+                        '照片上傳逾時(30秒)，請檢查網路連線或稍後再試'
+                    );
+                    
+                    const photoUrl = await withTimeout(
+                        getDownloadURL(imgRef),
+                        10000,
+                        '取得照片連結逾時'
+                    );
 
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
-                        userId: dbUser.id,
-                        userName: dbUser.name,
-                        userRole: dbUser.role,
-                        communityId: dbUser.communityId,
-                        type: clockType,
-                        timestamp: serverTimestamp(),
-                        device: 'Web Browser',
-                        location: `${location.lat}, ${location.lng}`,
-                        address: address,
-                        photoUrl: photoUrl
-                    });
+                    await withTimeout(
+                        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                            userId: dbUser.id,
+                            userName: dbUser.name,
+                            userRole: dbUser.role,
+                            communityId: dbUser.communityId,
+                            type: clockType,
+                            timestamp: serverTimestamp(),
+                            device: 'Web Browser',
+                            location: `${location.lat}, ${location.lng}`,
+                            address: address,
+                            photoUrl: photoUrl
+                        }),
+                        15000,
+                        '資料寫入逾時(15秒)，請檢查網路連線'
+                    );
+                    
                     setShowCameraModal(false);
+                    alert('打卡成功！');
                 } catch (e) {
                     console.error("Clock error", e);
-                    alert("打卡失敗，請重試: " + e.message);
+                    alert("打卡失敗: " + e.message);
                 }
             };
 
