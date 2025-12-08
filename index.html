@@ -4,13 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>西北打卡系統</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23dc2626'/%3E%3Cpath d='M12 20a8 8 0 1 0-8-8 8 8 0 0 0 8 8Z' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='M12 8v4l3 1' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23dc2626'/%3E%3Cg transform='translate(12,12) scale(0.6) translate(-12,-12)'%3E%3Ccircle cx='12' cy='12' r='10' stroke='white' stroke-width='2.5' fill='none'/%3E%3Cpolyline points='12 6 12 12 16 14' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E" />
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- SheetJS for Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 
     <!-- Import Map for Modules -->
     <script type="importmap">
@@ -68,7 +71,6 @@
             addDoc, 
             query, 
             where, 
-            onSnapshot, 
             orderBy, 
             serverTimestamp,
             getDocs,
@@ -95,6 +97,7 @@
             MapPin, 
             Calendar, 
             LayoutDashboard,
+            Building,
             Building2,
             Eye,
             EyeOff,
@@ -148,6 +151,85 @@
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-600"></div>
             </div>
         );
+
+        // 1.2 Company Map Preview Component
+        const CompanyMapPreview = ({ lat, lng, radius }) => {
+            const mapRef = useRef(null);
+            const mapInstanceRef = useRef(null);
+            const circleRef = useRef(null);
+            const markerRef = useRef(null);
+            const [showResetBtn, setShowResetBtn] = useState(false);
+
+            const handleResetCenter = () => {
+                if (mapInstanceRef.current && lat && lng) {
+                    const center = { lat: parseFloat(lat), lng: parseFloat(lng) };
+                    mapInstanceRef.current.panTo(center);
+                    mapInstanceRef.current.setZoom(17);
+                    setShowResetBtn(false);
+                }
+            };
+
+            useEffect(() => {
+                if (!lat || !lng || !window.google || !window.google.maps || !mapRef.current) return;
+
+                const location = { lat: parseFloat(lat), lng: parseFloat(lng) };
+                const r = parseFloat(radius) || 100;
+
+                if (!mapInstanceRef.current) {
+                    // Init Map
+                    mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+                        center: location,
+                        zoom: 17,
+                        disableDefaultUI: true,
+                        zoomControl: true,
+                    });
+                    
+                    // Listen for drag end to show reset button
+                    mapInstanceRef.current.addListener('dragend', () => {
+                        setShowResetBtn(true);
+                    });
+
+                    // Init Marker
+                    markerRef.current = new google.maps.Marker({
+                        position: location,
+                        map: mapInstanceRef.current,
+                    });
+
+                    // Init Circle
+                    circleRef.current = new google.maps.Circle({
+                        strokeColor: "#FF0000",
+                        strokeOpacity: 0.8,
+                        strokeWeight: 2,
+                        fillColor: "#FF0000",
+                        fillOpacity: 0.35,
+                        map: mapInstanceRef.current,
+                        center: location,
+                        radius: r
+                    });
+                } else {
+                    // Update Map
+                    mapInstanceRef.current.setCenter(location);
+                    markerRef.current.setPosition(location);
+                    circleRef.current.setCenter(location);
+                    circleRef.current.setRadius(r);
+                    setShowResetBtn(false);
+                }
+            }, [lat, lng, radius]);
+
+            return (
+                <div className="w-full h-full relative">
+                    <div ref={mapRef} className="w-full h-full"></div>
+                    {showResetBtn && (
+                        <button 
+                            onClick={handleResetCenter}
+                            className="absolute top-2 right-2 bg-white text-red-600 px-3 py-1.5 rounded-xl shadow-md text-xs font-bold flex items-center gap-1 hover:bg-gray-50 transition-all z-10"
+                        >
+                            <MapPin className="w-3 h-3" /> 回到公司
+                        </button>
+                    )}
+                </div>
+            );
+        };
 
         // 1.5 Camera Modal
         const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, workSite }) => {
@@ -532,13 +614,14 @@
         };
 
         // 2. Login Component (Mobile Optimized, Red Theme)
-        const Login = ({ onLogin, onRegister, isOnline }) => {
-            const [email, setEmail] = useState('admin@sys.com');
-            const [password, setPassword] = useState('123456');
+        const Login = ({ onLogin, onRegister, onLoginSuccess, isOnline }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
             const [error, setError] = useState('');
             const [isSeeding, setIsSeeding] = useState(false);
             const [rememberMe, setRememberMe] = useState(true);
             const [showPassword, setShowPassword] = useState(false);
+            const [isLoading, setIsLoading] = useState(false);
 
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -546,9 +629,16 @@
                     setError('請輸入帳號密碼');
                     return;
                 }
+                setError('');
+                setIsLoading(true);
                 try {
                     await onLogin(email, password, rememberMe);
+                    setError('登入成功！正在跳轉...');
+                    setTimeout(() => {
+                        onLoginSuccess();
+                    }, 1000);
                 } catch (e) {
+                    setIsLoading(false);
                     if (e && e.code === 'auth/network-request-failed') {
                         setError('網路連線失敗，請確認網路與允許網域設定後重試');
                     } else if (e && e.code === 'auth/invalid-email') {
@@ -587,6 +677,7 @@
                                     onChange={(e) => setEmail(e.target.value)}
                                     className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition text-gray-700 font-medium"
                                     placeholder="user@example.com"
+                                    disabled={isLoading}
                                 />
                             </div>
                             <div>
@@ -598,6 +689,7 @@
                                         onChange={(e) => setPassword(e.target.value)}
                                         className="w-full pr-12 px-5 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition text-gray-700 font-medium"
                                         placeholder="••••••"
+                                        disabled={isLoading}
                                     />
                                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
                                         {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -606,29 +698,43 @@
                             </div>
 
                             {error && (
-                                <div className={`text-sm text-center p-3 rounded-2xl font-medium ${error.includes('完成') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                                <div className={`text-sm text-center p-3 rounded-2xl font-medium ${error.includes('成功') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                                     {error}
                                 </div>
                             )}
 
                             <button
                                 type="submit"
-                                disabled={!isOnline}
-                                className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold py-4 rounded-2xl transition duration-200 shadow-lg shadow-red-200 text-lg disabled:opacity-50"
+                                disabled={!isOnline || isLoading}
+                                className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold py-4 rounded-2xl transition duration-200 shadow-lg shadow-red-200 text-lg disabled:opacity-50 flex items-center justify-center gap-2"
                             >
-                                登入系統
+                                {isLoading ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+                                        處理中...
+                                    </>
+                                ) : (
+                                    '登入系統'
+                                )}
                             </button>
                             <button
                                 type="button"
-                                disabled={!isOnline}
+                                disabled={!isOnline || isLoading}
                                 onClick={async () => {
                                     if (!email || !password) {
                                         setError('請輸入帳號密碼');
                                         return;
                                     }
+                                    setError('');
+                                    setIsLoading(true);
                                     try {
                                         await onRegister(email, password, rememberMe);
+                                        setError('註冊成功！正在跳轉...');
+                                        setTimeout(() => {
+                                            onLoginSuccess();
+                                        }, 1000);
                                     } catch (e) {
+                                        setIsLoading(false);
                                         if (e && e.code === 'auth/network-request-failed') {
                                             setError('網路連線失敗，請確認網路與允許網域設定後重試');
                                         } else if (e && e.code === 'auth/email-already-in-use') {
@@ -669,11 +775,94 @@
             const [roleSaving, setRoleSaving] = useState(false);
             const [roleError, setRoleError] = useState('');
             const [showCompanyModal, setShowCompanyModal] = useState(false);
-            const [companyForm, setCompanyForm] = useState({ id: '', name: '' });
+            const [companyForm, setCompanyForm] = useState({ id: '', name: '', address: '', lat: '', lng: '', radius: 100 });
             const [companySaving, setCompanySaving] = useState(false);
             const [companyError, setCompanyError] = useState('');
             const [showAreaModal, setShowAreaModal] = useState(false);
             const [areaForm, setAreaForm] = useState({ id: '', name: '' });
+
+            const handleExportCommunities = () => {
+                if (!communities || communities.length === 0) {
+                    setToast('無資料可匯出');
+                    return;
+                }
+                const data = communities.map(c => ({
+                    '社區編號': c.id,
+                    '社區名稱': c.name,
+                    '所屬公司ID': c.companyId || '',
+                    '所屬區域ID': c.areaId || '',
+                    '總幹事數': c.gmCount || 0,
+                    '秘書數': c.secretaryCount || 0,
+                    '清潔數': c.cleanCount || 0,
+                    '機電數': c.mechCount || 0,
+                    '保全數': c.guardCount || 0,
+                    '白天哨數': c.dayGuardCount || 0,
+                    '晚上哨數': c.nightGuardCount || 0,
+                    '社區地址': c.address || '',
+                    '緯度': c.coordLat || '',
+                    '經度': c.coordLng || '',
+                    '打卡範圍(公尺)': c.radiusMeters || 100
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Communities");
+                XLSX.writeFile(wb, "communities_export.xlsx");
+            };
+
+            const handleImportCommunities = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    try {
+                        const bstr = evt.target.result;
+                        const wb = XLSX.read(bstr, { type: 'binary' });
+                        const wsname = wb.SheetNames[0];
+                        const ws = wb.Sheets[wsname];
+                        const data = XLSX.utils.sheet_to_json(ws);
+                        
+                        if (!data || data.length === 0) {
+                            setToast('檔案無資料');
+                            return;
+                        }
+
+                        let count = 0;
+                        for (const row of data) {
+                            const id = (row['社區編號'] || '').toString().trim();
+                            if (!id) continue;
+                            
+                            const communityData = {
+                                name: row['社區名稱'] || '',
+                                companyId: (row['所屬公司ID'] || '').toString(),
+                                areaId: (row['所屬區域ID'] || '').toString(),
+                                gmCount: parseInt(row['總幹事數'] || 0),
+                                secretaryCount: parseInt(row['秘書數'] || 0),
+                                cleanCount: parseInt(row['清潔數'] || 0),
+                                mechCount: parseInt(row['機電數'] || 0),
+                                guardCount: parseInt(row['保全數'] || 0),
+                                dayGuardCount: parseInt(row['白天哨數'] || 0),
+                                nightGuardCount: parseInt(row['晚上哨數'] || 0),
+                                address: row['社區地址'] || '',
+                                coordLat: row['緯度'] || '',
+                                coordLng: row['經度'] || '',
+                                radiusMeters: parseInt(row['打卡範圍(公尺)'] || 100),
+                                updatedByName: (currentUser && currentUser.name) || '匯入',
+                                updatedAt: serverTimestamp()
+                            };
+
+                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), communityData, { merge: true });
+                            count++;
+                        }
+                        setToast(`成功匯入 ${count} 筆社區資料`);
+                    } catch (err) {
+                        console.error(err);
+                        setToast('匯入失敗：' + err.message);
+                    }
+                };
+                reader.readAsBinaryString(file);
+                e.target.value = ''; // Reset input
+            };
             const [areaSaving, setAreaSaving] = useState(false);
             const [areaError, setAreaError] = useState('');
             const [userSaving, setUserSaving] = useState(false);
@@ -686,6 +875,7 @@
             const [communitySaving, setCommunitySaving] = useState(false);
             const [communityError, setCommunityError] = useState('');
             const [mapTarget, setMapTarget] = useState(null);
+            const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const mapTargetElRef = useRef(null);
             const mapTargetMapRef = useRef(null);
             const mapTargetCircleRef = useRef(null);
@@ -838,7 +1028,7 @@
                                 <div className="mb-4">
                                     <button onClick={() => { setRoleForm({ name: '', permissions: [] }); setShowRoleModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
-                                <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
                                     <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1020px] text-left">
                                         <div>角色名稱</div>
                                         <div>權限</div>
@@ -898,6 +1088,28 @@
                                         </div>
                                     </div>
                                 )}
+                                {mapPreviewTarget && (
+                                    <div className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4" onClick={()=>setMapPreviewTarget(null)}>
+                                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl h-[500px] overflow-hidden flex flex-col relative" onClick={e=>e.stopPropagation()}>
+                                            <div className="absolute top-4 right-4 z-10">
+                                                <button onClick={()=>setMapPreviewTarget(null)} className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100">
+                                                    <X className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                            <div className="flex-1 w-full h-full relative">
+                                                <CompanyMapPreview 
+                                                    lat={mapPreviewTarget.lat} 
+                                                    lng={mapPreviewTarget.lng} 
+                                                    radius={mapPreviewTarget.radius} 
+                                                />
+                                                <div className="absolute bottom-4 left-4 bg-white/90 px-3 py-2 rounded-xl shadow-lg text-xs font-bold text-gray-700 pointer-events-none">
+                                                    <div className="text-sm mb-1">{mapPreviewTarget.name}</div>
+                                                    <div>打卡範圍: {mapPreviewTarget.radius || 100}m</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
@@ -907,10 +1119,14 @@
                                 <div className="mb-4">
                                     <button onClick={() => { setCompanyForm({ id: '', name: '' }); setShowCompanyModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
-                                <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-6 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1000px] text-left">
+                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
+                                    <div className="grid grid-cols-11 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1300px] text-left">
                                         <div>公司編號</div>
                                         <div>公司名稱</div>
+                                        <div className="col-span-2">公司地址</div>
+                                        <div>公司座標</div>
+                                        <div>公司地圖</div>
+                                        <div>設定打卡範圍(公尺)</div>
                                         <div>幹部數</div>
                                         <div>員工數</div>
                                         <div>操作</div>
@@ -918,8 +1134,12 @@
                                     </div>
                                     <div className="space-y-2">
                                         {companies.length === 0 ? (
-                                            <div className="grid grid-cols-6 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1000px]">
+                                            <div className="grid grid-cols-11 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1300px]">
                                                 <div className="font-bold text-gray-300">—</div>
+                                                <div className="text-gray-300">—</div>
+                                                <div className="col-span-2 text-gray-300">—</div>
+                                                <div className="text-gray-300">—</div>
+                                                <div className="text-gray-300">—</div>
                                                 <div className="text-gray-300">—</div>
                                                 <div className="text-gray-300">0</div>
                                                 <div className="text-gray-300">0</div>
@@ -934,13 +1154,25 @@
                                             const staffRoles = ['總幹事','秘書','清潔','機電','保全'];
                                             const staffCount = users.filter(u => u.companyId === c.id && staffRoles.includes(u.role)).length;
                                             return (
-                                            <div key={c.id} className="grid grid-cols-6 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1000px]">
+                                            <div key={c.id} className="grid grid-cols-11 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1300px]">
                                                 <div className="font-bold text-gray-700">{c.id}</div>
                                                 <div className="text-gray-700">{c.name}</div>
+                                                <div className="col-span-2 text-gray-700 truncate" title={c.address || '-'}>{c.address || '-'}</div>
+                                                <div className="text-gray-700">{c.lat && c.lng ? `${parseFloat(c.lat).toFixed(4)}, ${parseFloat(c.lng).toFixed(4)}` : '-'}</div>
+                                                <div>
+                                                    {c.lat && c.lng ? (
+                                                        <button onClick={()=>setMapPreviewTarget(c)} className="text-red-600 hover:text-red-800 flex items-center bg-red-50 hover:bg-red-100 px-2 py-1 rounded-lg transition-colors">
+                                                            <MapPin className="w-3 h-3 mr-1" /> 地圖
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-300">-</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-gray-700">{c.radius ? `${c.radius}m` : '100m'}</div>
                                                 <div className="text-gray-700">{execCount}</div>
                                                 <div className="text-gray-700">{staffCount}</div>
                                                 <div className="flex gap-2 justify-start">
-                                                <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name }); setShowCompanyModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name, address: c.address || '', lat: c.lat || '', lng: c.lng || '', radius: c.radius || 100 }); setShowCompanyModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'company', id:c.id, label:c.name }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
                                                 </div>
                                                 <div className="text-gray-700">{c.updatedByName ? `${c.updatedByName} ${formatDateTime(c.updatedAt)}` : '-'}</div>
@@ -956,13 +1188,96 @@
                                             <div className="space-y-3">
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">公司編號</label>
                                                 <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={companyForm.id} onChange={e=>setCompanyForm(prev=>({...prev, id: e.target.value}))} />
+                                                
                                                 <label className="block text-xs font-bold text-gray-500 uppercase">公司名稱</label>
                                                 <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={companyForm.name} onChange={e=>setCompanyForm(prev=>({...prev, name: e.target.value}))} />
+                                                
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">公司地址</label>
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" 
+                                                        value={companyForm.address || ''} 
+                                                        onChange={e=>setCompanyForm(prev=>({...prev, address: e.target.value}))}
+                                                        onBlur={async(e)=>{ 
+                                                            const addr = e.target.value.trim(); 
+                                                            if (!addr) return; 
+                                                            
+                                                            const doNominatim = async () => {
+                                                                try {
+                                                                    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`); 
+                                                                    const d = await r.json(); 
+                                                                    if (d && d[0]) { 
+                                                                        setCompanyForm(prev=>({...prev, lat: d[0].lat, lng: d[0].lon})); 
+                                                                    }
+                                                                } catch (err) {
+                                                                    console.error("Nominatim error:", err);
+                                                                }
+                                                            };
+
+                                                            try { 
+                                                                if (window.google && window.google.maps) { 
+                                                                    const gc = new google.maps.Geocoder(); 
+                                                                    gc.geocode({ address: addr }, (res, status)=>{ 
+                                                                        if (status === 'OK' && res && res[0]) { 
+                                                                            const loc = res[0].geometry.location; 
+                                                                            setCompanyForm(prev=>({...prev, lat: loc.lat(), lng: loc.lng()})); 
+                                                                        } else {
+                                                                            console.warn("Google Geocode failed:", status);
+                                                                            doNominatim();
+                                                                        }
+                                                                    }); 
+                                                                } else { 
+                                                                    doNominatim(); 
+                                                                } 
+                                                            } catch (e) { 
+                                                                console.error(e);
+                                                                doNominatim();
+                                                            } 
+                                                        }}
+                                                        placeholder="輸入地址"
+                                                    />
+                                                </div>
+
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">公司座標 (Lat, Lng)</label>
+                                                <input 
+                                                    className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" 
+                                                    value={companyForm.lat && companyForm.lng ? `${companyForm.lat}, ${companyForm.lng}` : ''} 
+                                                    onChange={e=>{
+                                                        const parts = e.target.value.split(',');
+                                                        if (parts.length === 2) {
+                                                            setCompanyForm(prev=>({...prev, lat: parts[0].trim(), lng: parts[1].trim()}));
+                                                        }
+                                                    }}
+                                                    placeholder="例如: 25.0330, 121.5654"
+                                                />
+
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">設定打卡範圍 (公尺)</label>
+                                                <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={companyForm.radius || 100} onChange={e=>setCompanyForm(prev=>({...prev, radius: parseInt(e.target.value) || 100}))} />
+
+                                                <div className="w-full h-48 bg-gray-100 rounded-2xl overflow-hidden mt-2 relative">
+                                                    {companyForm.lat && companyForm.lng ? (
+                                                        <>
+                                                            <CompanyMapPreview 
+                                                                lat={companyForm.lat} 
+                                                                lng={companyForm.lng} 
+                                                                radius={companyForm.radius} 
+                                                            />
+                                                            <div className="absolute bottom-0 left-0 bg-white/80 px-2 py-1 text-[10px] font-bold text-gray-600 z-10 pointer-events-none">
+                                                                範圍: {companyForm.radius}m
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                                            請輸入地址或座標以顯示地圖
+                                                        </div>
+                                                    )}
+                                                </div>
+
                                                 {companyError && <div className="text-xs text-red-600">{companyError}</div>}
                                             </div>
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowCompanyModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!user) { setCompanyError('沒有登入權限，請先登入'); return; } if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), updatedByName: '新增', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError(`儲存失敗：${e.code || e.message}`); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={companySaving} onClick={async()=>{ try { setCompanyError(''); setCompanySaving(true); if (!user) { setCompanyError('沒有登入權限，請先登入'); return; } if (!companyForm.id.trim() || !companyForm.name.trim()) { setCompanyError('請輸入公司編號與公司名稱'); return; } if (companies.find(x=>x.id===companyForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), address: companyForm.address || '', lat: companyForm.lat || '', lng: companyForm.lng || '', radius: companyForm.radius || 100, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', companyForm.id.trim()), { name: companyForm.name.trim(), address: companyForm.address || '', lat: companyForm.lat || '', lng: companyForm.lng || '', radius: companyForm.radius || 100, updatedByName: '新增', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowCompanyModal(false); } catch (e) { console.error(e); setCompanyError(`儲存失敗：${e.code || e.message}`); } finally { setCompanySaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -976,7 +1291,7 @@
                                 <div className="mb-4">
                                     <button onClick={() => { setAreaForm({ id: '', name: '' }); setShowAreaModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                 </div>
-                                <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
                                     <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
                                         <div>區域編號</div>
                                         <div>區域名稱</div>
@@ -1033,19 +1348,20 @@
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                 <Users className="w-5 h-5 mr-2 text-red-600" />
-                                人員管理
+                                帳號列表
                             </h3>
                             <div className="mb-4">
-                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityId:'', avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
-                            <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_120px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1500px] text-left">
+                            <div className="h-[calc(100vh-280px)] overflow-y-auto overflow-x-auto no-scrollbar">
+                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_120px_150px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1650px] text-left">
                                     <div>角色</div>
                                     <div>大頭照</div>
                                     <div>職稱</div>
                                     <div>姓名</div>
                                     <div>電子郵件</div>
                                     <div>手機號碼</div>
+                                    <div>所屬公司</div>
                                     <div>服務社區</div>
                                     <div>狀況</div>
                                     <div>操作</div>
@@ -1053,7 +1369,7 @@
                                 </div>
                                 <div className="space-y-2">
                                     {users.map(u => (
-                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_120px_250px_80px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1500px]">
+                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_120px_150px_250px_80px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1650px]">
                                             <div className="font-bold text-gray-700">
                                                 {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
                                             </div>
@@ -1070,6 +1386,16 @@
                                             <div className="text-gray-700">{u.phone || '-'}</div>
                                             <div className="text-gray-700">
                                                 {(function(){ 
+                                                    const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                                                    if (ids.length === 0) return '-';
+                                                    return ids.map(id => {
+                                                        const c = companies.find(c => c.id === id);
+                                                        return c ? c.name : id;
+                                                    }).join('、');
+                                                })()}
+                                            </div>
+                                            <div className="text-gray-700">
+                                                {(function(){ 
                                                     const ids = u.communityIds || (u.communityId ? [u.communityId] : []);
                                                     if (ids.length === 0) return '-';
                                                     return ids.map(id => {
@@ -1080,7 +1406,7 @@
                                             </div>
                                             <div className="text-gray-700">{u.status || '在職'}</div>
                                             <div className="flex gap-2 justify-start">
-                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
                                             </div>
                                             <div className="text-gray-700">{u.updatedByName ? `${u.updatedByName} ${formatDateTime(u.updatedAt)}` : '-'}</div>
@@ -1111,6 +1437,54 @@
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.email} onChange={e=>setModalUser(prev=>({...prev, email: e.target.value}))} />
                                             <label className="block text-xs font-bold text-gray-500 uppercase">手機號碼（預設密碼）</label>
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.phone} onChange={e=>setModalUser(prev=>({...prev, phone: e.target.value}))} />
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">所屬公司</label>
+                                            <div className="space-y-2 border border-gray-200 rounded-2xl p-3 max-h-40 overflow-y-auto bg-gray-50">
+                                                {['admin', 'manager'].includes(modalUser.role) && (
+                                                <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                                                    <label className="flex items-center gap-2 text-xs font-bold text-red-600 cursor-pointer select-none">
+                                                        <input type="checkbox" 
+                                                            className="w-4 h-4 text-red-600 rounded-2xl focus:ring-red-500"
+                                                            checked={companies.length > 0 && modalUser.companyIds?.length === companies.length}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setModalUser(prev => ({ ...prev, companyIds: companies.map(c => c.id) }));
+                                                                } else {
+                                                                    setModalUser(prev => ({ ...prev, companyIds: [] }));
+                                                                }
+                                                            }}
+                                                        />
+                                                        全選
+                                                    </label>
+                                                </div>
+                                                )}
+                                                {companies.map(c => (
+                                                    <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer select-none hover:bg-gray-100 p-1 rounded-2xl">
+                                                        <input type="checkbox" 
+                                                            className="w-4 h-4 text-red-600 rounded-2xl focus:ring-red-500"
+                                                            checked={modalUser.companyIds?.includes(c.id)}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked;
+                                                                const canMulti = ['admin', 'manager'].includes(modalUser.role);
+                                                                setModalUser(prev => {
+                                                                    const currentIds = prev.companyIds || [];
+                                                                    let newIds;
+                                                                    if (checked) {
+                                                                        if (canMulti) {
+                                                                            newIds = [...currentIds, c.id];
+                                                                        } else {
+                                                                            newIds = [c.id];
+                                                                        }
+                                                                    } else {
+                                                                        newIds = currentIds.filter(id => id !== c.id);
+                                                                    }
+                                                                    return { ...prev, companyIds: newIds };
+                                                                });
+                                                            }}
+                                                        />
+                                                        <span className="text-gray-700">[{c.id}] {c.name}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">服務社區</label>
                                             <div className="space-y-2 border border-gray-200 rounded-2xl p-3 max-h-40 overflow-y-auto bg-gray-50">
                                                 <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
@@ -1156,7 +1530,7 @@
                                             {userError && <div className="text-xs text-red-600">{userError}</div>}
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={userSaving} onClick={async()=>{ try { console.log('Save button clicked', modalUser); setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { console.log('Calling onAddUser'); await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], avatarUrl:'' }); } catch(e) { console.error('Save failed:', e); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={userSaving} onClick={async()=>{ try { console.log('Save button clicked', modalUser); setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { console.log('Calling onAddUser'); await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); } catch(e) { console.error('Save failed:', e); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                     </div>
                                 </div>
@@ -1185,10 +1559,15 @@
                                 <Building2 className="w-5 h-5 mr-2 text-red-600" />
                                 社區列表
                             </h3>
-                            <div className="mb-4">
-                                <button onClick={()=>{ setCommunityForm({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 }); setShowCommunityModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
-                            </div>
-                            <div className="max-h-60 overflow-y-auto overflow-x-auto no-scrollbar">
+                            <div className="mb-4 flex gap-2">
+                                    <button onClick={()=>{ setCommunityForm({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 }); setShowCommunityModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                    <button onClick={handleExportCommunities} className="bg-green-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-700">匯出</button>
+                                    <label className="bg-blue-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-blue-700 cursor-pointer flex items-center">
+                                        匯入
+                                        <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportCommunities} />
+                                    </label>
+                                </div>
+                                <div className="h-[calc(100vh-280px)] overflow-y-auto overflow-x-auto no-scrollbar">
                                 <div className="flex flex-row gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1820px] text-left">
                                     <div className="w-[120px]">社區編號</div>
                                     <div className="w-[160px]">社區名稱</div>
@@ -1569,6 +1948,9 @@
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
             const [functionSubtab, setFunctionSubtab] = useState('patrol');
+            const [cadreSubtab, setCadreSubtab] = useState('map');
+            const [cadreCompany, setCadreCompany] = useState('台北');
+            const [showCompanyMenu, setShowCompanyMenu] = useState(false);
             const [roles, setRoles] = useState([]);
             const [companies, setCompanies] = useState([]);
             const [areas, setAreas] = useState([]);
@@ -1649,6 +2031,7 @@
                 { key: 'clock', label: '打卡' },
                 { key: 'community', label: '社區' },
                 { key: 'function', label: '功能' },
+                { key: 'cadre', label: '幹部' },
                 { key: 'application', label: '申請' },
                 { key: 'hr', label: '人事' },
                 { key: 'settings', label: '設定' }
@@ -1661,6 +2044,9 @@
                 }
                 if (tab === 'clock') {
                     setClockSubtab('work');
+                }
+                if (tab === 'cadre') {
+                    setCadreSubtab('map');
                 }
             };
 
@@ -1840,7 +2226,7 @@
                     var usersInterval = setInterval(fetch, 10000);
                 }
 
-                if (dbUser && activeTab === 'settings' && settingsSubtab === 'general') {
+                if (dbUser && ((activeTab === 'settings' && settingsSubtab === 'general') || activeTab === 'cadre')) {
                     const refRoles = collection(db, 'artifacts', appId, 'public', 'data', 'roles');
                     const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
                     const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
@@ -1928,6 +2314,16 @@
                 };
             }, [user, dbUser, activeTab, settingsSubtab]);
 
+            // Auto-select first company when in Cadre tab
+            useEffect(() => {
+                if (activeTab === 'cadre' && companies.length > 0) {
+                    const exists = companies.some(c => c.name === cadreCompany);
+                    if (!exists) {
+                        setCadreCompany(companies[0].name);
+                    }
+                }
+            }, [activeTab, companies, cadreCompany]);
+
             
 
             const seedData = async () => {
@@ -1975,7 +2371,7 @@
             };
 
             const handleLogin = async (email, password, rememberMe = false) => {
-                setLoading(true);
+                // setLoading(true); // Disable global loading to keep Login component mounted
                 try {
                     await signInWithRetry(email, password);
                     const q = query(
@@ -1997,7 +2393,7 @@
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
                     setDbUser(userData);
-                    setView('dashboard');
+                    // setView('dashboard'); // Moved to onLoginSuccess in Login component
                     if (rememberMe) {
                         try {
                             localStorage.setItem('remember_until', String(Date.now() + 48 * 60 * 60 * 1000));
@@ -2008,12 +2404,12 @@
                     console.error(e);
                     throw e;
                 } finally {
-                    setLoading(false);
+                    // setLoading(false);
                 }
             };
 
             const handleRegister = async (email, password, rememberMe = false) => {
-                setLoading(true);
+                // setLoading(true);
                 try {
                     await registerWithRetry(email, password);
                     const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
@@ -2025,7 +2421,7 @@
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
                     setDbUser(userData);
-                    setView('dashboard');
+                    // setView('dashboard');
                     if (rememberMe) {
                         try {
                             localStorage.setItem('remember_until', String(Date.now() + 48 * 60 * 60 * 1000));
@@ -2036,7 +2432,7 @@
                     console.error(e);
                     throw e;
                 } finally {
-                    setLoading(false);
+                    // setLoading(false);
                 }
             };
 
@@ -2211,7 +2607,7 @@
             if (loading) return <Loading />;
 
             if (view === 'login') {
-                return <Login onLogin={handleLogin} onRegister={handleRegister} isOnline={isOnline} />;
+                return <Login onLogin={handleLogin} onRegister={handleRegister} onLoginSuccess={() => setView('dashboard')} isOnline={isOnline} />;
             }
 
             return (
@@ -2220,7 +2616,9 @@
                     <header className="bg-white fixed top-0 left-0 right-0 z-50 border-b border-gray-100 h-[8vh]">
                         <div className="max-w-md mx-auto px-4 h-full flex justify-between items-center">
                             <div className="flex items-center gap-2">
-                                <Clock className="w-7 h-7 text-red-600" />
+                                <div className="bg-red-600 w-[30px] h-[30px] rounded-lg flex items-center justify-center shadow-md shadow-red-200 transform rotate-3">
+                                    <Clock className="text-white w-4 h-4" />
+                                </div>
                                 <span className="font-bold text-gray-800 tracking-tight">西北打卡系統</span>
                             </div>
                             
@@ -2411,6 +2809,15 @@
                                     <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>下載</button>
                                 </div>
                             )}
+                            {activeTab === 'cadre' && (
+                                <div className="flex gap-2">
+                                    <button onClick={() => setCadreSubtab('map')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'map' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>地圖</button>
+                                    <button onClick={() => setCadreSubtab('record')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>紀錄</button>
+                                    <button onClick={() => setCadreSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>
+                                    <button onClick={() => setCadreSubtab('approval')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'approval' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簽呈</button>
+                                    <button onClick={() => setCadreSubtab('notification')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'notification' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>通知</button>
+                                </div>
+                            )}
                             {activeTab === 'application' && (
                                 <div className="flex gap-2">
                                     <button onClick={() => setApplicationSubtab('signature')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${applicationSubtab === 'signature' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簽呈</button>
@@ -2433,7 +2840,7 @@
 
                     {/* Main Content Area - Mobile Container */}
                     <main className="absolute top-[16vh] left-0 right-0 h-[76vh] overflow-y-auto">
-                        <div className="w-full max-w-md mx-auto px-4 py-4">
+                        <div className={`w-full max-w-md mx-auto px-4 py-4 ${activeTab === 'cadre' ? 'pb-20' : ''}`}>
                         
                         {/* Role Based Views */}
                         {activeTab === 'home' && hasPermission('home') && (
@@ -2537,6 +2944,94 @@
                             </div>
                         )}
 
+                        {activeTab === 'cadre' && hasPermission('cadre') && (
+                            <div className="space-y-6">
+                                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                    <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                        <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                        <span className="text-red-600 font-bold text-lg">{cadreCompany}</span>
+                                    </div>
+
+                                    {cadreSubtab === 'map' && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <MapPin className="w-5 h-5 mr-2 text-red-600" /> 地圖
+                                            </h3>
+                                            <div className="w-full h-64 bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
+                                                {(function() {
+                                                    const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                    if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                        return (
+                                                            <>
+                                                                <CompanyMapPreview 
+                                                                    lat={targetCompany.lat} 
+                                                                    lng={targetCompany.lng} 
+                                                                    radius={targetCompany.radius} 
+                                                                />
+                                                                <div className="absolute bottom-4 left-4 bg-white/90 px-3 py-2 rounded-xl shadow-lg text-xs font-bold text-gray-700 pointer-events-none z-10 backdrop-blur-sm border border-white/50">
+                                                                    <div className="text-sm text-gray-800 mb-0.5">{targetCompany.name}</div>
+                                                                    <div className="text-gray-500 mb-0.5 max-w-[200px] truncate">{targetCompany.address || '無地址'}</div>
+                                                                    <div className="text-red-600">打卡範圍: {targetCompany.radius || 100}m</div>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    } else {
+                                                        return (
+                                                            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
+                                                                <MapPin className="w-8 h-8 mb-2 text-gray-300" />
+                                                                <div>{targetCompany ? '該公司尚未設定座標' : `找不到 ${cadreCompany} 公司資料`}</div>
+                                                                <div className="text-xs mt-1 text-gray-300">請確認後台公司名稱設定是否正確</div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {cadreSubtab === 'record' && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <ClipboardList className="w-5 h-5 mr-2 text-red-600" /> 紀錄
+                                            </h3>
+                                            <div className="text-center py-8 text-gray-400">
+                                                功能開發中...
+                                            </div>
+                                        </div>
+                                    )}
+                                    {cadreSubtab === 'schedule' && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <Calendar className="w-5 h-5 mr-2 text-red-600" /> 班表
+                                            </h3>
+                                            <div className="text-center py-8 text-gray-400">
+                                                功能開發中...
+                                            </div>
+                                        </div>
+                                    )}
+                                    {cadreSubtab === 'approval' && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈
+                                            </h3>
+                                            <div className="text-center py-8 text-gray-400">
+                                                功能開發中...
+                                            </div>
+                                        </div>
+                                    )}
+                                    {cadreSubtab === 'notification' && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <AlertCircle className="w-5 h-5 mr-2 text-red-600" /> 通知
+                                            </h3>
+                                            <div className="text-center py-8 text-gray-400">
+                                                功能開發中...
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {activeTab === 'application' && hasPermission('application') && (
                             <div className="space-y-6">
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
@@ -2584,6 +3079,46 @@
                         </div>
                     </main>
 
+                    {/* Cadre Company Selection Bar - Only visible on Cadre tab */}
+                    {activeTab === 'cadre' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2">
+                                    {companies.map(company => {
+                                        const name = company.name || '';
+                                        const len = name.length;
+                                        let displayName = name;
+                                        
+                                        if (len === 4) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 5) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 6) {
+                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
+                                        }
+
+                                        return (
+                                            <button 
+                                                key={company.id}
+                                                onClick={() => setCadreCompany(name)}
+                                                className={`w-[40px] h-[40px] flex items-center justify-center text-[10px] leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                    cadreCompany === name 
+                                                        ? 'bg-red-600 text-white' 
+                                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {displayName}
+                                            </button>
+                                        );
+                                    })}
+                                    {companies.length === 0 && (
+                                        <div className="text-xs text-gray-400 italic">尚無公司資料</div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="fixed bottom-0 left-0 right-0 z-50 h-[8vh] bg-white border-t border-gray-100">
                         <div className="max-w-md mx-auto h-full px-4 flex items-center justify-between">
                             {hasPermission('home') && (
@@ -2609,6 +3144,11 @@
                             {hasPermission('function') && (
                                 <button onClick={() => switchTab('function')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'function' ? 'text-red-600' : 'text-gray-600'}`}>
                                     <Briefcase className="w-5 h-5 mb-1" /> 功能
+                                </button>
+                            )}
+                            {hasPermission('cadre') && (
+                                <button onClick={() => switchTab('cadre')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'cadre' ? 'text-red-600' : 'text-gray-600'}`}>
+                                    <Shield className="w-5 h-5 mb-1" /> 幹部
                                 </button>
                             )}
                             {hasPermission('application') && (
