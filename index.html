@@ -473,7 +473,10 @@
                 ctx.font = 'bold 24px sans-serif';
                 ctx.fillText(dateStr, 20, canvas.height - 60);
                 ctx.font = '16px sans-serif';
-                ctx.fillText(address, 20, canvas.height - 30);
+                ctx.fillText(address, 20, canvas.height - 35);
+                if (location) {
+                    ctx.fillText(`GPS: ${location.lat}, ${location.lng}`, 20, canvas.height - 15);
+                }
                 
                 // User Name (Top Right)
                 ctx.textAlign = 'right';
@@ -498,8 +501,13 @@
             const confirm = async () => {
                 if (!image || !location) return;
                 setIsProcessing(true);
-                await onConfirm(image, location, address);
-                setIsProcessing(false);
+                try {
+                    await onConfirm(image, location, address);
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    setIsProcessing(false);
+                }
             };
 
             if (!isOpen) return null;
