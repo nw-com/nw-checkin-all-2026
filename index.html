@@ -108,7 +108,9 @@
             X,
             Edit,
             Camera,
-            RefreshCw
+            RefreshCw,
+            ChevronLeft,
+            ChevronRight
         } from 'lucide-react';
 
         // --- Firebase Configuration ---
@@ -153,7 +155,7 @@
         );
 
         // 1.2 Company Map Preview Component
-        const CompanyMapPreview = ({ lat, lng, radius }) => {
+        const CompanyMapPreview = ({ lat, lng, radius, avatarUrl }) => {
             const mapRef = useRef(null);
             const mapInstanceRef = useRef(null);
             const circleRef = useRef(null);
@@ -169,52 +171,111 @@
                 }
             };
 
+            const createCircularIcon = async (url) => {
+                return new Promise((resolve) => {
+                    const size = 60;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext('2d');
+                    
+                    const img = new Image();
+                    img.crossOrigin = "Anonymous";
+                    img.src = url;
+                    
+                    img.onload = () => {
+                        // Draw white circle background (border)
+                        ctx.beginPath();
+                        ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+                        ctx.fillStyle = 'white';
+                        ctx.fill();
+
+                        // Clip for image
+                        ctx.beginPath();
+                        ctx.arc(size/2, size/2, (size/2) - 4, 0, Math.PI * 2); // 4px border
+                        ctx.save(); 
+                        ctx.clip();
+                        
+                        // Draw image
+                        ctx.drawImage(img, 0, 0, size, size);
+                        ctx.restore(); 
+
+                        resolve({
+                            url: canvas.toDataURL(),
+                            scaledSize: new google.maps.Size(size, size),
+                            anchor: new google.maps.Point(size/2, size/2),
+                        });
+                    };
+
+                    img.onerror = () => {
+                        resolve(null);
+                    };
+                });
+            };
+
             useEffect(() => {
                 if (!lat || !lng || !window.google || !window.google.maps || !mapRef.current) return;
 
                 const location = { lat: parseFloat(lat), lng: parseFloat(lng) };
                 const r = parseFloat(radius) || 100;
 
-                if (!mapInstanceRef.current) {
-                    // Init Map
-                    mapInstanceRef.current = new google.maps.Map(mapRef.current, {
-                        center: location,
-                        zoom: 17,
-                        disableDefaultUI: true,
-                        zoomControl: true,
-                    });
+                const initMap = async () => {
+                    let markerIcon = null;
+                    if (avatarUrl) {
+                        markerIcon = await createCircularIcon(avatarUrl);
+                    }
                     
-                    // Listen for drag end to show reset button
-                    mapInstanceRef.current.addListener('dragend', () => {
-                        setShowResetBtn(true);
-                    });
+                    // Fallback to default logic if avatar fails or not present (but only if we didn't get an icon)
+                    if (!markerIcon && avatarUrl) {
+                         // If failed to process avatar, maybe try original url or just null
+                         // For now let's keep it simple, if no canvas icon, use null (default marker)
+                    }
 
-                    // Init Marker
-                    markerRef.current = new google.maps.Marker({
-                        position: location,
-                        map: mapInstanceRef.current,
-                    });
+                    if (!mapInstanceRef.current) {
+                        // Init Map
+                        mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+                            center: location,
+                            zoom: 17,
+                            disableDefaultUI: true,
+                            zoomControl: true,
+                        });
+                        
+                        // Listen for drag end to show reset button
+                        mapInstanceRef.current.addListener('dragend', () => {
+                            setShowResetBtn(true);
+                        });
 
-                    // Init Circle
-                    circleRef.current = new google.maps.Circle({
-                        strokeColor: "#FF0000",
-                        strokeOpacity: 0.8,
-                        strokeWeight: 2,
-                        fillColor: "#FF0000",
-                        fillOpacity: 0.35,
-                        map: mapInstanceRef.current,
-                        center: location,
-                        radius: r
-                    });
-                } else {
-                    // Update Map
-                    mapInstanceRef.current.setCenter(location);
-                    markerRef.current.setPosition(location);
-                    circleRef.current.setCenter(location);
-                    circleRef.current.setRadius(r);
-                    setShowResetBtn(false);
-                }
-            }, [lat, lng, radius]);
+                        // Init Marker
+                        markerRef.current = new google.maps.Marker({
+                            position: location,
+                            map: mapInstanceRef.current,
+                            icon: markerIcon
+                        });
+
+                        // Init Circle
+                        circleRef.current = new google.maps.Circle({
+                            strokeColor: "#FF0000",
+                            strokeOpacity: 0.8,
+                            strokeWeight: 2,
+                            fillColor: "#FF0000",
+                            fillOpacity: 0.35,
+                            map: mapInstanceRef.current,
+                            center: location,
+                            radius: r
+                        });
+                    } else {
+                        // Update Map
+                        mapInstanceRef.current.setCenter(location);
+                        markerRef.current.setPosition(location);
+                        markerRef.current.setIcon(markerIcon);
+                        circleRef.current.setCenter(location);
+                        circleRef.current.setRadius(r);
+                        setShowResetBtn(false);
+                    }
+                };
+                
+                initMap();
+            }, [lat, lng, radius, avatarUrl]);
 
             return (
                 <div className="w-full h-full relative">
@@ -1756,11 +1817,40 @@
             const [viewRecord, setViewRecord] = useState(null);
             const [viewType, setViewType] = useState(null);
             const [showLocationSelector, setShowLocationSelector] = useState(false);
+            const [viewDate, setViewDate] = useState(new Date());
 
             useEffect(() => {
                 const timer = setInterval(() => setCurrentTime(new Date(Date.now() + (timeOffset || 0))), 1000);
                 return () => clearInterval(timer);
             }, [timeOffset]);
+
+            // Helper to compare dates
+            const isSameDay = (d1, d2) => {
+                return d1.getFullYear() === d2.getFullYear() &&
+                       d1.getMonth() === d2.getMonth() &&
+                       d1.getDate() === d2.getDate();
+            };
+
+            const handlePrevDay = () => {
+                const newDate = new Date(viewDate);
+                newDate.setDate(viewDate.getDate() - 1);
+                setViewDate(newDate);
+            };
+
+            const handleNextDay = () => {
+                const newDate = new Date(viewDate);
+                newDate.setDate(viewDate.getDate() + 1);
+                if (newDate <= new Date()) {
+                    setViewDate(newDate);
+                }
+            };
+
+            const isToday = isSameDay(viewDate, new Date());
+            
+            const filteredHistory = attendanceHistory.filter(record => {
+                const recordDate = new Date(record.timestamp.seconds * 1000);
+                return isSameDay(recordDate, viewDate);
+            });
 
             // Initialize CheckIn Location
             useEffect(() => {
@@ -1885,11 +1975,23 @@
                     {/* History List */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                         <h3 className="font-bold text-gray-800 mb-4 text-sm flex items-center justify-between">
-                            <span>最近紀錄</span>
-                            <span className="text-xs text-gray-400 font-normal">顯示最近 5 筆</span>
+                            <div className="flex items-center gap-2">
+                                <button onClick={handlePrevDay} className="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <ChevronLeft className="w-5 h-5" />
+                                </button>
+                                <span>{isToday ? '今日打卡紀錄' : `${viewDate.getFullYear()}/${viewDate.getMonth() + 1}/${viewDate.getDate()} 打卡紀錄`}</span>
+                                <button 
+                                    onClick={handleNextDay} 
+                                    disabled={isToday}
+                                    className={`p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isToday ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                >
+                                    <ChevronRight className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <span className="text-xs text-gray-400 font-normal">共 {filteredHistory.length} 筆</span>
                         </h3>
                         <div className="space-y-4">
-                            {attendanceHistory.length === 0 ? (
+                            {filteredHistory.length === 0 ? (
                                 <div className="text-center py-8">
                                     <div className="bg-gray-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2">
                                         <Calendar className="w-5 h-5 text-gray-300" />
@@ -1897,9 +1999,9 @@
                                     <p className="text-gray-400 text-xs">尚無打卡紀錄</p>
                                 </div>
                             ) : (
-                                attendanceHistory.slice(0, 5).map((record, idx) => (
+                                filteredHistory.map((record, idx) => (
                                     <div key={record.id} className="flex relative">
-                                        {idx !== attendanceHistory.slice(0, 5).length - 1 && (
+                                        {idx !== filteredHistory.length - 1 && (
                                             <div className="absolute left-2.5 top-8 bottom-[-16px] w-0.5 bg-gray-100"></div>
                                         )}
                                         <div className={`relative z-10 w-5 h-5 rounded-full border-2 flex-shrink-0 mt-1 mr-4 ${record.type === 'in' ? 'border-red-500 bg-red-50' : 'border-gray-400 bg-gray-50'}`}></div>
@@ -3240,27 +3342,68 @@
                                             <div className="w-full h-64 bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
                                                 {(function() {
                                                     const targetCompany = companies.find(c => c.name === cadreCompany);
-                                                    if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                    
+                                                    // Find latest check-in for this company
+                                                    let latestRecord = null;
+                                                    let displayLocation = null;
+                                                    let displayInfo = null;
+                                                    let avatarUrl = null;
+
+                                                    if (targetCompany && usersList.length > 0 && attendanceList.length > 0) {
+                                                        const companyUserIds = usersList
+                                                            .filter(u => u.companyId === targetCompany.id)
+                                                            .map(u => u.id);
+                                                        
+                                                        if (companyUserIds.length > 0) {
+                                                             const companyRecords = attendanceList.filter(r => companyUserIds.includes(r.userId));
+                                                             // attendanceList is sorted by desc timestamp
+                                                             latestRecord = companyRecords.find(r => r.location && r.location.includes(','));
+                                                        }
+                                                    }
+
+                                                    if (latestRecord) {
+                                                        const parts = latestRecord.location.split(',');
+                                                        const lat = parseFloat(parts[0]);
+                                                        const lng = parseFloat(parts[1]);
+                                                        displayLocation = { lat, lng };
+                                                        displayInfo = {
+                                                            title: latestRecord.userName,
+                                                            subtitle: new Date(latestRecord.timestamp.seconds * 1000).toLocaleString('zh-TW'),
+                                                            detail: latestRecord.checkInLocationName || targetCompany.name,
+                                                            isRecord: true
+                                                        };
+                                                        
+                                                        const user = usersList.find(u => u.id === latestRecord.userId);
+                                                        if (user && user.avatarUrl) {
+                                                            avatarUrl = user.avatarUrl;
+                                                        }
+                                                    } else if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                        displayLocation = { lat: targetCompany.lat, lng: targetCompany.lng };
+                                                        displayInfo = {
+                                                            title: targetCompany.name,
+                                                            subtitle: targetCompany.address || '無地址',
+                                                            detail: `打卡範圍: ${targetCompany.radius || 100}m`,
+                                                            isRecord: false
+                                                        };
+                                                    }
+
+                                                    if (displayLocation) {
                                                         return (
                                                             <>
                                                                 <CompanyMapPreview 
-                                                                    lat={targetCompany.lat} 
-                                                                    lng={targetCompany.lng} 
-                                                                    radius={targetCompany.radius} 
+                                                                    lat={displayLocation.lat} 
+                                                                    lng={displayLocation.lng} 
+                                                                    radius={targetCompany?.radius || 100}
+                                                                    avatarUrl={avatarUrl}
                                                                 />
-                                                                <div className="absolute bottom-4 left-4 bg-white/90 px-3 py-2 rounded-xl shadow-lg text-xs font-bold text-gray-700 pointer-events-none z-10 backdrop-blur-sm border border-white/50">
-                                                                    <div className="text-sm text-gray-800 mb-0.5">{targetCompany.name}</div>
-                                                                    <div className="text-gray-500 mb-0.5 max-w-[200px] truncate">{targetCompany.address || '無地址'}</div>
-                                                                    <div className="text-red-600">打卡範圍: {targetCompany.radius || 100}m</div>
-                                                                </div>
                                                             </>
                                                         );
                                                     } else {
                                                         return (
                                                             <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
                                                                 <MapPin className="w-8 h-8 mb-2 text-gray-300" />
-                                                                <div>{targetCompany ? '該公司尚未設定座標' : `找不到 ${cadreCompany} 公司資料`}</div>
-                                                                <div className="text-xs mt-1 text-gray-300">請確認後台公司名稱設定是否正確</div>
+                                                                <div>{targetCompany ? '該公司尚未設定座標且無打卡紀錄' : `找不到 ${cadreCompany} 公司資料`}</div>
+                                                                <div className="text-xs mt-1 text-gray-300">請確認後台設定</div>
                                                             </div>
                                                         );
                                                     }
