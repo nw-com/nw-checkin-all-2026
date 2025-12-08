@@ -453,11 +453,25 @@
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
                 
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                // Resize logic
+                let w = video.videoWidth;
+                let h = video.videoHeight;
+                const maxDim = 1024; // Limit max dimension to 1024px for faster upload
+                if (w > maxDim || h > maxDim) {
+                    if (w > h) {
+                        h = Math.round((h / w) * maxDim);
+                        w = maxDim;
+                    } else {
+                        w = Math.round((w / h) * maxDim);
+                        h = maxDim;
+                    }
+                }
+
+                canvas.width = w;
+                canvas.height = h;
                 
                 // Draw Video
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, 0, 0, w, h);
                 
                 // Draw Watermark
                 const dateStr = new Date().toLocaleString('zh-TW');
@@ -489,7 +503,7 @@
                     setImage(blob);
                     setStep('preview');
                     stopCamera();
-                }, 'image/jpeg', 0.8);
+                }, 'image/jpeg', 0.6);
             };
 
             const retake = () => {
@@ -2658,8 +2672,8 @@
                     
                     await withTimeout(
                         uploadBytes(imgRef, imageBlob), 
-                        30000, 
-                        '照片上傳逾時(30秒)，請檢查網路連線或稍後再試'
+                        60000, 
+                        '照片上傳逾時(60秒)，請檢查網路連線或稍後再試'
                     );
                     
                     const photoUrl = await withTimeout(
