@@ -456,7 +456,7 @@
                 // Resize logic
                 let w = video.videoWidth;
                 let h = video.videoHeight;
-                const maxDim = 1024; // Limit max dimension to 1024px for faster upload
+                const maxDim = 800; // Reduced to 800px
                 if (w > maxDim || h > maxDim) {
                     if (w > h) {
                         h = Math.round((h / w) * maxDim);
@@ -500,10 +500,14 @@
                 ctx.fillText(userName || '', canvas.width - 20, 40);
 
                 canvas.toBlob((blob) => {
+                    if (blob) {
+                        console.log(`Image size: ${(blob.size / 1024).toFixed(2)} KB`);
+                        // Optional: alert(`照片大小: ${(blob.size / 1024).toFixed(2)} KB`);
+                    }
                     setImage(blob);
                     setStep('preview');
                     stopCamera();
-                }, 'image/jpeg', 0.6);
+                }, 'image/jpeg', 0.5);
             };
 
             const retake = () => {
@@ -2665,23 +2669,42 @@
                     ]);
                 };
 
+                // Separate Upload and Database logic for better error handling
+                let photoUrl = '';
+
+                // 1. Upload Step
                 try {
-                    // Upload Image
                     const filename = `attendance/${dbUser.id}/${Date.now()}.jpg`;
                     const imgRef = storageRef(storage, filename);
                     
+                    console.log('Starting upload...');
                     await withTimeout(
                         uploadBytes(imgRef, imageBlob), 
                         60000, 
-                        '照片上傳逾時(60秒)，請檢查網路連線或稍後再試'
+                        '照片上傳逾時(60秒)，網路連線可能不穩定'
                     );
+                    console.log('Upload complete');
                     
-                    const photoUrl = await withTimeout(
+                    photoUrl = await withTimeout(
                         getDownloadURL(imgRef),
                         10000,
                         '取得照片連結逾時'
                     );
+                } catch (e) {
+                    console.error("Upload Error", e);
+                    let msg = e.message;
+                    if (e.code === 'storage/unauthorized') {
+                        msg = '權限不足 (Storage Rules)，請聯絡管理員檢查 Firebase Storage 規則';
+                    } else if (e.code === 'storage/retry-limit-exceeded') {
+                        msg = '連線不穩，已達重試上限';
+                    }
+                    alert("【步驟1：照片上傳失敗】\n" + msg);
+                    setIsProcessing(false);
+                    return; // Stop here
+                }
 
+                // 2. Database Step
+                try {
                     await withTimeout(
                         addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
                             userId: dbUser.id,
@@ -2696,14 +2719,20 @@
                             photoUrl: photoUrl
                         }),
                         15000,
-                        '資料寫入逾時(15秒)，請檢查網路連線'
+                        '資料寫入逾時(15秒)'
                     );
                     
                     setShowCameraModal(false);
                     alert('打卡成功！');
                 } catch (e) {
-                    console.error("Clock error", e);
-                    alert("打卡失敗: " + e.message);
+                    console.error("Database Error", e);
+                    let msg = e.message;
+                    if (e.code === 'permission-denied') {
+                        msg = '權限不足 (Firestore Rules)，無法寫入資料庫';
+                    }
+                    alert("【步驟2：資料儲存失敗】\n" + msg);
+                } finally {
+                    setIsProcessing(false);
                 }
             };
 
