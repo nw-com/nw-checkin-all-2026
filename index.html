@@ -56,7 +56,7 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useRef } from 'react';
+        import React, { useState, useEffect, useRef, useMemo } from 'react';
         import ReactDOM from 'react-dom/client';
         import { initializeApp, setLogLevel, deleteApp } from 'firebase/app';
         import { 
@@ -639,7 +639,7 @@
                 navigator.geolocation.getCurrentPosition(
                     successCallback,
                     (err) => {
-                        console.log('High accuracy failed/timeout, falling back to low accuracy...', err);
+                        // High accuracy failed/timeout, falling back to low accuracy...
                         // 降級嘗試：不強制高精準度，增加超時時間，允許較舊快取
                         navigator.geolocation.getCurrentPosition(
                             successCallback,
@@ -1921,7 +1921,7 @@
                                             {userError && <div className="text-xs text-red-600">{userError}</div>}
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={userSaving} onClick={async()=>{ try { console.log('Save button clicked', modalUser); setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { console.log('Calling onAddUser'); await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); } catch(e) { console.error('Save failed:', e); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                     </div>
                                 </div>
@@ -2140,7 +2140,7 @@
                                 lng: pos.coords.longitude
                             });
                         },
-                        (err) => console.error("Location error for sorting:", err),
+                        (err) => { /* Suppress location sorting error */ },
                         { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
                     );
                 }
@@ -2255,10 +2255,6 @@
             useEffect(() => {
                 if (!currentUser) return;
                 
-                // Check if user is company group (Admin, HR, Cadre)
-                // Manager (總幹事) is usually community-based in this system's logic
-                const isCompanyGroup = ['admin', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
-                
                 if (availableLocations.length > 0) {
                     if (!checkInLocation) {
                         setCheckInLocation({ id: availableLocations[0].id, name: availableLocations[0].name, type: availableLocations[0].type });
@@ -2269,7 +2265,7 @@
                         setHasLocationSorted(true);
                     }
                 }
-            }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted]);
+            }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup]);
 
             const lastRecord = attendanceHistory[0];
             const isWorking = lastRecord && lastRecord.type === 'in';
@@ -2314,8 +2310,6 @@
                                             if (checkInLocation) return checkInLocation.name;
                                             
                                             // Fallback Logic
-                                            // Manager (總幹事) is usually community-based
-                                            const isCompanyGroup = ['admin', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
                                             if (isCompanyGroup) {
                                                 // For company users, try to show company name
                                                 const company = companies.find(c => c.id === currentUser.companyId);
@@ -2670,19 +2664,50 @@
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
 
+            // Helper to suppress network noise - Defined at component level for reuse
+            const handleFetchError = (err, context) => {
+                const msg = (err.message || '').toLowerCase();
+                // Ignore common network/offline errors
+                if (
+                    msg.includes('offline') || 
+                    msg.includes('network') || 
+                    msg.includes('fetch') ||
+                    msg.includes('aborted') ||
+                    err.code === 'unavailable' ||
+                    err.code === 'resource-exhausted' ||
+                    err.name === 'FirebaseError' // Often wraps network issues
+                ) {
+                    return; 
+                }
+                // Only log critical application errors
+                console.error(`Error fetching ${context}:`, err);
+                // Only show UI error for permission issues
+                if (msg.includes('permission') || err.code === 'permission-denied') {
+                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                }
+            };
+
             useEffect(() => {
                 const syncTime = async () => {
-                    // Try multiple time APIs in sequence
+                    // Try multiple time APIs in sequence - prioritized more stable ones first
                     const apis = [
-                        'https://worldtimeapi.org/api/timezone/Asia/Taipei',
-                        'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei'
+                        'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei',
+                        'https://worldtimeapi.org/api/timezone/Asia/Taipei'
                     ];
 
                     for (const api of apis) {
                         try {
-                            const response = await fetch(api);
-                            if (response.ok) {
-                                const data = await response.json();
+                            // Add a timeout signal to prevent long hangs that browser might complain about
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 3000);
+                            
+                            const response = await fetch(api, { signal: controller.signal }).catch(() => null); // Catch fetch error immediately
+                            clearTimeout(timeoutId);
+                            
+                            if (response && response.ok) {
+                                const data = await response.json().catch(() => null);
+                                if (!data) continue;
+
                                 let serverTime;
                                 if (data.datetime) { // worldtimeapi
                                     serverTime = new Date(data.datetime).getTime();
@@ -2693,15 +2718,14 @@
                                 if (serverTime) {
                                     const offset = serverTime - Date.now();
                                     setTimeOffset(offset);
-                                    console.log('Time synced with', api, 'Offset:', offset);
                                     return; // Success, exit loop
                                 }
                             }
                         } catch (e) {
-                            console.warn('Time sync failed for', api, e);
+                            // Silently ignore
                         }
                     }
-                    console.error('All time sync sources failed');
+                    // Fallback to local time (no action needed as offset defaults to 0)
                 };
                 syncTime();
                 const i = setInterval(syncTime, 300000); // Check every 5 minutes
@@ -2725,7 +2749,7 @@
                     const snap = await getDocs(q);
                     snap.forEach(async (d) => {
                         await deleteDoc(d.ref);
-                        console.log('Deleted admin@sys.com from Firestore');
+                        // Silently deleted admin
                     });
                 };
                 deleteAdmin();
@@ -2897,8 +2921,7 @@
                         if (stopped) return;
                         setCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                     } catch (err) {
-                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
-                        console.error(err);
+                        handleFetchError(err, 'communities');
                     }
                 };
                 fetch();
@@ -2914,7 +2937,7 @@
                         const snap = await getDocs(ref);
                         setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                     } catch (error) {
-                        console.error("Error fetching roles:", error);
+                        handleFetchError(error, 'roles_initial');
                     }
                 };
                 fetchRoles();
@@ -2936,8 +2959,7 @@
                             if (stopUsers) return;
                             setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                         } catch (err) {
-                            setFetchError('資料讀取權限不足，請更新 Firestore 規則');
-                            console.error(err);
+                            handleFetchError(err, 'users_list');
                         }
                     };
                     fetch();
@@ -2949,33 +2971,34 @@
                     const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
                     const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
                     const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+
                     const fetchRoles = async () => {
                         try {
                             const snap = await getDocs(refRoles);
                             if (stopUsers) return;
                             setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { console.error(err); }
+                        } catch (err) { handleFetchError(err, 'roles'); }
                     };
                     const fetchCompanies = async () => {
                         try {
                             const snap = await getDocs(refCompanies);
                             if (stopAttendance) return;
                             setCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { console.error(err); }
+                        } catch (err) { handleFetchError(err, 'companies'); }
                     };
                     const fetchAreas = async () => {
                         try {
                             const snap = await getDocs(refAreas);
                             if (stopMyAttendance) return;
                             setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { console.error(err); }
+                        } catch (err) { handleFetchError(err, 'areas'); }
                     };
                     const fetchUsersForCounts = async () => {
                         try {
                             const snap = await getDocs(refUsers);
                             if (stopUsers) return;
                             setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { console.error(err); }
+                        } catch (err) { handleFetchError(err, 'users'); }
                     };
                     fetchRoles(); fetchCompanies(); fetchAreas(); fetchUsersForCounts();
                     var rolesInterval = setInterval(fetchRoles, 30000);
@@ -3000,8 +3023,7 @@
                             if (stopAttendance) return;
                             setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                         } catch (err) {
-                            setFetchError('資料讀取權限不足，請更新 Firestore 規則');
-                            console.error(err);
+                            handleFetchError(err, 'attendance_all');
                         }
                     };
                     fetchAll();
@@ -3020,8 +3042,7 @@
                             if (stopMyAttendance) return;
                             setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                         } catch (err) {
-                            setFetchError('資料讀取權限不足，請更新 Firestore 規則');
-                            console.error(err);
+                            handleFetchError(err, 'attendance_mine');
                         }
                     };
                     fetchMine();
@@ -3284,13 +3305,13 @@
                     const filename = `attendance/${dbUser.id}/${Date.now()}.jpg`;
                     const imgRef = storageRef(storage, filename);
                     
-                    console.log('Starting upload...');
+                    // Starting upload...
                     await withTimeout(
                         uploadBytes(imgRef, imageBlob), 
                         60000, 
                         '照片上傳逾時(60秒)，網路連線可能不穩定'
                     );
-                    console.log('Upload complete');
+                    // Upload complete
                     
                     photoUrl = await withTimeout(
                         getDownloadURL(imgRef),
@@ -3345,7 +3366,6 @@
             };
 
             const handleAddUser = async (userData) => {
-                console.log('App handleAddUser called with:', userData);
                 if (!user) return;
 
                 // Create user in Firebase Auth using a secondary app instance to avoid signing out the current admin
@@ -3441,7 +3461,23 @@
                                 <div className="relative h-32 bg-gradient-to-r from-red-600 to-red-500">
                                     <div className="absolute top-3 w-full flex justify-center">
                                         <h3 className="text-lg font-bold text-white drop-shadow-md uppercase tracking-wider">
-                                            個人資訊 {({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[dbUser?.role] || dbUser?.role)}
+                                            個人資訊 {(function() {
+                                                if (!dbUser) return '';
+                                                const roleObj = roles.find(r => r.id === dbUser.role);
+                                                if (roleObj) return roleObj.name;
+                                                const roleMap = {
+                                                    'admin': '系統管理員',
+                                                    'manager': '總幹事',
+                                                    'hr': '人事',
+                                                    'cadre': '幹部',
+                                                    'staff': '員工',
+                                                    'secretary': '秘書',
+                                                    'cleaner': '清潔',
+                                                    'mechanic': '機電',
+                                                    'guard': '保全'
+                                                };
+                                                return roleMap[dbUser.role] || dbUser.role;
+                                            })()}
                                         </h3>
                                     </div>
                                     <button onClick={() => setShowProfileModal(false)} className="absolute top-3 right-3 p-1 bg-black/20 text-white rounded-full hover:bg-black/40 transition">
@@ -3470,7 +3506,7 @@
                                     </div>
                                     
                                     <div className="text-center mb-6">
-                                        <h2 className="text-xl font-bold text-gray-800">{({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[dbUser?.role] || dbUser?.role)} {dbUser?.name}</h2>
+                                        <h2 className="text-xl font-bold text-gray-800">{dbUser?.name}</h2>
                                         <p className="text-xl text-gray-500">{dbUser?.title || '未設定職稱'}</p>
                                     </div>
 
@@ -4050,11 +4086,11 @@
                                                     const targetCompany = companies.find(c => c.name === cadreCompany);
                                                     if (!targetCompany) return <div className="text-center text-gray-400">請選擇公司</div>;
 
-                                                    // Filter: Company + Roles (admin, hr, cadre) - Explicitly excluding manager
-                                                    const targetRoles = ['admin', 'hr', 'cadre'];
+                                                    // Filter: Company - Show all users EXCEPT excluded roles
+                                                    const excludedRoles = ['manager', 'secretary', 'cleaner', 'mechanic', 'guard'];
                                                     const filteredUsers = usersList.filter(u => 
                                                         ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
-                                                        targetRoles.includes(u.role) &&
+                                                        !excludedRoles.includes(u.role) &&
                                                         (!cadreMapSelectedUserId || u.id === cadreMapSelectedUserId)
                                                     );
 
