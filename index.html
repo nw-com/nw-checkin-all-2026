@@ -327,19 +327,79 @@
             // Initialize Map when location is found and step is 'location'
             useEffect(() => {
                 if (step === 'location' && location && mapRef.current && window.google && window.google.maps) {
+                    // Calculate Work Site Location
+                    let wsLocation = null;
+                    if (workSite) {
+                        if (workSite.lat && workSite.lng) {
+                            wsLocation = { lat: parseFloat(workSite.lat), lng: parseFloat(workSite.lng) };
+                        } else if (workSite.location && typeof workSite.location === 'string') {
+                            const parts = workSite.location.split(',');
+                            if (parts.length === 2) {
+                                const lat = parseFloat(parts[0].trim());
+                                const lng = parseFloat(parts[1].trim());
+                                if (!isNaN(lat) && !isNaN(lng)) {
+                                    wsLocation = { lat, lng };
+                                }
+                            }
+                        }
+                    }
+
+                    // Center on Work Site if available, otherwise User Location
+                    const mapCenter = wsLocation || location;
+
                     const map = new google.maps.Map(mapRef.current, {
-                        center: location,
+                        center: mapCenter,
                         zoom: 17,
                         disableDefaultUI: true,
                         zoomControl: true,
                     });
+
+                    // User Marker
                     new google.maps.Marker({
                         position: location,
                         map: map,
-                        title: "目前位置"
+                        title: "目前位置",
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 7,
+                            fillColor: "#4285F4",
+                            fillOpacity: 1,
+                            strokeColor: "white",
+                            strokeWeight: 2,
+                        },
                     });
+
+                    // Work Site Marker and Circle
+                    if (wsLocation) {
+                        if (workSiteCircleRef.current) {
+                            workSiteCircleRef.current.setMap(null);
+                        }
+                        
+                        workSiteCircleRef.current = new google.maps.Circle({
+                            strokeColor: "#FF0000",
+                            strokeOpacity: 0.8,
+                            strokeWeight: 2,
+                            fillColor: "#FF0000",
+                            fillOpacity: 0.15,
+                            map: map,
+                            center: wsLocation,
+                            radius: 100 // Default 100m
+                        });
+
+                        new google.maps.Marker({
+                            position: wsLocation,
+                            map: map,
+                            title: workSite.name || "服務單位",
+                            label: {
+                                text: "打卡點",
+                                color: "white",
+                                fontSize: "12px",
+                                fontWeight: "bold"
+                            }
+                        });
+                    }
                 }
-            }, [step, location]);
+            }, [step, location, workSite]);
 
             const startCamera = async () => {
                 try {
@@ -368,48 +428,63 @@
                     setAddress('瀏覽器不支援定位');
                     return;
                 }
-                navigator.geolocation.getCurrentPosition(
-                    async (pos) => {
-                        const { latitude, longitude } = pos.coords;
-                        setLocation({ lat: latitude, lng: longitude });
-                        setError('');
-                        // Reverse Geocoding
-                        try {
-                            if (window.google && window.google.maps) {
-                                const gc = new google.maps.Geocoder();
-                                const latlng = { lat: latitude, lng: longitude };
-                                gc.geocode({ location: latlng }, (results, status) => {
-                                    if (status === 'OK' && results[0]) {
-                                        setAddress(results[0].formatted_address);
-                                    } else {
-                                        setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-                                    }
-                                });
-                            } else {
-                                setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-                            }
-                        } catch (e) {
+
+                const successCallback = async (pos) => {
+                    const { latitude, longitude } = pos.coords;
+                    setLocation({ lat: latitude, lng: longitude });
+                    setError('');
+                    // Reverse Geocoding
+                    try {
+                        if (window.google && window.google.maps) {
+                            const gc = new google.maps.Geocoder();
+                            const latlng = { lat: latitude, lng: longitude };
+                            gc.geocode({ location: latlng }, (results, status) => {
+                                if (status === 'OK' && results[0]) {
+                                    setAddress(results[0].formatted_address);
+                                } else {
+                                    setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                                }
+                            });
+                        } else {
                             setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
                         }
-                    },
+                    } catch (e) {
+                        setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                    }
+                };
+
+                const errorCallback = (err) => {
+                    console.error(err);
+                    let msg = '定位失敗';
+                    switch(err.code) {
+                        case err.PERMISSION_DENIED:
+                            msg = '定位權限被拒絕，請允許存取位置';
+                            break;
+                        case err.POSITION_UNAVAILABLE:
+                            msg = '無法偵測位置資訊';
+                            break;
+                        case err.TIMEOUT:
+                            msg = '定位逾時，請重試或確認訊號';
+                            break;
+                    }
+                    setAddress(msg);
+                    setError(msg);
+                };
+
+                // 策略：優先嘗試高精準度 (GPS)，但設定較短超時 (3秒) 與允許快取 (10秒) 以加快速度
+                // 如果失敗，則自動降級為一般定位 (WiFi/基地台)
+                navigator.geolocation.getCurrentPosition(
+                    successCallback,
                     (err) => {
-                        console.error(err);
-                        let msg = '定位失敗';
-                        switch(err.code) {
-                            case err.PERMISSION_DENIED:
-                                msg = '定位權限被拒絕，請允許存取位置';
-                                break;
-                            case err.POSITION_UNAVAILABLE:
-                                msg = '無法偵測位置資訊';
-                                break;
-                            case err.TIMEOUT:
-                                msg = '定位逾時，請重試';
-                                break;
-                        }
-                        setAddress(msg);
-                        setError(msg);
+                        console.log('High accuracy failed/timeout, falling back to low accuracy...', err);
+                        // 降級嘗試：不強制高精準度，增加超時時間，允許較舊快取
+                        navigator.geolocation.getCurrentPosition(
+                            successCallback,
+                            errorCallback,
+                            { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+                        );
                     },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 3000, maximumAge: 10000 }
                 );
             };
 
