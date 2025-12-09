@@ -31,6 +31,11 @@
     </script>
 
     <style>
+        /* Font Unification: Traditional Chinese */
+        body {
+            font-family: "Microsoft JhengHei", "PingFang TC", "Heiti TC", "Apple LiGothic Medium", "PMingLiU", sans-serif !important;
+        }
+
         /* Mobile optimization */
         body {
             -webkit-tap-highlight-color: transparent;
@@ -374,6 +379,7 @@
                         </button>
                     )}
                     
+
                     {selectedUser && (
                         <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm p-3 rounded-2xl shadow-lg border border-gray-100 z-10 animate-fade-in-up">
                             <div className="flex items-center gap-3">
@@ -1459,9 +1465,21 @@
                                                 <div className="text-gray-300">—</div>
                                             </div>
                                         ) : companies.map(c => {
-                                            const execCount = users.filter(u => u.companyId === c.id && u.role === 'hr').length;
-                                            const staffRoles = ['總幹事','秘書','清潔','機電','保全'];
-                                            const staffCount = users.filter(u => u.companyId === c.id && staffRoles.includes(u.role)).length;
+                                            const execRoles = ['admin', 'hr', 'cadre'];
+                                            // DEBUG Logic
+                                            const allExecCandidates = users.filter(u => execRoles.includes(u.role));
+                                            const debugTooltip = allExecCandidates.map(u => 
+                                                `${u.name || u.email}: ${u.role}, Main=${u.companyId}, Subs=${JSON.stringify(u.companyIds || [])}, Match=${((u.companyIds && u.companyIds.some(cid => String(cid) === String(c.id))) || String(u.companyId) === String(c.id))}`
+                                            ).join('\n');
+
+                                            const execUsers = users.filter(u => ((u.companyIds && u.companyIds.some(cid => String(cid) === String(c.id))) || String(u.companyId) === String(c.id)) && execRoles.includes(u.role));
+                                            const execCount = execUsers.length;
+                                            const execNames = execUsers.map(u => u.name || u.email).join('\n');
+
+                                            const staffRoles = ['manager', 'secretary', 'cleaner', 'mechanic', 'guard'];
+                                            const staffUsers = users.filter(u => ((u.companyIds && u.companyIds.some(cid => String(cid) === String(c.id))) || String(u.companyId) === String(c.id)) && staffRoles.includes(u.role));
+                                            const staffCount = staffUsers.length;
+                                            const staffNames = staffUsers.map(u => u.name || u.email).join('\n');
                                             return (
                                             <div key={c.id} className="grid grid-cols-11 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1300px]">
                                                 <div className="font-bold text-gray-700">{c.id}</div>
@@ -1478,8 +1496,8 @@
                                                     )}
                                                 </div>
                                                 <div className="text-gray-700">{c.radius ? `${c.radius}m` : '100m'}</div>
-                                                <div className="text-gray-700">{execCount}</div>
-                                                <div className="text-gray-700">{staffCount}</div>
+                                                <div className="text-gray-700 cursor-help underline decoration-dotted" title={debugTooltip}>{execCount}</div>
+                                                <div className="text-gray-700 cursor-help underline decoration-dotted" title={staffNames}>{staffCount}</div>
                                                 <div className="flex gap-2 justify-start">
                                                 <button onClick={()=>{ setCompanyForm({ id: c.id, name: c.name, address: c.address || '', lat: c.lat || '', lng: c.lng || '', radius: c.radius || 100 }); setShowCompanyModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'company', id:c.id, label:c.name }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
@@ -1707,10 +1725,11 @@
                                                 {(function(){ 
                                                     const ids = u.communityIds || (u.communityId ? [u.communityId] : []);
                                                     if (ids.length === 0) return '-';
-                                                    return ids.map(id => {
+                                                    const text = ids.map(id => {
                                                         const c = communities.find(c => c.id === id);
                                                         return c ? c.name : id;
                                                     }).join('、');
+                                                    return text.length > 10 ? text.substring(0, 10) + '...' : text;
                                                 })()}
                                             </div>
                                             <div className="text-gray-700">{u.status || '在職'}</div>
@@ -1810,6 +1829,69 @@
                                                             }}
                                                         />
                                                         全選
+                                                    </label>
+                                                    <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer select-none">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="w-4 h-4 text-gray-600 rounded-2xl focus:ring-gray-500" 
+                                                            checked={communities.some(c => c.id.startsWith('A')) && communities.filter(c => c.id.startsWith('A')).every(c => modalUser.communityIds?.includes(c.id))}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked;
+                                                                const targetIds = communities.filter(c => c.id.startsWith('A')).map(c => c.id);
+                                                                setModalUser(prev => {
+                                                                    const currentIds = prev.communityIds || [];
+                                                                    let newIds;
+                                                                    if (checked) {
+                                                                        newIds = [...new Set([...currentIds, ...targetIds])];
+                                                                    } else {
+                                                                        newIds = currentIds.filter(id => !targetIds.includes(id));
+                                                                    }
+                                                                    return { ...prev, communityIds: newIds };
+                                                                });
+                                                            }}
+                                                        /> A
+                                                    </label>
+                                                    <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer select-none">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="w-4 h-4 text-gray-600 rounded-2xl focus:ring-gray-500" 
+                                                            checked={communities.some(c => c.id.startsWith('B')) && communities.filter(c => c.id.startsWith('B')).every(c => modalUser.communityIds?.includes(c.id))}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked;
+                                                                const targetIds = communities.filter(c => c.id.startsWith('B')).map(c => c.id);
+                                                                setModalUser(prev => {
+                                                                    const currentIds = prev.communityIds || [];
+                                                                    let newIds;
+                                                                    if (checked) {
+                                                                        newIds = [...new Set([...currentIds, ...targetIds])];
+                                                                    } else {
+                                                                        newIds = currentIds.filter(id => !targetIds.includes(id));
+                                                                    }
+                                                                    return { ...prev, communityIds: newIds };
+                                                                });
+                                                            }}
+                                                        /> B
+                                                    </label>
+                                                    <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer select-none">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="w-4 h-4 text-gray-600 rounded-2xl focus:ring-gray-500" 
+                                                            checked={communities.some(c => c.id.startsWith('C')) && communities.filter(c => c.id.startsWith('C')).every(c => modalUser.communityIds?.includes(c.id))}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked;
+                                                                const targetIds = communities.filter(c => c.id.startsWith('C')).map(c => c.id);
+                                                                setModalUser(prev => {
+                                                                    const currentIds = prev.communityIds || [];
+                                                                    let newIds;
+                                                                    if (checked) {
+                                                                        newIds = [...new Set([...currentIds, ...targetIds])];
+                                                                    } else {
+                                                                        newIds = currentIds.filter(id => !targetIds.includes(id));
+                                                                    }
+                                                                    return { ...prev, communityIds: newIds };
+                                                                });
+                                                            }}
+                                                        /> C
                                                     </label>
                                                 </div>
                                                 {communities.map(c => (
@@ -2022,12 +2104,26 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [] }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [showLocationSelector, setShowLocationSelector] = useState(false);
             const [viewDate, setViewDate] = useState(new Date());
             const [currentLocation, setCurrentLocation] = useState(null);
             const [hasLocationSorted, setHasLocationSorted] = useState(false);
+
+            // Robust isCompanyGroup check
+            const isCompanyGroup = useMemo(() => {
+                if (!currentUser) return false;
+                // 1. Check hardcoded IDs
+                if (['admin', 'hr', 'cadre'].includes(currentUser.role)) return true;
+                // 2. Check Title
+                if (currentUser.title && currentUser.title.includes('幹部')) return true;
+                // 3. Check Role Name (using passed roles prop)
+                const roleObj = roles.find(r => r.id === currentUser.role);
+                if (roleObj && (roleObj.name.includes('幹部') || roleObj.name.includes('人事') || roleObj.name.includes('系統管理員'))) return true;
+                
+                return false;
+            }, [currentUser, roles]);
 
             useEffect(() => {
                 const timer = setInterval(() => setCurrentTime(new Date(Date.now() + (timeOffset || 0))), 1000);
@@ -2094,7 +2190,6 @@
 
             const getAvailableLocations = () => {
                  if (!currentUser) return [];
-                 const isCompanyGroup = ['admin', 'manager', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
                  
                  if (isCompanyGroup) {
                      const allCompanies = (companies || []).map(c => ({ ...c, type: 'company' }));
@@ -2105,22 +2200,22 @@
                          const isTaoyuan = userCompany.name.includes('桃園');
                          
                          if (isTaipei) {
-                             return allCompanies.sort((a, b) => {
-                                 if (a.name.includes('台北')) return -1;
-                                 if (b.name.includes('台北')) return 1;
-                                 if (a.name.includes('桃園') && !b.name.includes('台北')) return -1;
-                                 if (b.name.includes('桃園') && !a.name.includes('台北')) return 1;
-                                 return 0;
-                             });
-                         } else if (isTaoyuan) {
-                             return allCompanies.sort((a, b) => {
-                                 if (a.name.includes('桃園')) return -1;
-                                 if (b.name.includes('桃園')) return 1;
-                                 if (a.name.includes('台北') && !b.name.includes('桃園')) return -1;
-                                 if (b.name.includes('台北') && !a.name.includes('桃園')) return 1;
-                                 return 0;
-                             });
-                         } else {
+                            return allCompanies
+                                .filter(c => c.name.includes('台北') || c.name.includes('桃園'))
+                                .sort((a, b) => {
+                                    if (a.name.includes('台北')) return -1;
+                                    if (b.name.includes('台北')) return 1;
+                                    return 0;
+                                });
+                        } else if (isTaoyuan) {
+                            return allCompanies
+                                .filter(c => c.name.includes('台北') || c.name.includes('桃園'))
+                                .sort((a, b) => {
+                                    if (a.name.includes('桃園')) return -1;
+                                    if (b.name.includes('桃園')) return 1;
+                                    return 0;
+                                });
+                        } else {
                              return allCompanies.sort((a, b) => {
                                  if (a.id === userCompany.id) return -1;
                                  if (b.id === userCompany.id) return 1;
@@ -2160,7 +2255,9 @@
             useEffect(() => {
                 if (!currentUser) return;
                 
-                const isCompanyGroup = ['admin', 'manager', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
+                // Check if user is company group (Admin, HR, Cadre)
+                // Manager (總幹事) is usually community-based in this system's logic
+                const isCompanyGroup = ['admin', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
                 
                 if (availableLocations.length > 0) {
                     if (!checkInLocation) {
@@ -2187,17 +2284,49 @@
                         <div className="p-6 relative z-10 text-white">
                             <div className="flex justify-between items-start mb-6">
                                 <div>
-                                    <h2 className="text-2xl font-bold">{currentUser.name}</h2>
+                                    <h2 className="text-2xl font-bold">
+                                        {(function() {
+                                            // 1. Try to find role name from roles list
+                                            const roleObj = roles.find(r => r.id === currentUser.role);
+                                            if (roleObj) return roleObj.name;
+                                            
+                                            // 2. Fallback to hardcoded mapping
+                                            const roleMap = {
+                                                'admin': '系統管理員',
+                                                'manager': '總幹事', // or 管理層
+                                                'hr': '人事',
+                                                'cadre': '幹部',
+                                                'staff': '員工',
+                                                'secretary': '秘書',
+                                                'cleaner': '清潔',
+                                                'mechanic': '機電',
+                                                'guard': '保全'
+                                            };
+                                            return roleMap[currentUser.role] || currentUser.role;
+                                        })()} {currentUser.name}
+                                    </h2>
                                     <p 
                                         onClick={() => availableLocations.length > 1 && setShowLocationSelector(true)}
-                                        className={`text-red-100 text-sm flex items-center gap-1 mt-1 ${availableLocations.length > 1 ? 'cursor-pointer hover:bg-white/10 rounded px-1 -ml-1 transition' : ''}`}
+                                        className={`text-red-100 text-2xl flex items-center gap-1 mt-1 ${availableLocations.length > 1 ? 'cursor-pointer hover:bg-white/10 rounded px-1 -ml-1 transition' : ''}`}
                                     >
-                                        <Building2 className="w-3 h-3" />
-                                        {checkInLocation ? checkInLocation.name : (currentUser.communityName || '未分配')}
-                                        {availableLocations.length > 1 && <RefreshCw className="w-3 h-3 opacity-70" />}
+                                        <Building2 className="w-6 h-6" />
+                                        {(function() {
+                                            if (checkInLocation) return checkInLocation.name;
+                                            
+                                            // Fallback Logic
+                                            // Manager (總幹事) is usually community-based
+                                            const isCompanyGroup = ['admin', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
+                                            if (isCompanyGroup) {
+                                                // For company users, try to show company name
+                                                const company = companies.find(c => c.id === currentUser.companyId);
+                                                return company ? company.name : (currentUser.communityName || '未分配');
+                                            }
+                                            return currentUser.communityName || '未分配';
+                                        })()}
+                                        {availableLocations.length > 1 && <RefreshCw className="w-6 h-6 opacity-70" />}
                                     </p>
                                 </div>
-                                <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-mono">
+                                <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-2xl font-mono">
                                     {isWorking ? '工作中' : '未打卡'}
                                 </div>
                             </div>
@@ -2205,7 +2334,7 @@
                                 <div className="text-5xl font-bold font-mono tracking-wider drop-shadow-sm">
                                     {currentTime.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit', second: '2-digit' })}
                                 </div>
-                                <p className="text-red-100 text-sm mt-2 opacity-80">
+                                <p className="text-red-100 text-2xl mt-2 opacity-80">
                                     {currentTime.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
                                 </p>
                             </div>
@@ -2852,7 +2981,7 @@
                     var rolesInterval = setInterval(fetchRoles, 30000);
                     var companiesInterval = setInterval(fetchCompanies, 30000);
                     var areasInterval = setInterval(fetchAreas, 30000);
-                    var usersForCountsInterval = setInterval(fetchUsersForCounts, 30000);
+                    var usersForCountsInterval = setInterval(fetchUsersForCounts, 5000);
                 }
 
                 if (['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role)) {
@@ -3246,7 +3375,16 @@
                     }
                 }
 
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123456', updatedByName: '新增', updatedAt: serverTimestamp() });
+                const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123456', updatedByName: '新增', updatedAt: serverTimestamp() });
+                
+                // Optimistic update for immediate UI feedback
+                setUsersList(prev => [...prev, { 
+                    id: docRef.id, 
+                    ...userData, 
+                    password: '123456', 
+                    updatedByName: '新增', 
+                    updatedAt: new Date() 
+                }]);
             };
 
             const handleAddCommunity = async (name) => {
@@ -3332,8 +3470,8 @@
                                     </div>
                                     
                                     <div className="text-center mb-6">
-                                        <h2 className="text-xl font-bold text-gray-800">{dbUser?.name}</h2>
-                                        <p className="text-xs text-gray-500">{dbUser?.title || '未設定職稱'}</p>
+                                        <h2 className="text-xl font-bold text-gray-800">{({admin:'系統管理員', manager:'管理層', hr:'幹部', staff:'員工'}[dbUser?.role] || dbUser?.role)} {dbUser?.name}</h2>
+                                        <p className="text-xl text-gray-500">{dbUser?.title || '未設定職稱'}</p>
                                     </div>
 
                                     <div className="space-y-3">
@@ -3437,7 +3575,7 @@
                             )}
                             {activeTab === 'overview' && (
                                 <div className="w-full flex justify-center">
-                                    <div className="text-xl font-bold text-black">{dateTime}</div>
+                                    <div className="text-4xl font-bold text-black">{dateTime}</div>
                                 </div>
                             )}
                             {activeTab === 'clock' && (
@@ -3470,7 +3608,7 @@
                                 </div>
                             )}
 
-                            {activeTab === 'cadre' && cadreSubtab === 'map' && (
+                            {activeTab === 'cadre' && (
                                 <div className="absolute top-full left-0 right-0 h-[8vh] bg-white/80 backdrop-blur-sm flex items-center gap-3 overflow-x-auto px-4 no-scrollbar z-30 shadow-sm">
                                     {(function() {
                                         const targetCompany = companies.find(c => c.name === cadreCompany);
@@ -3479,7 +3617,7 @@
                                         // Filter: Company + Roles (admin, hr, cadre)
                                         const targetRoles = ['admin', 'hr', 'cadre'];
                                         const companyUsers = usersList.filter(u => 
-                                            u.companyId === targetCompany.id && 
+                                            ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
                                             targetRoles.includes(u.role)
                                         );
                                         
@@ -3487,18 +3625,25 @@
 
                                         return companyUsers.map(u => (
                                             <div 
-                                                key={u.id} 
-                                                className="flex-shrink-0 w-[40px] h-[40px] rounded-full bg-gray-200 overflow-hidden border-2 border-white shadow-sm relative cursor-pointer hover:scale-105 transition-transform" 
-                                                title={u.name}
+                                                key={u.id}
+                                                className="flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group"
                                                 onClick={() => setCadreMapSelectedUserId(u.id)}
                                             >
-                                                {u.avatarUrl ? (
-                                                    <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs">
-                                                        {u.name?.[0]}
-                                                    </div>
-                                                )}
+                                                <div 
+                                                    className="w-[30px] h-[30px] rounded-full bg-gray-200 overflow-hidden border-2 border-white shadow-sm relative group-hover:scale-105 transition-transform" 
+                                                    title={u.name}
+                                                >
+                                                    {u.avatarUrl ? (
+                                                        <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs">
+                                                            {u.name?.[0]}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <span className="text-[10px] text-gray-600 font-medium max-w-[48px] truncate">
+                                                    {u.name}
+                                                </span>
                                             </div>
                                         ));
                                     })()}
@@ -3525,7 +3670,7 @@
                     </div>
 
                     {/* Main Content Area - Mobile Container */}
-                    <main className={`absolute left-0 right-0 overflow-y-auto ${(activeTab === 'cadre' && cadreSubtab === 'map') ? 'top-[24vh] h-[68vh]' : 'top-[16vh] h-[76vh]'}`}>
+                    <main className={`absolute left-0 right-0 overflow-y-auto ${(activeTab === 'cadre') ? 'top-[24vh] h-[68vh]' : 'top-[16vh] h-[76vh]'}`}>
                         <div className={`w-full max-w-md mx-auto px-4 py-4 ${activeTab === 'cadre' ? 'pb-20' : ''}`}>
                         
                         {/* Role Based Views */}
@@ -3543,6 +3688,7 @@
                                         setCheckInLocation={setCheckInLocation}
                                         setMapPreviewTarget={setMapPreviewTarget}
                                         setPreviewImageUrl={setPreviewImageUrl}
+                                        roles={roles}
                                     />
                                 </ErrorBoundary>
                             </div>
@@ -3562,6 +3708,7 @@
                                         setCheckInLocation={setCheckInLocation}
                                         setMapPreviewTarget={setMapPreviewTarget}
                                         setPreviewImageUrl={setPreviewImageUrl}
+                                        roles={roles}
                                     />
                                 )}
                                 {clockSubtab !== 'work' && (
@@ -3653,7 +3800,7 @@
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                     <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                         <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
-                                        <span className="text-red-600 font-bold text-lg">{cadreCompany}</span>
+                                        <span className="text-red-600 font-bold">{cadreCompany}</span>
                                     </div>
 
                                     {cadreSubtab === 'map' && (
@@ -3725,37 +3872,7 @@
                                                             )}
                                                         </div>
 
-                                                        {/* Avatar Row */}
-                                                        {displayLocation && companyUsers.length > 0 && (
-                                                            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar px-1">
-                                                                {companyUsers.map(u => (
-                                                                    <button 
-                                                                        key={u.id}
-                                                                        onClick={() => setCadreMapSelectedUserId(u.id)}
-                                                                        className="flex-shrink-0 flex flex-col items-center gap-1 group"
-                                                                    >
-                                                                        <div className={`w-10 h-10 rounded-full overflow-hidden border-2 transition-all duration-300 ${
-                                                                            cadreMapSelectedUserId === u.id 
-                                                                            ? 'border-red-500 ring-2 ring-red-100 scale-110' 
-                                                                            : 'border-white shadow-sm opacity-80 group-hover:opacity-100'
-                                                                        }`}>
-                                                                            {u.avatarUrl ? (
-                                                                                <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
-                                                                            ) : (
-                                                                                <div className="w-full h-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
-                                                                                    {u.name?.[0]}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                        <span className={`text-[10px] font-medium truncate max-w-[48px] transition-colors ${
-                                                                            cadreMapSelectedUserId === u.id ? 'text-red-600 font-bold' : 'text-gray-600'
-                                                                        }`}>
-                                                                            {u.name}
-                                                                        </span>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        )}
+
                                                     </div>
                                                 );
                                             })()}
@@ -3801,12 +3918,13 @@
 
                                                     // 1. Get all users of this company
                                                     const companyUserIds = usersList
-                                                        .filter(u => u.companyId === targetCompany.id)
+                                                        .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
                                                         .map(u => u.id);
 
                                                     // 2. Filter attendance records
                                                      const records = attendanceList.filter(r => {
                                                          if (!companyUserIds.includes(r.userId)) return false;
+                                                         if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
                                                          
                                                          const rDate = new Date(r.timestamp.seconds * 1000);
                                                          const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
@@ -3935,8 +4053,9 @@
                                                     // Filter: Company + Roles (admin, hr, cadre) - Explicitly excluding manager
                                                     const targetRoles = ['admin', 'hr', 'cadre'];
                                                     const filteredUsers = usersList.filter(u => 
-                                                        u.companyId === targetCompany.id && 
-                                                        targetRoles.includes(u.role)
+                                                        ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
+                                                        targetRoles.includes(u.role) &&
+                                                        (!cadreMapSelectedUserId || u.id === cadreMapSelectedUserId)
                                                     );
 
                                                     if (filteredUsers.length === 0) return <div className="text-center text-gray-400">尚無符合條件的帳號</div>;
@@ -4051,7 +4170,7 @@
                                                     setCadreCompany(name);
                                                     setCadreMapSelectedUserId(null);
                                                 }}
-                                                className={`w-[40px] h-[40px] flex items-center justify-center text-[10px] leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     cadreCompany === name 
                                                         ? 'bg-red-600 text-white' 
                                                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
