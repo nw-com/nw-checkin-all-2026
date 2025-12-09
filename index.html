@@ -2689,6 +2689,8 @@
 
             useEffect(() => {
                 const syncTime = async () => {
+                    if (!navigator.onLine) return; // Skip if offline to prevent network errors
+
                     // Try multiple time APIs in sequence - prioritized more stable ones first
                     const apis = [
                         'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei',
@@ -2699,7 +2701,7 @@
                         try {
                             // Add a timeout signal to prevent long hangs that browser might complain about
                             const controller = new AbortController();
-                            const timeoutId = setTimeout(() => controller.abort(), 3000);
+                            const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased timeout to 10s
                             
                             const response = await fetch(api, { signal: controller.signal }).catch(() => null); // Catch fetch error immediately
                             clearTimeout(timeoutId);
@@ -2916,6 +2918,7 @@
                 const ref = collection(db, 'artifacts', appId, 'public', 'data', 'communities');
                 let stopped = false;
                 const fetch = async () => {
+                    if (!navigator.onLine) return;
                     try {
                         const snap = await getDocs(ref);
                         if (stopped) return;
@@ -2933,6 +2936,7 @@
                 if (!user) return;
                 const ref = collection(db, 'artifacts', appId, 'public', 'data', 'roles');
                 const fetchRoles = async () => {
+                    if (!navigator.onLine) return;
                     try {
                         const snap = await getDocs(ref);
                         setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -2954,6 +2958,7 @@
                 if (dbUser && activeTab === 'settings' && settingsSubtab === 'account') {
                     const ref = collection(db, 'artifacts', appId, 'public', 'data', 'users');
                     const fetch = async () => {
+                        if (!navigator.onLine) return;
                         try {
                             const snap = await getDocs(ref);
                             if (stopUsers) return;
@@ -2973,6 +2978,7 @@
                     const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
 
                     const fetchRoles = async () => {
+                        if (!navigator.onLine) return;
                         try {
                             const snap = await getDocs(refRoles);
                             if (stopUsers) return;
@@ -2980,6 +2986,7 @@
                         } catch (err) { handleFetchError(err, 'roles'); }
                     };
                     const fetchCompanies = async () => {
+                        if (!navigator.onLine) return;
                         try {
                             const snap = await getDocs(refCompanies);
                             if (stopAttendance) return;
@@ -2987,6 +2994,7 @@
                         } catch (err) { handleFetchError(err, 'companies'); }
                     };
                     const fetchAreas = async () => {
+                        if (!navigator.onLine) return;
                         try {
                             const snap = await getDocs(refAreas);
                             if (stopMyAttendance) return;
@@ -2994,6 +3002,7 @@
                         } catch (err) { handleFetchError(err, 'areas'); }
                     };
                     const fetchUsersForCounts = async () => {
+                        if (!navigator.onLine) return;
                         try {
                             const snap = await getDocs(refUsers);
                             if (stopUsers) return;
@@ -4088,6 +4097,11 @@
 
                                                     // Filter: Company - Show all users EXCEPT excluded roles
                                                     const excludedRoles = ['manager', 'secretary', 'cleaner', 'mechanic', 'guard'];
+                                                    
+                                                    // DEBUG: Find Lao Xiao
+                                                    const lao = usersList.find(u => u.name && u.name.includes('蕭'));
+                                                    if (lao) console.log('Found Lao Xiao:', lao);
+
                                                     const filteredUsers = usersList.filter(u => 
                                                         ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
                                                         !excludedRoles.includes(u.role) &&
