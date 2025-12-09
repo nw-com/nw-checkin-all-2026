@@ -155,12 +155,37 @@
         );
 
         // 1.2 Company Map Preview Component
-        const CompanyMapPreview = ({ lat, lng, radius, avatarUrl }) => {
+        const CompanyMapPreview = ({ lat, lng, radius, avatarUrl, users, externalSelectedUserId, onUserSelect }) => {
             const mapRef = useRef(null);
             const mapInstanceRef = useRef(null);
             const circleRef = useRef(null);
             const markerRef = useRef(null);
+            const markersRef = useRef([]);
             const [showResetBtn, setShowResetBtn] = useState(false);
+            const [selectedUser, setSelectedUser] = useState(null);
+
+            // Handle external selection changes
+            useEffect(() => {
+                if (externalSelectedUserId && users) {
+                    const target = users.find(u => u.id === externalSelectedUserId);
+                    if (target) {
+                        if (mapInstanceRef.current && target.lat && target.lng) {
+                             const uLoc = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
+                             mapInstanceRef.current.panTo(uLoc);
+                             mapInstanceRef.current.setZoom(19);
+                             setShowResetBtn(true);
+                             setSelectedUser(target);
+                        }
+                    }
+                }
+            }, [externalSelectedUserId, users]);
+
+            // Reset state when location changes (e.g. switching companies)
+            useEffect(() => {
+                setShowResetBtn(false);
+                setSelectedUser(null);
+                if (onUserSelect) onUserSelect(null);
+            }, [lat, lng]);
 
             const handleResetCenter = () => {
                 if (mapInstanceRef.current && lat && lng) {
@@ -168,6 +193,8 @@
                     mapInstanceRef.current.panTo(center);
                     mapInstanceRef.current.setZoom(17);
                     setShowResetBtn(false);
+                    setSelectedUser(null);
+                    if (onUserSelect) onUserSelect(null);
                 }
             };
 
@@ -220,16 +247,9 @@
                 const r = parseFloat(radius) || 100;
 
                 const initMap = async () => {
-                    let markerIcon = null;
-                    if (avatarUrl) {
-                        markerIcon = await createCircularIcon(avatarUrl);
-                    }
-                    
-                    // Fallback to default logic if avatar fails or not present (but only if we didn't get an icon)
-                    if (!markerIcon && avatarUrl) {
-                         // If failed to process avatar, maybe try original url or just null
-                         // For now let's keep it simple, if no canvas icon, use null (default marker)
-                    }
+                    // Clear previous multiple markers
+                    markersRef.current.forEach(m => m.setMap(null));
+                    markersRef.current = [];
 
                     if (!mapInstanceRef.current) {
                         // Init Map
@@ -238,44 +258,109 @@
                             zoom: 17,
                             disableDefaultUI: true,
                             zoomControl: true,
+                            gestureHandling: 'greedy' // Allow single finger pan
                         });
                         
-                        // Listen for drag end to show reset button
                         mapInstanceRef.current.addListener('dragend', () => {
                             setShowResetBtn(true);
                         });
 
-                        // Init Marker
-                        markerRef.current = new google.maps.Marker({
-                            position: location,
-                            map: mapInstanceRef.current,
-                            icon: markerIcon
+                        mapInstanceRef.current.addListener('zoomend', () => {
+                            setShowResetBtn(true);
+                        });
+                        
+                        // Close info window on map click
+                        mapInstanceRef.current.addListener('click', () => {
+                            setSelectedUser(null);
                         });
 
                         // Init Circle
                         circleRef.current = new google.maps.Circle({
-                            strokeColor: "#FF0000",
+                            strokeColor: "#EF4444",
                             strokeOpacity: 0.8,
                             strokeWeight: 2,
-                            fillColor: "#FF0000",
-                            fillOpacity: 0.35,
+                            fillColor: "#EF4444",
+                            fillOpacity: 0.15,
                             map: mapInstanceRef.current,
                             center: location,
                             radius: r
                         });
+                        
+                        // Add center marker
+                         if (markerRef.current) markerRef.current.setMap(null);
+                         markerRef.current = new google.maps.Marker({
+                             position: location,
+                             map: mapInstanceRef.current,
+                             icon: {
+                                  path: google.maps.SymbolPath.CIRCLE,
+                                  scale: 6,
+                                  fillColor: "#EF4444",
+                                  fillOpacity: 1,
+                                  strokeColor: "white",
+                                  strokeWeight: 2,
+                             },
+                             title: "公司中心"
+                         });
                     } else {
-                        // Update Map
+                        // Update Circle
+                        if (circleRef.current) {
+                            circleRef.current.setCenter(location);
+                            circleRef.current.setRadius(r);
+                        }
+                        // Update Center Marker
+                        if (markerRef.current) {
+                            markerRef.current.setPosition(location);
+                            if (!users || users.length === 0) {
+                                markerRef.current.setMap(mapInstanceRef.current);
+                            } else {
+                                // In multi-user mode, we still show company center marker but with simple style
+                                 markerRef.current.setMap(mapInstanceRef.current);
+                            }
+                        }
+                    }
+
+                    // Handle Users
+                    if (users && users.length > 0) {
+                        const newMarkers = [];
+                        for (const u of users) {
+                             if (u.lat && u.lng) {
+                                 const uLoc = { lat: parseFloat(u.lat), lng: parseFloat(u.lng) };
+                                 let icon = null;
+                                 if (u.avatarUrl) icon = await createCircularIcon(u.avatarUrl);
+                                 
+                                 const m = new google.maps.Marker({
+                                     position: uLoc,
+                                     map: mapInstanceRef.current,
+                                     icon: icon,
+                                     title: u.name,
+                                     zIndex: 100 // Ensure users are on top
+                                 });
+                                 
+                                 // Add click listener for marker
+                                m.addListener('click', () => {
+                                    mapInstanceRef.current.panTo(uLoc);
+                                    mapInstanceRef.current.setZoom(19); 
+                                    setShowResetBtn(true);
+                                    setSelectedUser(u);
+                                    if (onUserSelect) onUserSelect(u);
+                                });
+                                 
+                                 newMarkers.push(m);
+                             }
+                        }
+                        markersRef.current = newMarkers;
+                    }
+                    
+                    // Force center on company location ONLY if NOT manually moved/zoomed (reset button hidden)
+                    // AND no user is currently selected externally
+                    if (!showResetBtn && !selectedUser && !externalSelectedUserId) {
                         mapInstanceRef.current.setCenter(location);
-                        markerRef.current.setPosition(location);
-                        markerRef.current.setIcon(markerIcon);
-                        circleRef.current.setCenter(location);
-                        circleRef.current.setRadius(r);
-                        setShowResetBtn(false);
+                        mapInstanceRef.current.setZoom(17);
                     }
                 };
                 
                 initMap();
-            }, [lat, lng, radius, avatarUrl]);
+            }, [lat, lng, radius, avatarUrl, users, showResetBtn, selectedUser, externalSelectedUserId]);
 
             return (
                 <div className="w-full h-full relative">
@@ -288,11 +373,83 @@
                             <MapPin className="w-3 h-3" /> 回到公司
                         </button>
                     )}
+                    
+                    {selectedUser && (
+                        <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm p-3 rounded-2xl shadow-lg border border-gray-100 z-10 animate-fade-in-up">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 border border-gray-100">
+                                    {selectedUser.avatarUrl ? (
+                                        <img src={selectedUser.avatarUrl} alt={selectedUser.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs">
+                                            {selectedUser.name?.[0]}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-gray-800 text-sm truncate">{selectedUser.name}</div>
+                                    <div className="text-xs text-gray-500 truncate flex items-center gap-1">
+                                        <MapPin className="w-3 h-3" />
+                                        {selectedUser.locationName || '座標定位'}
+                                    </div>
+                                    <div className="text-[10px] text-gray-400 mt-0.5">
+                                        {selectedUser.time ? new Date(selectedUser.time).toLocaleString('zh-TW') : '剛剛'}
+                                    </div>
+                                </div>
+                                <button 
+                            onClick={() => {
+                                setSelectedUser(null);
+                                if (onUserSelect) onUserSelect(null);
+                            }}
+                            className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
+                        >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
 
-        // 1.5 Camera Modal
+        // Error Boundary Component
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+
+            componentDidCatch(error, errorInfo) {
+                console.error("ErrorBoundary caught an error", error, errorInfo);
+            }
+
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="p-6 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-center m-4">
+                            <h2 className="font-bold text-lg mb-2">頁面發生錯誤</h2>
+                            <p className="text-sm mb-4">很抱歉，系統遇到預期外的錯誤。</p>
+                            <pre className="text-xs bg-white p-3 rounded-xl overflow-auto text-left mx-auto max-w-lg shadow-inner">
+                                {this.state.error && this.state.error.toString()}
+                            </pre>
+                            <button 
+                                onClick={() => window.location.reload()}
+                                className="mt-4 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-red-200 hover:bg-red-700 transition"
+                            >
+                                重新整理頁面
+                            </button>
+                        </div>
+                    );
+                }
+                return this.props.children; 
+            }
+        }
+
+        // 1. Camera Modal
         const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, workSite, checkInLocationName }) => {
             const videoRef = useRef(null);
             const canvasRef = useRef(null);
@@ -1262,28 +1419,6 @@
                                         </div>
                                     </div>
                                 )}
-                                {mapPreviewTarget && (
-                                    <div className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4" onClick={()=>setMapPreviewTarget(null)}>
-                                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl h-[500px] overflow-hidden flex flex-col relative" onClick={e=>e.stopPropagation()}>
-                                            <div className="absolute top-4 right-4 z-10">
-                                                <button onClick={()=>setMapPreviewTarget(null)} className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100">
-                                                    <X className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                            <div className="flex-1 w-full h-full relative">
-                                                <CompanyMapPreview 
-                                                    lat={mapPreviewTarget.lat} 
-                                                    lng={mapPreviewTarget.lng} 
-                                                    radius={mapPreviewTarget.radius} 
-                                                />
-                                                <div className="absolute bottom-4 left-4 bg-white/90 px-3 py-2 rounded-xl shadow-lg text-xs font-bold text-gray-700 pointer-events-none">
-                                                    <div className="text-sm mb-1">{mapPreviewTarget.name}</div>
-                                                    <div>打卡範圍: {mapPreviewTarget.radius || 100}m</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
@@ -1887,23 +2022,53 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
-            const [viewRecord, setViewRecord] = useState(null);
-            const [viewType, setViewType] = useState(null);
             const [showLocationSelector, setShowLocationSelector] = useState(false);
             const [viewDate, setViewDate] = useState(new Date());
+            const [currentLocation, setCurrentLocation] = useState(null);
+            const [hasLocationSorted, setHasLocationSorted] = useState(false);
 
             useEffect(() => {
                 const timer = setInterval(() => setCurrentTime(new Date(Date.now() + (timeOffset || 0))), 1000);
                 return () => clearInterval(timer);
             }, [timeOffset]);
 
+            // Get Current Location for sorting
+            useEffect(() => {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            setCurrentLocation({
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude
+                            });
+                        },
+                        (err) => console.error("Location error for sorting:", err),
+                        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+                    );
+                }
+            }, []);
+
             // Helper to compare dates
             const isSameDay = (d1, d2) => {
                 return d1.getFullYear() === d2.getFullYear() &&
                        d1.getMonth() === d2.getMonth() &&
                        d1.getDate() === d2.getDate();
+            };
+
+            // Helper to calculate distance
+            const calculateDistance = (lat1, lon1, lat2, lon2) => {
+                const R = 6371e3; // metres
+                const φ1 = lat1 * Math.PI / 180;
+                const φ2 = lat2 * Math.PI / 180;
+                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                const Δλ = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                        Math.cos(φ1) * Math.cos(φ1) *
+                        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
             };
 
             const handlePrevDay = () => {
@@ -1927,51 +2092,87 @@
                 return isSameDay(recordDate, viewDate);
             });
 
-            // Initialize CheckIn Location
-            useEffect(() => {
-                if (checkInLocation) return;
-                if (!currentUser) return;
-                
-                // Determine group
-                const isCompanyGroup = ['admin', 'manager', 'hr'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
-                
-                if (isCompanyGroup) {
-                    // Company Logic
-                    if (companies && companies.length > 0) {
-                        const taipei = companies.find(c => c.name.includes('台北'));
-                        const def = taipei || companies[0];
-                        setCheckInLocation({ id: def.id, name: def.name, type: 'company' });
-                    }
-                } else {
-                    // Community Logic
-                    if (communities) {
-                        const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
-                        const userComms = communities.filter(c => userCommIds.includes(c.id));
-                        
-                        if (userComms.length > 0) {
-                            // Sort by ID (smallest first)
-                            const sorted = [...userComms].sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
-                            const def = sorted[0];
-                            setCheckInLocation({ id: def.id, name: def.name, type: 'community' });
-                        } else if (currentUser.communityId && currentUser.communityName) {
-                            setCheckInLocation({ id: currentUser.communityId, name: currentUser.communityName, type: 'community' });
-                        }
-                    }
-                }
-            }, [currentUser, companies, communities, checkInLocation, setCheckInLocation]);
-
             const getAvailableLocations = () => {
                  if (!currentUser) return [];
-                 const isCompanyGroup = ['admin', 'manager', 'hr'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
+                 const isCompanyGroup = ['admin', 'manager', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
+                 
                  if (isCompanyGroup) {
-                     return (companies || []).map(c => ({ ...c, type: 'company' }));
+                     const allCompanies = (companies || []).map(c => ({ ...c, type: 'company' }));
+                     const userCompany = allCompanies.find(c => c.id === currentUser.companyId);
+                     
+                     if (userCompany) {
+                         const isTaipei = userCompany.name.includes('台北');
+                         const isTaoyuan = userCompany.name.includes('桃園');
+                         
+                         if (isTaipei) {
+                             return allCompanies.sort((a, b) => {
+                                 if (a.name.includes('台北')) return -1;
+                                 if (b.name.includes('台北')) return 1;
+                                 if (a.name.includes('桃園') && !b.name.includes('台北')) return -1;
+                                 if (b.name.includes('桃園') && !a.name.includes('台北')) return 1;
+                                 return 0;
+                             });
+                         } else if (isTaoyuan) {
+                             return allCompanies.sort((a, b) => {
+                                 if (a.name.includes('桃園')) return -1;
+                                 if (b.name.includes('桃園')) return 1;
+                                 if (a.name.includes('台北') && !b.name.includes('桃園')) return -1;
+                                 if (b.name.includes('台北') && !a.name.includes('桃園')) return 1;
+                                 return 0;
+                             });
+                         } else {
+                             return allCompanies.sort((a, b) => {
+                                 if (a.id === userCompany.id) return -1;
+                                 if (b.id === userCompany.id) return 1;
+                                 return 0;
+                             });
+                         }
+                     }
+                     return allCompanies;
                  } else {
                      const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
-                     return (communities || []).filter(c => userCommIds.includes(c.id)).map(c => ({ ...c, type: 'community' }));
+                     const userComms = (communities || []).filter(c => userCommIds.includes(c.id)).map(c => ({ ...c, type: 'community' }));
+                     
+                     if (currentLocation && userComms.length > 1) {
+                         return userComms.sort((a, b) => {
+                             const latA = parseFloat(a.coordLat);
+                             const lngA = parseFloat(a.coordLng);
+                             const latB = parseFloat(b.coordLat);
+                             const lngB = parseFloat(b.coordLng);
+                             
+                             if (isNaN(latA) || isNaN(lngA)) return 1;
+                             if (isNaN(latB) || isNaN(lngB)) return -1;
+                             
+                             const distA = calculateDistance(currentLocation.lat, currentLocation.lng, latA, lngA);
+                             const distB = calculateDistance(currentLocation.lat, currentLocation.lng, latB, lngB);
+                             return distA - distB;
+                         });
+                     }
+                     
+                     // Fallback: Sort by ID
+                     return userComms.sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
                  }
             };
-
+            
             const availableLocations = getAvailableLocations();
+
+            // Initialize CheckIn Location
+            useEffect(() => {
+                if (!currentUser) return;
+                
+                const isCompanyGroup = ['admin', 'manager', 'hr', 'cadre'].includes(currentUser.role) || (currentUser.title && currentUser.title.includes('幹部'));
+                
+                if (availableLocations.length > 0) {
+                    if (!checkInLocation) {
+                        setCheckInLocation({ id: availableLocations[0].id, name: availableLocations[0].name, type: availableLocations[0].type });
+                        if (!isCompanyGroup && currentLocation) setHasLocationSorted(true);
+                    } else if (!isCompanyGroup && currentLocation && !hasLocationSorted) {
+                        // Group 2: Update default to closest if not yet sorted-selected
+                        setCheckInLocation({ id: availableLocations[0].id, name: availableLocations[0].name, type: availableLocations[0].type });
+                        setHasLocationSorted(true);
+                    }
+                }
+            }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted]);
 
             const lastRecord = attendanceHistory[0];
             const isWorking = lastRecord && lastRecord.type === 'in';
@@ -2074,121 +2275,85 @@
                                     <p className="text-gray-400 text-xs">尚無打卡紀錄</p>
                                 </div>
                             ) : (
-                                filteredHistory.map((record, idx) => (
-                                    <div key={record.id} className="flex relative">
-                                        {idx !== filteredHistory.length - 1 && (
-                                            <div className="absolute left-2.5 top-8 bottom-[-16px] w-0.5 bg-gray-100"></div>
-                                        )}
-                                        <div className={`relative z-10 w-5 h-5 rounded-full border-2 flex-shrink-0 mt-1 mr-4 ${record.type === 'in' ? 'border-red-500 bg-red-50' : 'border-gray-400 bg-gray-50'}`}></div>
-                                        <div className="flex-1 pb-1">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <div className={`font-bold text-sm ${record.type === 'in' ? 'text-gray-800' : 'text-gray-500'}`}>
-                                                        {record.type === 'in' ? '上班打卡' : '下班簽退'}
+                                filteredHistory.map((r, idx) => {
+                                    const timeStr = new Date(r.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                    return (
+                                        <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                {currentUser.avatarUrl ? (
+                                                    <img src={currentUser.avatarUrl} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                        {currentUser.name?.[0]}
                                                     </div>
-                                                    {record.checkInLocationName && (
-                                                        <div className="text-xs text-blue-600 font-bold mt-0.5 flex items-center gap-1">
-                                                            <MapPin className="w-3 h-3" />
-                                                            {record.checkInLocationName}
+                                                )}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <div className="font-bold text-gray-800 flex items-center gap-2">
+                                                            {currentUser.name}
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${
+                                                                r.type === 'in' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                                            }`}>
+                                                                {r.type === 'in' ? '上班' : '下班'}
+                                                            </span>
                                                         </div>
-                                                    )}
-                                                    <div className="text-xs text-gray-400 mt-0.5">
-                                                        {new Date(record.timestamp.seconds * 1000).toLocaleDateString()}
+                                                        <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                                            <Clock className="w-3 h-3" /> {timeStr}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                                            <MapPin className="w-3 h-3" /> {r.checkInLocationName || r.address || '未記錄'}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex gap-2 mt-2">
-                                                        <button 
-                                                            onClick={() => { setViewRecord(record); setViewType('map'); }}
-                                                            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                                                        >
-                                                            <MapPin className="w-3 h-3" /> 地圖
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => { setViewRecord(record); setViewType('photo'); }}
-                                                            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                                                        >
-                                                            <Camera className="w-3 h-3" /> 照片
-                                                        </button>
+                                                    <div className="flex items-center gap-2">
+                                                        {(function(){
+                                                            const parts = (r.location || '').split(',');
+                                                            let mapImgUrl = null;
+                                                            if (parts.length === 2) {
+                                                                const lat = parts[0];
+                                                                const lng = parts[1];
+                                                                mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                            }
+                                                            return (
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        if (parts.length === 2) {
+                                                                            setMapPreviewTarget({
+                                                                                lat: parseFloat(parts[0]),
+                                                                                lng: parseFloat(parts[1]),
+                                                                                name: currentUser.name + ' - ' + (r.address || '打卡位置'),
+                                                                                radius: 10
+                                                                            });
+                                                                        } else {
+                                                                            alert('無座標資訊: ' + (r.address || ''));
+                                                                        }
+                                                                    }}
+                                                                    className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                >
+                                                                    {mapImgUrl ? (
+                                                                        <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
+                                                                    ) : (
+                                                                        <MapPin className="w-5 h-5" />
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })()}
+                                                        {r.photoUrl && (
+                                                            <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
+                                                                <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                </div>
-                                                <div className="text-sm font-mono font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded-2xl">
-                                                    {new Date(record.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
-                    {/* View Record Modal */}
-                    {viewRecord && (
-                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
-                            <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-fade-in-up max-h-[90vh] flex flex-col">
-                                <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        {viewType === 'map' ? <MapPin className="w-5 h-5 text-red-600"/> : <Camera className="w-5 h-5 text-red-600"/>}
-                                        {viewType === 'map' ? '打卡位置' : '打卡照片'}
-                                    </h3>
-                                    <button onClick={() => setViewRecord(null)} className="p-1 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"><X className="w-5 h-5" /></button>
-                                </div>
-                                {viewRecord.checkInLocationName && (
-                                    <div className="bg-blue-50 px-4 py-2 text-sm text-blue-800 font-bold border-b border-blue-100 flex items-center gap-2">
-                                        <MapPin className="w-4 h-4" />
-                                        {viewRecord.checkInLocationName}
-                                    </div>
-                                )}
-                                <div className="p-0 flex-1 overflow-auto bg-gray-100 relative">
-                                    {viewType === 'map' ? (
-                                        <div className="w-full h-[400px]">
-                                            {(function() {
-                                                if (viewRecord.location) {
-                                                    const parts = viewRecord.location.split(',');
-                                                    if (parts.length === 2) {
-                                                        const lat = parseFloat(parts[0]);
-                                                        const lng = parseFloat(parts[1]);
-                                                        return <CompanyMapPreview lat={lat} lng={lng} radius={100} />;
-                                                    }
-                                                }
-                                                return <div className="flex items-center justify-center h-full text-gray-400">無座標資料</div>;
-                                            })()}
-                                        </div>
-                                    ) : (
-                                        <div className="w-full h-full min-h-[300px] flex items-center justify-center bg-black">
-                                            {viewRecord.photoUrl ? (
-                                                <img src={viewRecord.photoUrl} alt="打卡照片" className="max-w-full max-h-full object-contain" />
-                                            ) : (
-                                                <div className="flex flex-col items-center text-gray-500 gap-2">
-                                                    <EyeOff className="w-8 h-8 opacity-50"/>
-                                                    <span>無照片資料</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="p-4 border-t border-gray-100 bg-white">
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                            <span className="text-gray-500 block text-xs mb-1">打卡時間</span>
-                                            <span className="font-bold text-gray-800">
-                                                {new Date(viewRecord.timestamp.seconds * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-gray-500 block text-xs mb-1">打卡類型</span>
-                                            <span className={`font-bold ${viewRecord.type === 'in' ? 'text-red-600' : 'text-gray-600'}`}>
-                                                {viewRecord.type === 'in' ? '上班打卡' : '下班簽退'}
-                                            </span>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <span className="text-gray-500 block text-xs mb-1">打卡地址</span>
-                                            <span className="font-bold text-gray-800 break-words">{viewRecord.address || '無地址資料'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {/* Location Selector Modal */}
+                    {/* Location Selector Modal */}`
                     {showLocationSelector && (
                         <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden animate-fade-in-up max-h-[80vh] flex flex-col">
@@ -2229,14 +2394,14 @@
                         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
                             <div className="text-gray-400 text-xs mb-1">今日打卡</div>
                             <div className="text-2xl font-bold text-gray-800">
-                                {communityLogs.filter(l => new Date(l.timestamp?.seconds * 1000).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' }) === today).length}
+                                {communityLogs.filter(l => l.timestamp && l.timestamp.seconds && new Date(l.timestamp.seconds * 1000).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' }) === today).length}
                                 <span className="text-xs text-gray-400 font-normal ml-1">次</span>
                             </div>
                         </div>
                         <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
                             <div className="text-gray-400 text-xs mb-1">目前在勤</div>
                             <div className="text-2xl font-bold text-red-600">
-                                {communityLogs.filter(l => l.type === 'in' && new Date(l.timestamp?.seconds * 1000).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' }) === today).length}
+                                {communityLogs.filter(l => l.type === 'in' && l.timestamp && l.timestamp.seconds && new Date(l.timestamp.seconds * 1000).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' }) === today).length}
                                 <span className="text-xs text-gray-400 font-normal ml-1">人</span>
                             </div>
                         </div>
@@ -2263,7 +2428,7 @@
                                     </div>
                                     <div className="text-right">
                                         <div className="text-xs font-mono text-gray-600">
-                                            {log.timestamp ? new Date(log.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit' }) : '--:--'}
+                                            {log.timestamp && log.timestamp.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit' }) : '--:--'}
                                         </div>
                                         {log.type === 'in' && <div className="flex items-center justify-end text-[10px] text-green-500 gap-0.5 mt-0.5"><CheckCircle className="w-2 h-2"/> 正常</div>}
                                     </div>
@@ -2313,6 +2478,27 @@
             );
         };
 
+        // Image Preview Modal
+        const ImagePreviewModal = ({ url, onClose }) => {
+            if (!url) return null;
+            return (
+                <div className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+                    <button 
+                        onClick={onClose}
+                        className="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors z-50"
+                    >
+                        <X className="w-6 h-6" />
+                    </button>
+                    <img 
+                        src={url} 
+                        alt="Preview" 
+                        className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                        onClick={e => e.stopPropagation()}
+                    />
+                </div>
+            );
+        };
+
         // --- Main App Component ---
         const App = () => {
             const [user, setUser] = useState(null);
@@ -2332,6 +2518,11 @@
             const [functionSubtab, setFunctionSubtab] = useState('patrol');
             const [cadreSubtab, setCadreSubtab] = useState('map');
             const [cadreCompany, setCadreCompany] = useState('台北');
+            const [cadreRecordDate, setCadreRecordDate] = useState(() => {
+                const d = new Date();
+                return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            });
+            const [cadreMapSelectedUserId, setCadreMapSelectedUserId] = useState(null);
             const [checkInLocation, setCheckInLocation] = useState(null);
             const [showCompanyMenu, setShowCompanyMenu] = useState(false);
             const [roles, setRoles] = useState([]);
@@ -2347,6 +2538,8 @@
             const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
             const [timeOffset, setTimeOffset] = useState(0);
             const [dateTime, setDateTime] = useState('');
+            const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
+            const [previewImageUrl, setPreviewImageUrl] = useState(null);
 
             useEffect(() => {
                 const syncTime = async () => {
@@ -2662,8 +2855,16 @@
                     var usersForCountsInterval = setInterval(fetchUsersForCounts, 30000);
                 }
 
-                if (['admin', 'manager', 'hr'].includes(dbUser.role)) {
-                    const qAll = query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), orderBy('timestamp', 'desc'));
+                if (['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role)) {
+                    // Fetch only last 30 days to prevent network overload
+                    const dateLimit = new Date();
+                    dateLimit.setDate(dateLimit.getDate() - 30);
+                    
+                    const qAll = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
+                        where('timestamp', '>=', dateLimit),
+                        orderBy('timestamp', 'desc')
+                    );
                     const fetchAll = async () => {
                         try {
                             const snap = await getDocs(qAll);
@@ -3264,7 +3465,43 @@
                                     <button onClick={() => setCadreSubtab('record')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>紀錄</button>
                                     <button onClick={() => setCadreSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>
                                     <button onClick={() => setCadreSubtab('approval')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'approval' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簽呈</button>
+                                    <button onClick={() => setCadreSubtab('account')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>帳號</button>
                                     <button onClick={() => setCadreSubtab('notification')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'notification' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>通知</button>
+                                </div>
+                            )}
+
+                            {activeTab === 'cadre' && cadreSubtab === 'map' && (
+                                <div className="absolute top-full left-0 right-0 h-[8vh] bg-white/80 backdrop-blur-sm flex items-center gap-3 overflow-x-auto px-4 no-scrollbar z-30 shadow-sm">
+                                    {(function() {
+                                        const targetCompany = companies.find(c => c.name === cadreCompany);
+                                        if (!targetCompany) return null;
+                                        
+                                        // Filter: Company + Roles (admin, hr, cadre)
+                                        const targetRoles = ['admin', 'hr', 'cadre'];
+                                        const companyUsers = usersList.filter(u => 
+                                            u.companyId === targetCompany.id && 
+                                            targetRoles.includes(u.role)
+                                        );
+                                        
+                                        if (companyUsers.length === 0) return <div className="text-xs text-gray-400">尚無人員</div>;
+
+                                        return companyUsers.map(u => (
+                                            <div 
+                                                key={u.id} 
+                                                className="flex-shrink-0 w-[40px] h-[40px] rounded-full bg-gray-200 overflow-hidden border-2 border-white shadow-sm relative cursor-pointer hover:scale-105 transition-transform" 
+                                                title={u.name}
+                                                onClick={() => setCadreMapSelectedUserId(u.id)}
+                                            >
+                                                {u.avatarUrl ? (
+                                                    <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs">
+                                                        {u.name?.[0]}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ));
+                                    })()}
                                 </div>
                             )}
                             {activeTab === 'application' && (
@@ -3288,22 +3525,26 @@
                     </div>
 
                     {/* Main Content Area - Mobile Container */}
-                    <main className="absolute top-[16vh] left-0 right-0 h-[76vh] overflow-y-auto">
+                    <main className={`absolute left-0 right-0 overflow-y-auto ${(activeTab === 'cadre' && cadreSubtab === 'map') ? 'top-[24vh] h-[68vh]' : 'top-[16vh] h-[76vh]'}`}>
                         <div className={`w-full max-w-md mx-auto px-4 py-4 ${activeTab === 'cadre' ? 'pb-20' : ''}`}>
                         
                         {/* Role Based Views */}
                         {activeTab === 'home' && hasPermission('home') && (
                             <div className="space-y-6 mb-6">
-                                <StaffDashboard 
-                                    currentUser={dbUser} 
-                                    onClockIn={handleClockIn} 
-                                    attendanceHistory={myAttendance}
-                                    timeOffset={timeOffset}
-                                    companies={companies}
-                                    communities={communities}
-                                    checkInLocation={checkInLocation}
-                                    setCheckInLocation={setCheckInLocation}
-                                />
+                                <ErrorBoundary>
+                                    <StaffDashboard 
+                                        currentUser={dbUser} 
+                                        onClockIn={handleClockIn} 
+                                        attendanceHistory={myAttendance}
+                                        timeOffset={timeOffset}
+                                        companies={companies}
+                                        communities={communities}
+                                        checkInLocation={checkInLocation}
+                                        setCheckInLocation={setCheckInLocation}
+                                        setMapPreviewTarget={setMapPreviewTarget}
+                                        setPreviewImageUrl={setPreviewImageUrl}
+                                    />
+                                </ErrorBoundary>
                             </div>
                         )}
 
@@ -3319,6 +3560,8 @@
                                         communities={communities}
                                         checkInLocation={checkInLocation}
                                         setCheckInLocation={setCheckInLocation}
+                                        setMapPreviewTarget={setMapPreviewTarget}
+                                        setPreviewImageUrl={setPreviewImageUrl}
                                     />
                                 )}
                                 {clockSubtab !== 'work' && (
@@ -3341,12 +3584,14 @@
 
                                 <div className="pt-4 border-t border-gray-200">
                                     <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">團隊動態</h3>
-                                    <ManagerDashboard 
-                                        currentUser={dbUser} 
-                                        communities={communities} 
-                                        allAttendance={attendanceList}
-                                        timeOffset={timeOffset}
-                                    />
+                                    <ErrorBoundary>
+                                        <ManagerDashboard 
+                                            currentUser={dbUser} 
+                                            communities={communities} 
+                                            allAttendance={attendanceList}
+                                            timeOffset={timeOffset}
+                                        />
+                                    </ErrorBoundary>
                                 </div>
                             </div>
                         )}
@@ -3356,11 +3601,13 @@
                                 <div className="flex items-center gap-2 text-lg font-bold text-gray-800">
                                     <LayoutDashboard className="w-5 h-5 text-red-600" /> 人事管理中心
                                 </div>
-                                <HRDashboard 
-                                    currentUser={dbUser} 
-                                    communities={communities} 
-                                    allAttendance={attendanceList}
-                                />
+                                <ErrorBoundary>
+                                    <HRDashboard 
+                                        currentUser={dbUser} 
+                                        communities={communities} 
+                                        allAttendance={attendanceList}
+                                    />
+                                </ErrorBoundary>
                             </div>
                         )}
 
@@ -3414,85 +3661,244 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <MapPin className="w-5 h-5 mr-2 text-red-600" /> 地圖
                                             </h3>
-                                            <div className="w-full h-64 bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
-                                                {(function() {
-                                                    const targetCompany = companies.find(c => c.name === cadreCompany);
-                                                    
-                                                    // Find latest check-in for this company
-                                                    let latestRecord = null;
-                                                    let displayLocation = null;
-                                                    let displayInfo = null;
-                                                    let avatarUrl = null;
+                                            {(function() {
+                                                const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                
+                                                let displayLocation = null;
+                                                let companyUsers = [];
 
-                                                    if (targetCompany && usersList.length > 0 && attendanceList.length > 0) {
-                                                        const companyUserIds = usersList
-                                                            .filter(u => u.companyId === targetCompany.id)
-                                                            .map(u => u.id);
-                                                        
-                                                        if (companyUserIds.length > 0) {
-                                                             const companyRecords = attendanceList.filter(r => companyUserIds.includes(r.userId));
-                                                             // attendanceList is sorted by desc timestamp
-                                                             latestRecord = companyRecords.find(r => r.location && r.location.includes(','));
-                                                        }
-                                                    }
-
-                                                    if (latestRecord) {
-                                                        const parts = latestRecord.location.split(',');
-                                                        const lat = parseFloat(parts[0]);
-                                                        const lng = parseFloat(parts[1]);
-                                                        displayLocation = { lat, lng };
-                                                        displayInfo = {
-                                                            title: latestRecord.userName,
-                                                            subtitle: new Date(latestRecord.timestamp.seconds * 1000).toLocaleString('zh-TW'),
-                                                            detail: latestRecord.checkInLocationName || targetCompany.name,
-                                                            isRecord: true
-                                                        };
-                                                        
-                                                        const user = usersList.find(u => u.id === latestRecord.userId);
-                                                        if (user && user.avatarUrl) {
-                                                            avatarUrl = user.avatarUrl;
-                                                        }
-                                                    } else if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                if (targetCompany) {
+                                                    // 1. Set Company Center (Default)
+                                                    if (targetCompany.lat && targetCompany.lng) {
                                                         displayLocation = { lat: targetCompany.lat, lng: targetCompany.lng };
-                                                        displayInfo = {
-                                                            title: targetCompany.name,
-                                                            subtitle: targetCompany.address || '無地址',
-                                                            detail: `打卡範圍: ${targetCompany.radius || 100}m`,
-                                                            isRecord: false
-                                                        };
                                                     }
 
-                                                    if (displayLocation) {
-                                                        return (
-                                                            <>
+                                                    // 2. Prepare users list with location
+                                                    if (usersList.length > 0) {
+                                                        // Filter: Company + Roles (admin, hr, cadre)
+                                                        const targetRoles = ['admin', 'hr', 'cadre'];
+                                                        const companyMembers = usersList.filter(u => 
+                                                            u.companyId === targetCompany.id && 
+                                                            targetRoles.includes(u.role)
+                                                        );
+                                                        
+                                                        companyUsers = companyMembers.map(u => {
+                                                            // Find latest record with location
+                                                            // attendanceList is sorted by desc timestamp
+                                                            const record = attendanceList.find(r => r.userId === u.id && r.location && r.location.includes(','));
+                                                            
+                                                            if (record) {
+                                                                const parts = record.location.split(',');
+                                                                return {
+                                                                    id: u.id,
+                                                                    lat: parseFloat(parts[0]),
+                                                                    lng: parseFloat(parts[1]),
+                                                                    avatarUrl: u.avatarUrl,
+                                                                    name: u.name,
+                                                                    time: record.timestamp.seconds * 1000,
+                                                                    locationName: record.checkInLocationName || targetCompany.name
+                                                                };
+                                                            }
+                                                            return null;
+                                                        }).filter(u => u !== null);
+                                                    }
+                                                }
+
+                                                return (
+                                                    <div className="space-y-4">
+                                                        <div className="w-full h-64 bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
+                                                            {displayLocation ? (
                                                                 <CompanyMapPreview 
                                                                     lat={displayLocation.lat} 
                                                                     lng={displayLocation.lng} 
                                                                     radius={targetCompany?.radius || 100}
-                                                                    avatarUrl={avatarUrl}
+                                                                    users={companyUsers}
+                                                                    externalSelectedUserId={cadreMapSelectedUserId}
+                                                                    onUserSelect={(u) => setCadreMapSelectedUserId(u ? u.id : null)}
                                                                 />
-                                                            </>
-                                                        );
-                                                    } else {
-                                                        return (
-                                                            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
-                                                                <MapPin className="w-8 h-8 mb-2 text-gray-300" />
-                                                                <div>{targetCompany ? '該公司尚未設定座標且無打卡紀錄' : `找不到 ${cadreCompany} 公司資料`}</div>
-                                                                <div className="text-xs mt-1 text-gray-300">請確認後台設定</div>
+                                                            ) : (
+                                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
+                                                                    <MapPin className="w-8 h-8 mb-2 text-gray-300" />
+                                                                    <div>{targetCompany ? '該公司尚未設定座標' : `找不到 ${cadreCompany} 公司資料`}</div>
+                                                                    <div className="text-xs mt-1 text-gray-300">請確認後台設定</div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Avatar Row */}
+                                                        {displayLocation && companyUsers.length > 0 && (
+                                                            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar px-1">
+                                                                {companyUsers.map(u => (
+                                                                    <button 
+                                                                        key={u.id}
+                                                                        onClick={() => setCadreMapSelectedUserId(u.id)}
+                                                                        className="flex-shrink-0 flex flex-col items-center gap-1 group"
+                                                                    >
+                                                                        <div className={`w-10 h-10 rounded-full overflow-hidden border-2 transition-all duration-300 ${
+                                                                            cadreMapSelectedUserId === u.id 
+                                                                            ? 'border-red-500 ring-2 ring-red-100 scale-110' 
+                                                                            : 'border-white shadow-sm opacity-80 group-hover:opacity-100'
+                                                                        }`}>
+                                                                            {u.avatarUrl ? (
+                                                                                <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                                                            ) : (
+                                                                                <div className="w-full h-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+                                                                                    {u.name?.[0]}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <span className={`text-[10px] font-medium truncate max-w-[48px] transition-colors ${
+                                                                            cadreMapSelectedUserId === u.id ? 'text-red-600 font-bold' : 'text-gray-600'
+                                                                        }`}>
+                                                                            {u.name}
+                                                                        </span>
+                                                                    </button>
+                                                                ))}
                                                             </div>
-                                                        );
-                                                    }
-                                                })()}
-                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                     {cadreSubtab === 'record' && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <ClipboardList className="w-5 h-5 mr-2 text-red-600" /> 紀錄
-                                            </h3>
-                                            <div className="text-center py-8 text-gray-400">
-                                                功能開發中...
+                                            <div className="flex items-center justify-between mb-4">
+                                                <h3 className="text-lg font-bold text-gray-800 flex items-center">
+                                                    <ClipboardList className="w-5 h-5 mr-2 text-red-600" /> 紀錄
+                                                </h3>
+                                                <div className="flex items-center bg-gray-100 rounded-2xl p-1">
+                                                     <button 
+                                                         onClick={() => {
+                                                             const d = new Date(cadreRecordDate);
+                                                             d.setDate(d.getDate() - 1);
+                                                             setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                         }}
+                                                         className="p-1.5 hover:bg-white hover:shadow rounded-xl transition-all"
+                                                     >
+                                                         <ChevronLeft className="w-4 h-4 text-gray-600" />
+                                                     </button>
+                                                     <div className="px-3 text-sm font-bold text-gray-700 min-w-[90px] text-center">
+                                                         {cadreRecordDate}
+                                                     </div>
+                                                     <button 
+                                                         onClick={() => {
+                                                             const d = new Date(cadreRecordDate);
+                                                             d.setDate(d.getDate() + 1);
+                                                             setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                         }}
+                                                         className="p-1.5 hover:bg-white hover:shadow rounded-xl transition-all"
+                                                     >
+                                                         <ChevronRight className="w-4 h-4 text-gray-600" />
+                                                     </button>
+                                                 </div>
+                                            </div>
+                                            
+                                            <div className="space-y-3 pb-24">
+                                                {(function() {
+                                                    const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                    if (!targetCompany) return <div className="text-center text-gray-400 py-8">請選擇公司</div>;
+
+                                                    // 1. Get all users of this company
+                                                    const companyUserIds = usersList
+                                                        .filter(u => u.companyId === targetCompany.id)
+                                                        .map(u => u.id);
+
+                                                    // 2. Filter attendance records
+                                                     const records = attendanceList.filter(r => {
+                                                         if (!companyUserIds.includes(r.userId)) return false;
+                                                         
+                                                         const rDate = new Date(r.timestamp.seconds * 1000);
+                                                         const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
+                                                         return recordDate === cadreRecordDate;
+                                                     });
+
+                                                    if (records.length === 0) {
+                                                        return (
+                                                            <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                                本日尚無打卡紀錄
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    return records.map(r => {
+                                                        const user = usersList.find(u => u.id === r.userId) || {};
+                                                        const timeStr = new Date(r.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                                        
+                                                        return (
+                                                            <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
+                                                                <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                    {user.avatarUrl ? (
+                                                                        <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                    ) : (
+                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                            {user.name?.[0]}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <div>
+                                                                            <div className="font-bold text-gray-800 flex items-center gap-2">
+                                                                                {r.userName}
+                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${
+                                                                                    r.type === 'in' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                                                                                }`}>
+                                                                                    {r.type === 'in' ? '上班' : '下班'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                <Clock className="w-3 h-3" /> {timeStr}
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                <MapPin className="w-3 h-3" /> {r.checkInLocationName || r.address || '未記錄'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            {(function(){
+                                                                                const parts = (r.location || '').split(',');
+                                                                                let mapImgUrl = null;
+                                                                                if (parts.length === 2) {
+                                                                                    const lat = parts[0];
+                                                                                    const lng = parts[1];
+                                                                                    mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                                                }
+                                                                                return (
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            if (parts.length === 2) {
+                                                                                                setMapPreviewTarget({
+                                                                                                    lat: parseFloat(parts[0]),
+                                                                                                    lng: parseFloat(parts[1]),
+                                                                                                    name: r.userName + ' - ' + (r.address || '打卡位置'),
+                                                                                                    radius: 10
+                                                                                                });
+                                                                                            } else {
+                                                                                                alert('無座標資訊: ' + (r.address || ''));
+                                                                                            }
+                                                                                        }}
+                                                                                        className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                                    >
+                                                                                        {mapImgUrl ? (
+                                                                                            <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
+                                                                                        ) : (
+                                                                                            <MapPin className="w-5 h-5" />
+                                                                                        )}
+                                                                                    </button>
+                                                                                );
+                                                                            })()}
+                                                                            {r.photoUrl && (
+                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
+                                                                                    <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
                                             </div>
                                         </div>
                                     )}
@@ -3513,6 +3919,49 @@
                                             </h3>
                                             <div className="text-center py-8 text-gray-400">
                                                 功能開發中...
+                                            </div>
+                                        </div>
+                                    )}
+                                    {cadreSubtab === 'account' && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <Users className="w-5 h-5 mr-2 text-red-600" /> 帳號資料
+                                            </h3>
+                                            <div className="space-y-3">
+                                                {(function() {
+                                                    const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                    if (!targetCompany) return <div className="text-center text-gray-400">請選擇公司</div>;
+
+                                                    // Filter: Company + Roles (admin, hr, cadre) - Explicitly excluding manager
+                                                    const targetRoles = ['admin', 'hr', 'cadre'];
+                                                    const filteredUsers = usersList.filter(u => 
+                                                        u.companyId === targetCompany.id && 
+                                                        targetRoles.includes(u.role)
+                                                    );
+
+                                                    if (filteredUsers.length === 0) return <div className="text-center text-gray-400">尚無符合條件的帳號</div>;
+
+                                                    return filteredUsers.map(u => (
+                                                        <div key={u.id} className="p-3 bg-gray-50 rounded-2xl flex items-center gap-3">
+                                                            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 overflow-hidden">
+                                                                {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : (u.name?.[0] || '?')}
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className="font-bold text-gray-800 flex items-center gap-2">
+                                                                    {u.name}
+                                                                    <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-red-100 text-red-600'}`}>
+                                                                        {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{u.title || '未設定職稱'}</div>
+                                                            </div>
+                                                            <div className="text-right text-xs text-gray-500">
+                                                                <div>{u.email}</div>
+                                                                <div>{u.phone}</div>
+                                                            </div>
+                                                        </div>
+                                                    ));
+                                                })()}
                                             </div>
                                         </div>
                                     )}
@@ -3598,7 +4047,10 @@
                                         return (
                                             <button 
                                                 key={company.id}
-                                                onClick={() => setCadreCompany(name)}
+                                                onClick={() => {
+                                                    setCadreCompany(name);
+                                                    setCadreMapSelectedUserId(null);
+                                                }}
                                                 className={`w-[40px] h-[40px] flex items-center justify-center text-[10px] leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     cadreCompany === name 
                                                         ? 'bg-red-600 text-white' 
@@ -3667,6 +4119,29 @@
                         </div>
                     </div>
 
+                    {mapPreviewTarget && (
+                        <div className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4" onClick={()=>setMapPreviewTarget(null)}>
+                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl h-[500px] overflow-hidden flex flex-col relative" onClick={e=>e.stopPropagation()}>
+                                <div className="absolute top-4 right-4 z-10">
+                                    <button onClick={()=>setMapPreviewTarget(null)} className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100">
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <div className="flex-1 w-full h-full relative">
+                                    <CompanyMapPreview 
+                                        lat={mapPreviewTarget.lat} 
+                                        lng={mapPreviewTarget.lng} 
+                                        radius={mapPreviewTarget.radius} 
+                                    />
+                                    <div className="absolute bottom-4 left-4 bg-white/90 px-3 py-2 rounded-xl shadow-lg text-xs font-bold text-gray-700 pointer-events-none">
+                                        <div className="text-sm mb-1">{mapPreviewTarget.name}</div>
+                                        <div>打卡範圍: {mapPreviewTarget.radius || 100}m</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <CameraModal 
                         isOpen={showCameraModal} 
                         onClose={() => setShowCameraModal(false)}
@@ -3675,6 +4150,11 @@
                         userName={dbUser?.name}
                         workSite={communities.find(c => c.id === dbUser?.communityId)}
                         checkInLocationName={checkInLocation ? checkInLocation.name : (dbUser?.communityName || '')}
+                    />
+
+                    <ImagePreviewModal 
+                        url={previewImageUrl} 
+                        onClose={() => setPreviewImageUrl(null)}
                     />
                 </div>
             );
