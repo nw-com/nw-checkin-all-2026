@@ -1099,7 +1099,7 @@
 
         // 2. Login Component (Mobile Optimized, Red Theme)
         const Login = ({ onLogin, onRegister, onLoginSuccess, isOnline }) => {
-            const [email, setEmail] = useState('');
+            const [identifier, setIdentifier] = useState('');
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
             const [isSeeding, setIsSeeding] = useState(false);
@@ -1109,14 +1109,14 @@
 
             const handleLogin = async (e) => {
                 e.preventDefault();
-                if (!email || !password) {
+                if (!identifier || !password) {
                     setError('請輸入帳號密碼');
                     return;
                 }
                 setError('');
                 setIsLoading(true);
                 try {
-                    await onLogin(email, password, rememberMe);
+                    await onLogin(identifier, password, rememberMe);
                     setError('登入成功！正在跳轉...');
                     setTimeout(() => {
                         onLoginSuccess();
@@ -1150,17 +1150,17 @@
                         <form onSubmit={handleLogin} className="space-y-5">
                             <div>
                                 <div className="flex items-center justify-between mb-2">
-                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">帳號 (Email)</label>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">帳號 (Email 或 手機號碼)</label>
                                     <label className="flex items-center gap-1 text-[11px] text-gray-500">
                                         <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> 記住我
                                     </label>
                                 </div>
                                 <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
+                                    type="text"
+                                    value={identifier}
+                                    onChange={(e) => setIdentifier(e.target.value)}
                                     className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition text-gray-700 font-medium"
-                                    placeholder="user@example.com"
+                                    placeholder="Email 或 手機號碼"
                                     disabled={isLoading}
                                 />
                             </div>
@@ -1205,14 +1205,18 @@
                                 type="button"
                                 disabled={!isOnline || isLoading}
                                 onClick={async () => {
-                                    if (!email || !password) {
+                                    if (!identifier || !password) {
                                         setError('請輸入帳號密碼');
+                                        return;
+                                    }
+                                    if (identifier.indexOf('@') === -1) {
+                                        setError('註冊請使用 Email');
                                         return;
                                     }
                                     setError('');
                                     setIsLoading(true);
                                     try {
-                                        await onRegister(email, password, rememberMe);
+                                        await onRegister(identifier, password, rememberMe);
                                         setError('註冊成功！正在跳轉...');
                                         setTimeout(() => {
                                             onLoginSuccess();
@@ -2428,6 +2432,15 @@
             const isWorking = lastRecord && lastRecord.type === 'in';
 
             const getButtonConfig = () => {
+                if (mode === 'card') {
+                    const lastType = lastRecord?.type;
+                    const isCardWorking = lastType === 'late_in';
+                    
+                    return isCardWorking
+                        ? { type: 'late_out', text: '卡班下班', sub: '結束卡班勤務', icon: LogOut, colorClass: 'bg-gray-800 text-white border-2 border-gray-700', iconBg: 'bg-gray-700', iconColor: 'text-white' }
+                        : { type: 'late_in', text: '卡班上班', sub: '紀錄卡班開始', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
+                }
+
                 if (mode === 'outing') {
                     const lastType = lastRecord?.type;
                     if (lastType === 'outing_start') {
@@ -2442,8 +2455,8 @@
                 
                 // Default work mode
                 return isWorking 
-                    ? { type: 'out', text: '下班簽退', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-gray-800 text-white border-2 border-gray-700', iconBg: 'bg-gray-700', iconColor: 'text-white' }
-                    : { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' };
+                    ? { type: 'out', text: '下班簽退', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' }
+                    : { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
             };
 
             const btnConfig = getButtonConfig();
@@ -2452,19 +2465,37 @@
             const getTypeLabel = (type) => {
                 const map = {
                     'in': { text: '上班', color: 'bg-green-100 text-green-700' },
-                    'out': { text: '下班', color: 'bg-orange-100 text-orange-700' },
+                    'out': { text: '下班', color: 'bg-red-100 text-red-700' },
                     'outing_start': { text: '外出', color: 'bg-blue-100 text-blue-700' },
-                    'outing_arrive': { text: '抵達', color: 'bg-purple-100 text-purple-700' },
-                    'outing_end': { text: '離開', color: 'bg-gray-100 text-gray-700' }
+                    'outing_arrive': { text: '抵達', color: 'bg-blue-100 text-blue-700' },
+                    'outing_end': { text: '離開', color: 'bg-blue-100 text-blue-700' },
+                    'leave': { text: '請假', color: 'bg-orange-100 text-orange-700' },
+                    'late_in': { text: '卡上', color: 'bg-green-100 text-green-700' },
+                    'late_out': { text: '卡下', color: 'bg-red-100 text-red-700' }
                 };
                 return map[type] || { text: type, color: 'bg-gray-100 text-gray-700' };
             };
+
+            // Calculate Header Background
+            let headerBgClass = 'bg-gradient-to-br from-gray-600 to-gray-700 shadow-gray-200';
+            if (lastRecord?.type) {
+                const t = lastRecord.type;
+                if (['in', 'late_in'].includes(t)) {
+                    headerBgClass = 'bg-gradient-to-br from-green-600 to-green-700 shadow-green-200';
+                } else if (['out', 'late_out'].includes(t)) {
+                    headerBgClass = 'bg-gradient-to-br from-red-600 to-red-700 shadow-red-200';
+                } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(t)) {
+                    headerBgClass = 'bg-gradient-to-br from-blue-600 to-blue-700 shadow-blue-200';
+                } else if (t === 'leave') {
+                    headerBgClass = 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-200';
+                }
+            }
 
             return (
                 <div className="max-w-md mx-auto space-y-4 pb-20">
                     {/* Header Info Card */}
                     {!hideHeaderInfo && (
-                    <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl shadow-xl shadow-red-200 overflow-hidden relative">
+                    <div className={`${headerBgClass} rounded-2xl shadow-xl overflow-hidden relative`}>
                         <div className="absolute top-0 right-0 p-4 opacity-10">
                             <Clock className="w-32 h-32 transform rotate-12 text-white" />
                         </div>
@@ -2492,34 +2523,53 @@
                                             return roleMap[currentUser.role] || currentUser.role;
                                         })()} {currentUser.name}
                                     </h2>
-                                    <p 
-                                        onClick={() => availableLocations.length > 1 && setShowLocationSelector(true)}
-                                        className={`text-red-100 text-2xl flex items-center gap-1 mt-1 ${availableLocations.length > 1 ? 'cursor-pointer hover:bg-white/10 rounded px-1 -ml-1 transition' : ''}`}
-                                    >
-                                        <Building2 className="w-6 h-6" />
+                                    <p className="text-white/80 text-sm flex items-center gap-1 mt-1">
+                                        <Building2 className="w-4 h-4" />
                                         {(function() {
-                                            if (checkInLocation) return checkInLocation.name;
-                                            
-                                            // Fallback Logic
-                                            if (isCompanyGroup) {
-                                                // For company users, try to show company name
-                                                const company = companies.find(c => c.id === currentUser.companyId);
-                                                return company ? company.name : (currentUser.communityName || '未分配');
+                                            // Show Last Record Location + Time
+                                            if (lastRecord) {
+                                                const timeStr = new Date((lastRecord.timestamp?.seconds || Date.now()/1000) * 1000).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                                return `${lastRecord.checkInLocationName || lastRecord.address || '未記錄位置'} ${timeStr}`;
                                             }
-                                            return currentUser.communityName || '未分配';
+                                            return '尚無打卡紀錄';
                                         })()}
-                                        {availableLocations.length > 1 && <RefreshCw className="w-6 h-6 opacity-70" />}
                                     </p>
                                 </div>
-                                <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-2xl font-mono">
-                                    {isWorking ? '工作中' : '未打卡'}
-                                </div>
+                                {(function(){
+                                    const lastType = lastRecord?.type;
+                                    // Default (No Record)
+                                    let statusText = '未打卡';
+                                    let statusClass = 'bg-gray-200 text-gray-500';
+
+                                    if (lastType) {
+                                        const config = getTypeLabel(lastType);
+                                        statusText = config.text;
+                                        // Override colors based on user request
+                                        if (['in', 'late_in'].includes(lastType)) {
+                                            statusClass = 'bg-green-100 text-green-700';
+                                        } else if (['out', 'late_out'].includes(lastType)) {
+                                            statusClass = 'bg-red-100 text-red-700';
+                                        } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastType)) {
+                                            statusClass = 'bg-blue-100 text-blue-700';
+                                        } else if (lastType === 'leave') {
+                                            statusClass = 'bg-orange-100 text-orange-700';
+                                        } else {
+                                            statusClass = config.color;
+                                        }
+                                    }
+
+                                    return (
+                                        <div className={`backdrop-blur-sm px-3 py-1 rounded-full text-2xl font-mono ${statusClass} bg-opacity-90 border-2 border-white/20 shadow-sm`}>
+                                            {statusText}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                             <div className="text-center py-4">
                                 <div className="text-5xl font-bold font-mono tracking-wider drop-shadow-sm">
                                     {currentTime.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit', second: '2-digit' })}
                                 </div>
-                                <p className="text-red-100 text-2xl mt-2 opacity-80">
+                                <p className="text-white text-2xl mt-2 opacity-80">
                                     {currentTime.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
                                 </p>
                             </div>
@@ -2736,7 +2786,21 @@
                                         </div>
                                         <div>
                                             <div className="text-sm font-bold text-gray-800">{log.userName}</div>
-                                            <div className="text-xs text-gray-400">{log.userRole} · {log.type === 'in' ? '上班' : '下班'}</div>
+                                            <div className="text-xs text-gray-400">
+                                                {log.userRole} · {(function(){
+                                                    const typeMap = {
+                                                        'in': '上班',
+                                                        'out': '下班',
+                                                        'outing_start': '外出',
+                                                        'outing_arrive': '抵達',
+                                                        'outing_end': '離開',
+                                                        'leave': '請假',
+                                                        'late_in': '卡上',
+                                                        'late_out': '卡下'
+                                                    };
+                                                    return typeMap[log.type] || '未知';
+                                                })()}
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="text-right">
@@ -3251,13 +3315,49 @@
                 }
             };
 
-            const handleLogin = async (email, password, rememberMe = false) => {
+            const handleLogin = async (identifier, password, rememberMe = false) => {
                 // setLoading(true); // Disable global loading to keep Login component mounted
                 try {
-                    await signInWithRetry(email, password);
+                    let emailToUse = identifier;
+                    
+                    // Check if identifier is likely a phone number (no @)
+                    if (identifier.indexOf('@') === -1) {
+                        const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                        let qPhone = query(usersRef, where('phone', '==', identifier));
+                        
+                        try {
+                            let snapshot = await getDocs(qPhone);
+                            
+                            // Retry with stripped format if empty (e.g. user typed 0912-345-678, db has 0912345678)
+                            if (snapshot.empty) {
+                                const stripped = identifier.replace(/[^0-9]/g, '');
+                                if (stripped !== identifier && stripped.length > 0) {
+                                    qPhone = query(usersRef, where('phone', '==', stripped));
+                                    snapshot = await getDocs(qPhone);
+                                }
+                            }
+
+                            if (snapshot.empty) {
+                                throw new Error('找不到此手機號碼對應的帳號');
+                            }
+                            
+                            const userDoc = snapshot.docs[0].data();
+                            if (!userDoc.email) {
+                                throw new Error('此帳號資料異常(無Email)，請聯繫管理員');
+                            }
+                            emailToUse = userDoc.email;
+                        } catch (err) {
+                            if (err.code === 'permission-denied') {
+                                throw new Error('系統權限不足，無法在登入前查詢手機號碼。請直接使用 Email 登入，或聯繫管理員開啟權限。');
+                            }
+                            throw err;
+                        }
+                    }
+
+                    await signInWithRetry(emailToUse, password);
                     const q = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'users'), 
-                        where('email', '==', email)
+                        where('email', '==', emailToUse)
                     );
                     const snap = await getDocs(q);
                     let userData;
@@ -3265,11 +3365,11 @@
                         userData = { id: snap.docs[0].id, ...snap.docs[0].data() };
                     } else {
                         const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-                        const name = email.split('@')[0];
+                        const name = emailToUse.split('@')[0];
                         const defaultRole = 'staff';
                         const defaultCommunity = 'HQ';
-                        const docRef = await addDoc(baseUserRef, { name, email, role: defaultRole, communityId: defaultCommunity });
-                        userData = { id: docRef.id, name, email, role: defaultRole, communityId: defaultCommunity };
+                        const docRef = await addDoc(baseUserRef, { name, email: emailToUse, role: defaultRole, communityId: defaultCommunity });
+                        userData = { id: docRef.id, name, email: emailToUse, role: defaultRole, communityId: defaultCommunity };
                     }
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
@@ -3783,6 +3883,7 @@
                                 <div className="flex gap-2">
                                     <button onClick={() => setClockSubtab('work')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'work' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>上下班</button>
                                     <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>外出</button>
+                                    <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>
                                     <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>
                                     <button onClick={() => setClockSubtab('record')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>紀錄</button>
                                     <button onClick={() => setClockSubtab('points')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'points' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>計點</button>
@@ -3935,11 +4036,24 @@
                                         mode="outing"
                                     />
                                 )}
-                                {clockSubtab !== 'work' && (
-                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 text-center py-12 text-gray-400">
-                                        功能開發中...
-                                    </div>
+                                {clockSubtab === 'card' && (
+                                    <StaffDashboard 
+                                        currentUser={dbUser} 
+                                        onClockIn={handleClockIn} 
+                                        attendanceHistory={myAttendance.filter(r => ['late_in', 'late_out'].includes(r.type))}
+                                        timeOffset={timeOffset}
+                                        companies={companies}
+                                        communities={communities}
+                                        checkInLocation={checkInLocation}
+                                        setCheckInLocation={setCheckInLocation}
+                                        setMapPreviewTarget={setMapPreviewTarget}
+                                        setPreviewImageUrl={setPreviewImageUrl}
+                                        roles={roles}
+                                        hideHeaderInfo={true}
+                                        mode="card"
+                                    />
                                 )}
+
                             </div>
                         )}
 
@@ -4108,68 +4222,65 @@
                                             })()}
                                         </div>
                                     )}
-                                    {cadreSubtab === 'record' && (
+                                    {cadreSubtab === 'record' && (function() {
+                                        const targetCompany = companies.find(c => c.name === cadreCompany);
+                                        const companyUserIds = targetCompany ? usersList
+                                            .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
+                                            .map(u => u.id) : [];
+
+                                        const records = targetCompany ? attendanceList.filter(r => {
+                                            if (!companyUserIds.includes(r.userId)) return false;
+                                            if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
+                                            
+                                            const rDate = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
+                                            const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
+                                            return recordDate === cadreRecordDate;
+                                        }) : [];
+                                        
+                                        // Calculate today string for comparison
+                                        const now = new Date();
+                                        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                        const isToday = cadreRecordDate === todayStr;
+
+                                        return (
                                         <div>
-                                            <div className="flex items-center justify-between mb-4">
-                                                <h3 className="text-lg font-bold text-gray-800 flex items-center">
-                                                    <ClipboardList className="w-5 h-5 mr-2 text-red-600" /> 紀錄
-                                                </h3>
-                                                <div className="flex items-center bg-gray-100 rounded-2xl p-1">
-                                                     <button 
-                                                         onClick={() => {
-                                                             const d = new Date(cadreRecordDate);
-                                                             d.setDate(d.getDate() - 1);
-                                                             setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-                                                         }}
-                                                         className="p-1.5 hover:bg-white hover:shadow rounded-xl transition-all"
-                                                     >
-                                                         <ChevronLeft className="w-4 h-4 text-gray-600" />
-                                                     </button>
-                                                     <div className="px-3 text-sm font-bold text-gray-700 min-w-[90px] text-center">
-                                                         {cadreRecordDate}
-                                                     </div>
-                                                     <button 
-                                                         onClick={() => {
-                                                             const d = new Date(cadreRecordDate);
-                                                             d.setDate(d.getDate() + 1);
-                                                             setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-                                                         }}
-                                                         className="p-1.5 hover:bg-white hover:shadow rounded-xl transition-all"
-                                                     >
-                                                         <ChevronRight className="w-4 h-4 text-gray-600" />
-                                                     </button>
-                                                 </div>
-                                            </div>
+                                            <h3 className="font-bold text-gray-800 mb-4 text-sm flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            d.setDate(d.getDate() - 1);
+                                                            setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                        }} 
+                                                        className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
+                                                    >
+                                                        <ChevronLeft className="w-5 h-5" />
+                                                    </button>
+                                                    <span>{isToday ? '今日打卡紀錄' : `${cadreRecordDate.replace(/-/g, '/')} 打卡紀錄`}</span>
+                                                    <button 
+                                                        onClick={() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            d.setDate(d.getDate() + 1);
+                                                            setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                        }}
+                                                        disabled={isToday}
+                                                        className={`p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isToday ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                                    >
+                                                        <ChevronRight className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                                <span className="text-xs text-gray-400 font-normal">共 {records.length} 筆</span>
+                                            </h3>
                                             
                                             <div className="space-y-3 pb-24">
-                                                {(function() {
-                                                    const targetCompany = companies.find(c => c.name === cadreCompany);
-                                                    if (!targetCompany) return <div className="text-center text-gray-400 py-8">請選擇公司</div>;
-
-                                                    // 1. Get all users of this company
-                                                    const companyUserIds = usersList
-                                                        .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
-                                                        .map(u => u.id);
-
-                                                    // 2. Filter attendance records
-                                                     const records = attendanceList.filter(r => {
-                                                         if (!companyUserIds.includes(r.userId)) return false;
-                                                         if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
-                                                         
-                                                         const rDate = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
-                                                         const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
-                                                         return recordDate === cadreRecordDate;
-                                                     });
-
-                                                    if (records.length === 0) {
-                                                        return (
-                                                            <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
-                                                                本日尚無打卡紀錄
-                                                            </div>
-                                                        );
-                                                    }
-
-                                                    return records.map(r => {
+                                                {!targetCompany ? (
+                                                    <div className="text-center text-gray-400 py-8">請選擇公司</div>
+                                                ) : records.length === 0 ? (
+                                                    <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                        本日尚無打卡紀錄
+                                                    </div>
+                                                ) : (
+                                                    records.map(r => {
                                                         const user = usersList.find(u => u.id === r.userId) || {};
                                                         const timeStr = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
                                                         
@@ -4189,11 +4300,24 @@
                                                                         <div>
                                                                             <div className="font-bold text-gray-800 flex items-center gap-2">
                                                                                 {r.userName}
-                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${
-                                                                                    r.type === 'in' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                                                                                }`}>
-                                                                                    {r.type === 'in' ? '上班' : '下班'}
-                                                                                </span>
+                                                                                {(function(){
+                                                    const typeMap = {
+                                                        'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                        'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                        'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
+                                                        'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
+                                                        'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
+                                                        'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' },
+                                                        'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                        'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' }
+                                                    };
+                                                    const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
+                                                    return (
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${config.class}`}>
+                                                            {config.text}
+                                                        </span>
+                                                    );
+                                                })()}
                                                                             </div>
                                                                             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                                                 <Clock className="w-3 h-3" /> {timeStr}
@@ -4245,19 +4369,17 @@
                                                                 </div>
                                                             </div>
                                                         );
-                                                    });
-                                                })()}
+                                                    })
+                                                )}
                                             </div>
                                         </div>
-                                    )}
+                                        );
+                                    })()}
                                     {cadreSubtab === 'schedule' && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Calendar className="w-5 h-5 mr-2 text-red-600" /> 班表
                                             </h3>
-                                            <div className="text-center py-8 text-gray-400">
-                                                功能開發中...
-                                            </div>
                                         </div>
                                     )}
                                     {cadreSubtab === 'approval' && (
@@ -4265,9 +4387,6 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈
                                             </h3>
-                                            <div className="text-center py-8 text-gray-400">
-                                                功能開發中...
-                                            </div>
                                         </div>
                                     )}
                                     {cadreSubtab === 'account' && (
@@ -4320,9 +4439,6 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <AlertCircle className="w-5 h-5 mr-2 text-red-600" /> 通知
                                             </h3>
-                                            <div className="text-center py-8 text-gray-400">
-                                                功能開發中...
-                                            </div>
                                         </div>
                                     )}
                                 </div>
