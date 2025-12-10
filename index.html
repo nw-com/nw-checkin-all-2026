@@ -489,94 +489,109 @@
 
             // Initialize Map when location is found and step is 'location'
             useEffect(() => {
-                if (step === 'location' && location && mapRef.current && window.google && window.google.maps) {
-                    // Calculate Target Location (prioritize checkInLocation over workSite)
-                    let targetLocation = null;
-                    let targetName = "服務單位";
-                    const target = checkInLocation || workSite;
+                try {
+                    if (step === 'location' && location && mapRef.current && window.google && window.google.maps) {
+                        // Calculate Target Location (prioritize checkInLocation over workSite)
+                        let targetLocation = null;
+                        let targetName = "服務單位";
+                        const target = checkInLocation || workSite;
 
-                    if (target) {
-                        if (target.lat && target.lng) {
-                            targetLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
-                        } else if (target.location && typeof target.location === 'string') {
-                            const parts = target.location.split(',');
-                            if (parts.length === 2) {
-                                const lat = parseFloat(parts[0].trim());
-                                const lng = parseFloat(parts[1].trim());
-                                if (!isNaN(lat) && !isNaN(lng)) {
-                                    targetLocation = { lat, lng };
+                        if (target) {
+                            if (target.lat && target.lng) {
+                                targetLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
+                            } else if (target.location) {
+                                const locStr = String(target.location);
+                                const parts = locStr.split(',');
+                                if (parts.length === 2) {
+                                    const lat = parseFloat(parts[0].trim());
+                                    const lng = parseFloat(parts[1].trim());
+                                    if (!isNaN(lat) && !isNaN(lng)) {
+                                        targetLocation = { lat, lng };
+                                    }
                                 }
                             }
+                            targetName = target.name || "服務單位";
                         }
-                        targetName = target.name || "服務單位";
-                    }
 
-                    // Center on Target Location if available, otherwise User Location
-                    const mapCenter = targetLocation || location;
+                        // Center on Target Location if available, otherwise User Location
+                        const mapCenter = targetLocation || location;
 
-                    const map = new google.maps.Map(mapRef.current, {
-                        center: mapCenter,
-                        zoom: 17,
-                        disableDefaultUI: true,
-                        zoomControl: true,
-                    });
-
-                    // User Marker
-                    new google.maps.Marker({
-                        position: location,
-                        map: map,
-                        title: "目前位置",
-                        icon: {
-                            path: google.maps.SymbolPath.CIRCLE,
-                            scale: 7,
-                            fillColor: "#4285F4",
-                            fillOpacity: 1,
-                            strokeColor: "white",
-                            strokeWeight: 2,
-                        },
-                    });
-
-                    // Target Location Marker and Circle
-                    if (targetLocation) {
-                        if (workSiteCircleRef.current) {
-                            workSiteCircleRef.current.setMap(null);
-                        }
-                        
-                        workSiteCircleRef.current = new google.maps.Circle({
-                            strokeColor: "#FF0000",
-                            strokeOpacity: 0.8,
-                            strokeWeight: 2,
-                            fillColor: "#FF0000",
-                            fillOpacity: 0.15,
-                            map: map,
-                            center: targetLocation,
-                            radius: 100 // Default 100m
+                        const map = new google.maps.Map(mapRef.current, {
+                            center: mapCenter,
+                            zoom: 17,
+                            disableDefaultUI: true,
+                            zoomControl: true,
                         });
 
+                        // User Marker
                         new google.maps.Marker({
-                            position: targetLocation,
+                            position: location,
                             map: map,
-                            title: targetName,
-                            label: {
-                                text: "打卡點",
-                                color: "white",
-                                fontSize: "12px",
-                                fontWeight: "bold"
-                            }
+                            title: "目前位置",
+                            icon: {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 7,
+                                fillColor: "#4285F4",
+                                fillOpacity: 1,
+                                strokeColor: "white",
+                                strokeWeight: 2,
+                            },
                         });
+
+                        // Target Location Marker and Circle
+                        if (targetLocation) {
+                            if (workSiteCircleRef.current) {
+                                workSiteCircleRef.current.setMap(null);
+                            }
+                            
+                            workSiteCircleRef.current = new google.maps.Circle({
+                                strokeColor: "#FF0000",
+                                strokeOpacity: 0.8,
+                                strokeWeight: 2,
+                                fillColor: "#FF0000",
+                                fillOpacity: 0.15,
+                                map: map,
+                                center: targetLocation,
+                                radius: 100 // Default 100m
+                            });
+
+                            new google.maps.Marker({
+                                position: targetLocation,
+                                map: map,
+                                title: targetName,
+                                label: {
+                                    text: "打卡點",
+                                    color: "white",
+                                    fontSize: "12px",
+                                    fontWeight: "bold"
+                                }
+                            });
+                        }
                     }
+                } catch (err) {
+                    console.error("Map initialization error:", err);
+                    // Don't crash the UI, just log the error
                 }
             }, [step, location, workSite, checkInLocation]);
 
             const startCamera = async () => {
                 try {
-                    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('您的瀏覽器不支援相機功能，請使用 Safari (iOS) 或 Chrome (Android)');
+                    }
+                    const s = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        } 
+                    });
                     setStream(s);
                     if (videoRef.current) {
                         videoRef.current.srcObject = s;
                     }
                 } catch (e) {
-                    setError('無法存取相機，請確認權限');
+                    setError('無法存取相機：' + (e.message || '請確認權限'));
                     console.error(e);
                 }
             };
@@ -674,8 +689,9 @@
                 let wsLocation = null;
                 if (target.lat && target.lng) {
                     wsLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
-                } else if (target.location && typeof target.location === 'string') {
-                    const parts = target.location.split(',');
+                } else if (target.location) {
+                    const locStr = String(target.location);
+                    const parts = locStr.split(',');
                     if (parts.length === 2) {
                         const lat = parseFloat(parts[0].trim());
                         const lng = parseFloat(parts[1].trim());
@@ -874,9 +890,9 @@
                                                         打卡位置
                                                     </div>
                                                     <div className="bg-white rounded-lg shadow-lg overflow-hidden min-w-[160px]">
-                                                        {availableLocations.length > 1 ? (
+                                                        {(availableLocations || []).length > 1 ? (
                                                             <div className="flex flex-col">
-                                                                {availableLocations.map(loc => (
+                                                                {(availableLocations || []).map(loc => (
                                                                     <button
                                                                         key={loc.id}
                                                                         onClick={() => setCheckInLocation && setCheckInLocation(loc)}
