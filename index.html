@@ -82,7 +82,8 @@
             updateDoc,
             setDoc,
             deleteDoc,
-            doc
+            doc,
+            onSnapshot
         } from 'firebase/firestore';
         import {
             getStorage,
@@ -2268,7 +2269,8 @@
             const isToday = isSameDay(viewDate, new Date());
             
             const filteredHistory = attendanceHistory.filter(record => {
-                const recordDate = new Date(record.timestamp.seconds * 1000);
+                const seconds = record.timestamp?.seconds || Date.now() / 1000;
+                const recordDate = new Date(seconds * 1000);
                 return isSameDay(recordDate, viewDate);
             });
 
@@ -3033,109 +3035,62 @@
 
             useEffect(() => {
                 if (!user) return;
-                const ref = collection(db, 'artifacts', appId, 'public', 'data', 'communities');
-                let stopped = false;
-                const fetch = async () => {
-                    if (!navigator.onLine) return;
-                    try {
-                        const snap = await getDocs(ref);
-                        if (stopped) return;
-                        setCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    } catch (err) {
-                        handleFetchError(err, 'communities');
-                    }
-                };
-                fetch();
-                const i = setInterval(fetch, 10000);
-                return () => { stopped = true; clearInterval(i); };
-            }, [user]);
+                const unsubscribes = [];
 
-            useEffect(() => {
-                if (!user) return;
-                const ref = collection(db, 'artifacts', appId, 'public', 'data', 'roles');
-                const fetchRoles = async () => {
-                    if (!navigator.onLine) return;
-                    try {
-                        const snap = await getDocs(ref);
-                        setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    } catch (error) {
-                        handleFetchError(error, 'roles_initial');
-                    }
-                };
-                fetchRoles();
-                const interval = setInterval(fetchRoles, 5000);
-                return () => clearInterval(interval);
+                // Communities
+                unsubscribes.push(onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'communities'),
+                    (snap) => setCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    (err) => handleFetchError(err, 'communities_snap')
+                ));
+
+                // Roles
+                unsubscribes.push(onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'roles'),
+                    (snap) => setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    (err) => handleFetchError(err, 'roles_snap')
+                ));
+
+                return () => unsubscribes.forEach(u => u());
             }, [user]);
 
             useEffect(() => {
                 if (!user || !dbUser) return;
-                let stopUsers = false;
-                let stopAttendance = false;
-                let stopMyAttendance = false;
+                
+                const unsubscribes = [];
+                const isManagerOrAdmin = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role);
+                
+                // Conditions for fetching specific data
+                const needsCommonData = isManagerOrAdmin || 
+                                      ((activeTab === 'settings' && settingsSubtab === 'general') || activeTab === 'cadre' || activeTab === 'home' || activeTab === 'clock');
+                const needsUsersList = needsCommonData || (activeTab === 'settings' && settingsSubtab === 'account');
 
-                if (dbUser && activeTab === 'settings' && settingsSubtab === 'account') {
-                    const ref = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-                    const fetch = async () => {
-                        if (!navigator.onLine) return;
-                        try {
-                            const snap = await getDocs(ref);
-                            if (stopUsers) return;
-                            setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) {
-                            handleFetchError(err, 'users_list');
-                        }
-                    };
-                    fetch();
-                    var usersInterval = setInterval(fetch, 10000);
-                }
-
-                if (dbUser && ((activeTab === 'settings' && settingsSubtab === 'general') || activeTab === 'cadre' || activeTab === 'home' || activeTab === 'clock')) {
-                    const refRoles = collection(db, 'artifacts', appId, 'public', 'data', 'roles');
+                // 1. Common Data (Roles, Companies, Areas)
+                if (needsCommonData) {
                     const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
                     const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
-                    const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
 
-                    const fetchRoles = async () => {
-                        if (!navigator.onLine) return;
-                        try {
-                            const snap = await getDocs(refRoles);
-                            if (stopUsers) return;
-                            setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { handleFetchError(err, 'roles'); }
-                    };
-                    const fetchCompanies = async () => {
-                        if (!navigator.onLine) return;
-                        try {
-                            const snap = await getDocs(refCompanies);
-                            if (stopAttendance) return;
-                            setCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { handleFetchError(err, 'companies'); }
-                    };
-                    const fetchAreas = async () => {
-                        if (!navigator.onLine) return;
-                        try {
-                            const snap = await getDocs(refAreas);
-                            if (stopMyAttendance) return;
-                            setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { handleFetchError(err, 'areas'); }
-                    };
-                    const fetchUsersForCounts = async () => {
-                        if (!navigator.onLine) return;
-                        try {
-                            const snap = await getDocs(refUsers);
-                            if (stopUsers) return;
-                            setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) { handleFetchError(err, 'users'); }
-                    };
-                    fetchRoles(); fetchCompanies(); fetchAreas(); fetchUsersForCounts();
-                    var rolesInterval = setInterval(fetchRoles, 30000);
-                    var companiesInterval = setInterval(fetchCompanies, 30000);
-                    var areasInterval = setInterval(fetchAreas, 30000);
-                    var usersForCountsInterval = setInterval(fetchUsersForCounts, 5000);
+                    unsubscribes.push(onSnapshot(refCompanies, 
+                        (snap) => setCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                        (e) => handleFetchError(e, 'companies_snap')
+                    ));
+                    unsubscribes.push(onSnapshot(refAreas, 
+                        (snap) => setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                        (e) => handleFetchError(e, 'areas_snap')
+                    ));
                 }
 
-                if (['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role)) {
-                    // Fetch only last 30 days to prevent network overload
+                // 2. Users List (for counts and display)
+                if (needsUsersList) {
+                    const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                    unsubscribes.push(onSnapshot(refUsers, 
+                        (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                        (e) => handleFetchError(e, 'users_snap')
+                    ));
+                }
+
+                // 3. All Attendance (Manager Only)
+                if (isManagerOrAdmin) {
                     const dateLimit = new Date();
                     dateLimit.setDate(dateLimit.getDate() - 30);
                     
@@ -3144,47 +3099,28 @@
                         where('timestamp', '>=', dateLimit),
                         orderBy('timestamp', 'desc')
                     );
-                    const fetchAll = async () => {
-                        try {
-                            const snap = await getDocs(qAll);
-                            if (stopAttendance) return;
-                            setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) {
-                            handleFetchError(err, 'attendance_all');
-                        }
-                    };
-                    fetchAll();
-                    var attendanceInterval = setInterval(fetchAll, 10000);
+                    
+                    unsubscribes.push(onSnapshot(qAll, 
+                        (snap) => setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                        (e) => handleFetchError(e, 'attendance_all_snap')
+                    ));
                 }
 
+                // 4. My Attendance (Home Only)
                 if (activeTab === 'home') {
                     const qMine = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
                         where('userId', '==', dbUser.id),
                         orderBy('timestamp', 'desc')
                     );
-                    const fetchMine = async () => {
-                        try {
-                            const snap = await getDocs(qMine);
-                            if (stopMyAttendance) return;
-                            setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                        } catch (err) {
-                            handleFetchError(err, 'attendance_mine');
-                        }
-                    };
-                    fetchMine();
-                    var myInterval = setInterval(fetchMine, 10000);
+                    unsubscribes.push(onSnapshot(qMine, 
+                        (snap) => setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                        (e) => handleFetchError(e, 'attendance_mine_snap')
+                    ));
                 }
 
                 return () => {
-                    stopUsers = true; stopAttendance = true; stopMyAttendance = true;
-                    if (usersInterval) clearInterval(usersInterval);
-                    if (attendanceInterval) clearInterval(attendanceInterval);
-                    if (myInterval) clearInterval(myInterval);
-                    if (rolesInterval) clearInterval(rolesInterval);
-                    if (companiesInterval) clearInterval(companiesInterval);
-                    if (areasInterval) clearInterval(areasInterval);
-                    if (usersForCountsInterval) clearInterval(usersForCountsInterval);
+                    unsubscribes.forEach(u => u());
                 };
             }, [user, dbUser, activeTab, settingsSubtab]);
 
@@ -4065,7 +4001,7 @@
                                                                     lng: parseFloat(parts[1]),
                                                                     avatarUrl: u.avatarUrl,
                                                                     name: u.name,
-                                                                    time: record.timestamp.seconds * 1000,
+                                                                    time: (record.timestamp?.seconds || Date.now() / 1000) * 1000,
                                                                     locationName: record.checkInLocationName || targetCompany.name
                                                                 };
                                                             }
@@ -4149,7 +4085,7 @@
                                                          if (!companyUserIds.includes(r.userId)) return false;
                                                          if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
                                                          
-                                                         const rDate = new Date(r.timestamp.seconds * 1000);
+                                                         const rDate = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
                                                          const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
                                                          return recordDate === cadreRecordDate;
                                                      });
@@ -4164,7 +4100,7 @@
 
                                                     return records.map(r => {
                                                         const user = usersList.find(u => u.id === r.userId) || {};
-                                                        const timeStr = new Date(r.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                                        const timeStr = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
                                                         
                                                         return (
                                                             <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
