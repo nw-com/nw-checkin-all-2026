@@ -1681,12 +1681,13 @@
                                 <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                             </div>
                             <div className="h-[calc(100vh-280px)] overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_120px_150px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1650px] text-left">
+                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1750px] text-left">
                                     <div>角色</div>
                                     <div>大頭照</div>
                                     <div>職稱</div>
                                     <div>姓名</div>
                                     <div>電子郵件</div>
+                                    <div>密碼</div>
                                     <div>手機號碼</div>
                                     <div>所屬公司</div>
                                     <div>服務社區</div>
@@ -1696,7 +1697,7 @@
                                 </div>
                                 <div className="space-y-2">
                                     {users.map(u => (
-                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_120px_150px_250px_80px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1650px]">
+                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_80px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1750px]">
                                             <div className="font-bold text-gray-700">
                                                 {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
                                             </div>
@@ -1710,6 +1711,7 @@
                                             <div className="text-gray-700">{u.title || '-'}</div>
                                             <div className="font-bold text-gray-700">{u.name || '-'}</div>
                                             <div className="text-gray-700">{u.email || '-'}</div>
+                                            <div className="text-gray-500 font-mono">{u.password || '-'}</div>
                                             <div className="text-gray-700">{u.phone || '-'}</div>
                                             <div className="text-gray-700">
                                                 {(function(){ 
@@ -1763,8 +1765,10 @@
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.name} onChange={e=>setModalUser(prev=>({...prev, name: e.target.value}))} />
                                             <label className="block text-xs font-bold text-gray-500 uppercase">電子郵件（預設帳號）</label>
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.email} onChange={e=>setModalUser(prev=>({...prev, email: e.target.value}))} />
-                                            <label className="block text-xs font-bold text-gray-500 uppercase">手機號碼（預設密碼）</label>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">手機號碼</label>
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.phone} onChange={e=>setModalUser(prev=>({...prev, phone: e.target.value}))} />
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">密碼</label>
+                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.password || ''} onChange={e=>setModalUser(prev=>({...prev, password: e.target.value}))} placeholder={editingUserId ? "若不修改請留空" : "預設: 123456"} />
                                             <label className="block text-xs font-bold text-gray-500 uppercase">所屬公司</label>
                                             <div className="space-y-2 border border-gray-200 rounded-2xl p-3 max-h-40 overflow-y-auto bg-gray-50">
                                                 {['admin', 'manager'].includes(modalUser.role) && (
@@ -1921,7 +1925,7 @@
                                             {userError && <div className="text-xs text-red-600">{userError}</div>}
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId && !userDataToSave.password) { delete userDataToSave.password; } if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                     </div>
                                 </div>
@@ -2104,7 +2108,7 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [] }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [showLocationSelector, setShowLocationSelector] = useState(false);
             const [viewDate, setViewDate] = useState(new Date());
@@ -2273,6 +2277,7 @@
             return (
                 <div className="max-w-md mx-auto space-y-4 pb-20">
                     {/* Header Info Card */}
+                    {!hideHeaderInfo && (
                     <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl shadow-xl shadow-red-200 overflow-hidden relative">
                         <div className="absolute top-0 right-0 p-4 opacity-10">
                             <Clock className="w-32 h-32 transform rotate-12 text-white" />
@@ -2334,6 +2339,7 @@
                             </div>
                         </div>
                     </div>
+                    )}
                     
                     {/* Big Action Button */}
                     <div className="px-2">
@@ -2507,8 +2513,27 @@
         };
 
         // 5. Manager Dashboard
-        const ManagerDashboard = ({ currentUser, communities, allAttendance, timeOffset }) => {
-            const communityLogs = allAttendance.filter(a => a.communityId === currentUser.communityId);
+        const ManagerDashboard = ({ currentUser, communities, allAttendance, timeOffset, users = [] }) => {
+            const communityLogs = allAttendance.filter(a => {
+                // 1. Strict match on communityId (handle string/number differences)
+                if (String(a.communityId) === String(currentUser.communityId)) return true;
+                
+                // 2. Fallback: Check if the user belongs to this community via users list
+                if (users.length > 0 && a.userId) {
+                    const u = users.find(user => user.id === a.userId);
+                    if (u) {
+                        // Check communityIds array
+                        if (u.communityIds && u.communityIds.some(cid => String(cid) === String(currentUser.communityId))) {
+                            return true;
+                        }
+                        // Check legacy communityId field
+                        if (u.communityId && String(u.communityId) === String(currentUser.communityId)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            });
             const today = new Date(Date.now() + (timeOffset || 0)).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' });
 
             return (
@@ -3380,22 +3405,43 @@
                 // Create user in Firebase Auth using a secondary app instance to avoid signing out the current admin
                 const secondaryAppName = `secondaryApp-${Date.now()}`;
                 let secondaryApp;
+                const passwordToUse = userData.password || '123456';
+
                 try {
                     secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
                     const secondaryAuth = getAuth(secondaryApp);
-                    const password = '123456'; // Default password (min 6 chars)
-                    await createUserWithEmailAndPassword(secondaryAuth, userData.email, password);
+                    await createUserWithEmailAndPassword(secondaryAuth, userData.email, passwordToUse);
                     await signOut(secondaryAuth);
                 } catch (error) {
                     console.error("Error creating auth user:", error);
                     if (error.code === 'auth/email-already-in-use') {
-                         alert('該 Email 已經註冊過帳號');
-                         if (secondaryApp) await deleteApp(secondaryApp);
-                         return; 
+                         // Check if the user exists in Firestore to allow recovery from failed writes
+                         try {
+                             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('email', '==', userData.email));
+                             const snap = await getDocs(q);
+                             if (snap.empty) {
+                                 const shouldRepair = confirm('此 Email 已經註冊過帳號，但在資料庫中找不到資料（可能是上次建立時寫入失敗）。是否要補建立資料庫資料？');
+                                 if (!shouldRepair) {
+                                     if (secondaryApp) await deleteApp(secondaryApp);
+                                     return;
+                                 }
+                                 // Fall through to Firestore write
+                             } else {
+                                 alert('該 Email 已經註冊過帳號，且資料庫中已存在。');
+                                 if (secondaryApp) await deleteApp(secondaryApp);
+                                 return;
+                             }
+                         } catch (checkErr) {
+                             console.error("Error checking existing user:", checkErr);
+                             alert('檢查帳號狀態時發生錯誤');
+                             if (secondaryApp) await deleteApp(secondaryApp);
+                             return;
+                         }
+                    } else {
+                        alert(`建立帳號失敗: ${error.message}`);
+                        if (secondaryApp) await deleteApp(secondaryApp);
+                        return;
                     }
-                    alert(`建立帳號失敗: ${error.message}`);
-                    if (secondaryApp) await deleteApp(secondaryApp);
-                    return;
                 } finally {
                     if (secondaryApp) {
                         try {
@@ -3404,16 +3450,23 @@
                     }
                 }
 
-                const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: '123456', updatedByName: '新增', updatedAt: serverTimestamp() });
-                
-                // Optimistic update for immediate UI feedback
-                setUsersList(prev => [...prev, { 
-                    id: docRef.id, 
-                    ...userData, 
-                    password: '123456', 
-                    updatedByName: '新增', 
-                    updatedAt: new Date() 
-                }]);
+                try {
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: passwordToUse, updatedByName: '新增', updatedAt: serverTimestamp() });
+                    
+                    // Optimistic update for immediate UI feedback
+                    setUsersList(prev => [...prev, { 
+                        id: docRef.id, 
+                        ...userData, 
+                        password: passwordToUse, 
+                        updatedByName: '新增', 
+                        updatedAt: new Date() 
+                    }]);
+                } catch (firestoreError) {
+                    console.error("Firestore write failed:", firestoreError);
+                    alert(`儲存使用者資料到資料庫失敗: ${firestoreError.message}`);
+                    // Note: Auth user was created but Firestore data failed. You might want to delete the auth user or handle this inconsistency.
+                    return;
+                }
             };
 
             const handleAddCommunity = async (name) => {
@@ -3659,11 +3712,15 @@
                                         const targetCompany = companies.find(c => c.name === cadreCompany);
                                         if (!targetCompany) return null;
                                         
-                                        // Filter: Company + Roles (admin, hr, cadre)
-                                        const targetRoles = ['admin', 'hr', 'cadre'];
+                                        // Filter: Company + Roles (admin, hr, cadre, staff)
+                                        // Expand target roles to include custom roles with matching names
+                                        const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                        const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                        const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+
                                         const companyUsers = usersList.filter(u => 
                                             ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
-                                            targetRoles.includes(u.role)
+                                            finalTargetRoles.includes(u.role)
                                         );
                                         
                                         if (companyUsers.length === 0) return <div className="text-xs text-gray-400">尚無人員</div>;
@@ -3754,6 +3811,7 @@
                                         setMapPreviewTarget={setMapPreviewTarget}
                                         setPreviewImageUrl={setPreviewImageUrl}
                                         roles={roles}
+                                        hideHeaderInfo={true}
                                     />
                                 )}
                                 {clockSubtab !== 'work' && (
@@ -3782,6 +3840,7 @@
                                             communities={communities} 
                                             allAttendance={attendanceList}
                                             timeOffset={timeOffset}
+                                            users={usersList}
                                         />
                                     </ErrorBoundary>
                                 </div>
@@ -3867,11 +3926,16 @@
 
                                                     // 2. Prepare users list with location
                                                     if (usersList.length > 0) {
-                                                        // Filter: Company + Roles (admin, hr, cadre)
-                                                        const targetRoles = ['admin', 'hr', 'cadre'];
+                                                        // Filter: Company + Roles (admin, hr, cadre, staff)
+                                                        // Expand target roles to include custom roles with matching names
+                                                        const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                                        const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                        const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+                                                        
                                                         const companyMembers = usersList.filter(u => 
-                                                            u.companyId === targetCompany.id && 
-                                                            targetRoles.includes(u.role)
+                                                            ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || 
+                                                            String(u.companyId) === String(targetCompany.id)) &&
+                                                            finalTargetRoles.includes(u.role)
                                                         );
                                                         
                                                         companyUsers = companyMembers.map(u => {
@@ -4098,10 +4162,6 @@
                                                     // Filter: Company - Show all users EXCEPT excluded roles
                                                     const excludedRoles = ['manager', 'secretary', 'cleaner', 'mechanic', 'guard'];
                                                     
-                                                    // DEBUG: Find Lao Xiao
-                                                    const lao = usersList.find(u => u.name && u.name.includes('蕭'));
-                                                    if (lao) console.log('Found Lao Xiao:', lao);
-
                                                     const filteredUsers = usersList.filter(u => 
                                                         ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
                                                         !excludedRoles.includes(u.role) &&
