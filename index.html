@@ -116,6 +116,8 @@
             RefreshCw,
             ChevronLeft,
             ChevronRight,
+            ChevronUp,
+            ChevronDown,
             Check
         } from 'lucide-react';
 
@@ -469,6 +471,7 @@
             const [error, setError] = useState('');
             const [step, setStep] = useState('location'); // location, camera, preview
             const [isProcessing, setIsProcessing] = useState(false);
+            const [showLocationList, setShowLocationList] = useState(false);
 
             useEffect(() => {
                 if (isOpen) {
@@ -890,19 +893,38 @@
                                                     <div className="bg-white/90 px-3 py-1 rounded-t-lg shadow-sm text-xs font-bold text-gray-500 w-fit">
                                                         打卡位置
                                                     </div>
-                                                    <div className="bg-white rounded-lg shadow-lg overflow-hidden min-w-[160px]">
+                                                    <div className="bg-white rounded-lg shadow-lg overflow-hidden min-w-[160px] transition-all duration-200">
                                                         {(availableLocations || []).length > 1 ? (
                                                             <div className="flex flex-col">
-                                                                {(availableLocations || []).map(loc => (
-                                                                    <button
-                                                                        key={loc.id}
-                                                                        onClick={() => setCheckInLocation && setCheckInLocation(loc)}
-                                                                        className={`px-4 py-3 text-left font-bold text-sm border-b last:border-0 hover:bg-gray-50 transition-colors flex items-center justify-between ${checkInLocation?.id === loc.id ? 'bg-red-50 text-red-600' : 'text-gray-800'}`}
-                                                                    >
-                                                                        {loc.name}
-                                                                        {checkInLocation?.id === loc.id && <Check className="w-4 h-4" />}
-                                                                    </button>
-                                                                ))}
+                                                                <button
+                                                                    onClick={() => setShowLocationList(!showLocationList)}
+                                                                    className="px-4 py-3 text-left font-bold text-sm text-gray-800 hover:bg-gray-50 transition-colors flex items-center justify-between w-full"
+                                                                >
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className={checkInLocation ? 'text-red-600' : ''}>
+                                                                            {checkInLocation?.name || '請選擇位置'}
+                                                                        </span>
+                                                                    </div>
+                                                                    {showLocationList ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                                                                </button>
+                                                                
+                                                                {showLocationList && (
+                                                                    <div className="border-t max-h-[200px] overflow-y-auto">
+                                                                        {(availableLocations || []).map(loc => (
+                                                                            <button
+                                                                                key={loc.id}
+                                                                                onClick={() => {
+                                                                                    setCheckInLocation && setCheckInLocation(loc);
+                                                                                    setShowLocationList(false);
+                                                                                }}
+                                                                                className={`px-4 py-3 text-left font-bold text-sm border-b last:border-0 hover:bg-gray-50 transition-colors flex items-center justify-between w-full ${checkInLocation?.id === loc.id ? 'bg-red-50 text-red-600' : 'text-gray-800'}`}
+                                                                            >
+                                                                                {loc.name}
+                                                                                {checkInLocation?.id === loc.id && <Check className="w-4 h-4" />}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ) : (
                                                             <div className="px-4 py-3 font-bold text-sm text-gray-800 flex items-center gap-2">
