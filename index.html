@@ -418,6 +418,14 @@
                             </div>
                         </div>
                     )}
+                    <LeaveRequestModal 
+                        isOpen={showLeaveModal} 
+                        onClose={() => setShowLeaveModal(false)} 
+                        onSubmit={(data) => {
+                            if (onLeaveSubmit) onLeaveSubmit(data);
+                            setShowLeaveModal(false);
+                        }} 
+                    />
                 </div>
             );
         };
@@ -2258,13 +2266,150 @@
             );
         };
 
+        // Leave Request Modal
+        const LeaveRequestModal = ({ isOpen, onClose, onSubmit, loading, defaultCompany }) => {
+            const [company, setCompany] = useState(defaultCompany || '所屬公司');
+            const [reason, setReason] = useState('病假');
+            
+            useEffect(() => {
+                if (defaultCompany) setCompany(defaultCompany);
+            }, [defaultCompany]);
+
+            const [customReason, setCustomReason] = useState('');
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            const [time, setTime] = useState('09:00');
+            const [description, setDescription] = useState('');
+            const [photo, setPhoto] = useState(null);
+
+            if (!isOpen) return null;
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onSubmit({
+                    company,
+                    reason: reason === '其他' ? customReason : reason,
+                    date,
+                    time,
+                    description,
+                    photo
+                });
+            };
+
+            const handleFileChange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    setPhoto(e.target.files[0]);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+                        <div className="p-6">
+                            <h3 className="text-xl font-bold mb-4">請假申請</h3>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold mb-1">所屬公司</label>
+                                    <input 
+                                        type="text" 
+                                        value={company}
+                                        readOnly
+                                        className="w-full p-2 border rounded-xl bg-gray-50 text-gray-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1">事由</label>
+                                    <select 
+                                        value={reason} 
+                                        onChange={(e) => setReason(e.target.value)}
+                                        className="w-full p-2 border rounded-xl"
+                                    >
+                                        <option value="病假">病假</option>
+                                        <option value="事假">事假</option>
+                                        <option value="其他">其他</option>
+                                    </select>
+                                </div>
+                                {reason === '其他' && (
+                                    <div>
+                                        <input 
+                                            type="text" 
+                                            placeholder="請輸入事由"
+                                            value={customReason}
+                                            onChange={(e) => setCustomReason(e.target.value)}
+                                            className="w-full p-2 border rounded-xl"
+                                            required
+                                        />
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-bold mb-1">日期</label>
+                                        <input 
+                                            type="date" 
+                                            value={date}
+                                            onChange={(e) => setDate(e.target.value)}
+                                            className="w-full p-2 border rounded-xl"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold mb-1">時間</label>
+                                        <select 
+                                            value={time}
+                                            onChange={(e) => setTime(e.target.value)}
+                                            className="w-full p-2 border rounded-xl"
+                                        >
+                                            {Array.from({ length: 144 }).map((_, i) => {
+                                                const h = Math.floor(i * 10 / 60);
+                                                const m = (i * 10) % 60;
+                                                const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                                                return <option key={timeStr} value={timeStr}>{timeStr}</option>;
+                                            })}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1">說明</label>
+                                    <textarea 
+                                        value={description}
+                                        onChange={(e) => setDescription(e.target.value)}
+                                        className="w-full p-2 border rounded-xl"
+                                        rows="3"
+                                    ></textarea>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1">拍照上傳</label>
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        capture="environment"
+                                        onChange={handleFileChange}
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div className="flex gap-2 pt-4">
+                                    <button type="button" onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-600">取消</button>
+                                    <button type="submit" disabled={loading} className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold disabled:opacity-50">
+                                        {loading ? '送出中...' : '送出申請'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
+            const [showLeaveModal, setShowLeaveModal] = useState(false);
+            const [leaveLoading, setLeaveLoading] = useState(false);
             const [showLocationSelector, setShowLocationSelector] = useState(false);
             const [viewDate, setViewDate] = useState(new Date());
             const [currentLocation, setCurrentLocation] = useState(null);
             const [hasLocationSorted, setHasLocationSorted] = useState(false);
+            const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+            const [selectedDescription, setSelectedDescription] = useState('');
 
             // Robust isCompanyGroup check
             const isCompanyGroup = useMemo(() => {
@@ -2341,7 +2486,17 @@
             const filteredHistory = attendanceHistory.filter(record => {
                 const seconds = record.timestamp?.seconds || Date.now() / 1000;
                 const recordDate = new Date(seconds * 1000);
+                if (mode === 'leave') {
+                    return recordDate.getFullYear() === viewDate.getFullYear() && 
+                           recordDate.getMonth() === viewDate.getMonth();
+                }
                 return isSameDay(recordDate, viewDate);
+            }).sort((a, b) => {
+                if (mode === 'leave') {
+                    // Sort by timestamp desc (latest first)
+                    return (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0);
+                }
+                return 0;
             });
 
             const getAvailableLocations = () => {
@@ -2451,6 +2606,10 @@
                         // null or 'outing_end'
                         return { type: 'outing_start', text: '外出打卡', sub: '紀錄外出時間', icon: MapPin, colorClass: 'bg-white text-blue-600 border-2 border-blue-100', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' };
                     }
+                }
+
+                if (mode === 'leave') {
+                    return { type: 'leave', text: '請假', sub: '申請休假', icon: FileText, colorClass: 'bg-white text-orange-600 border-2 border-orange-100', iconBg: 'bg-orange-50', iconColor: 'text-orange-600' };
                 }
                 
                 // Default work mode
@@ -2581,7 +2740,13 @@
                     {/* Big Action Button */}
                     <div className="px-2">
                         <button
-                            onClick={() => onClockIn(btnConfig.type, availableLocations)}
+                            onClick={() => {
+                                if (btnConfig.type === 'leave') {
+                                    setShowLeaveModal(true);
+                                } else {
+                                    onClockIn(btnConfig.type, availableLocations);
+                                }
+                            }}
                             className={`w-full h-32 rounded-2xl flex flex-row items-center justify-center gap-4 shadow-lg transition-all transform active:scale-95 ${btnConfig.colorClass}`}
                         >
                             <div className={`${btnConfig.iconBg} p-3 rounded-full`}>
@@ -2601,7 +2766,7 @@
                                 <button onClick={handlePrevDay} className="p-1 rounded-full hover:bg-gray-100 text-gray-500">
                                     <ChevronLeft className="w-5 h-5" />
                                 </button>
-                                <span>{isToday ? '今日打卡紀錄' : `${viewDate.getFullYear()}/${viewDate.getMonth() + 1}/${viewDate.getDate()} 打卡紀錄`}</span>
+                                <span>{mode === 'leave' ? '本月請假紀錄' : (isToday ? '今日打卡紀錄' : `${viewDate.getFullYear()}/${viewDate.getMonth() + 1}/${viewDate.getDate()} 打卡紀錄`)}</span>
                                 <button 
                                     onClick={handleNextDay} 
                                     disabled={isToday}
@@ -2624,6 +2789,8 @@
                                 filteredHistory.map((r, idx) => {
                                     const timeStr = new Date(r.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
                                     const typeConfig = getTypeLabel(r.type);
+                                    const isLeave = r.type === 'leave';
+                                    
                                     return (
                                         <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
                                             <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
@@ -2645,14 +2812,36 @@
                                                             </span>
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                                                            <Clock className="w-3 h-3" /> {timeStr}
+                                                            <Clock className="w-3 h-3" /> 
+                                                            {isLeave 
+                                                                ? `請假日期 : ${r.leaveDate} ${r.leaveTime}` 
+                                                                : timeStr
+                                                            }
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                                                            <MapPin className="w-3 h-3" /> {r.checkInLocationName || r.address || '未記錄'}
+                                                            <MapPin className="w-3 h-3" /> 
+                                                            {isLeave
+                                                                ? `申請日期 : ${new Date(r.timestamp.seconds * 1000).toLocaleString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'})}`
+                                                                : (r.checkInLocationName || r.address || '未記錄')
+                                                            }
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         {(function(){
+                                                            if (isLeave) {
+                                                                return (
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            setSelectedDescription(r.leaveDescription || '無說明');
+                                                                            setShowDescriptionModal(true);
+                                                                        }}
+                                                                        className="w-12 h-12 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                    >
+                                                                        <FileText className="w-5 h-5" />
+                                                                    </button>
+                                                                );
+                                                            }
+
                                                             const parts = (r.location || '').split(',');
                                                             let mapImgUrl = null;
                                                             if (parts.length === 2) {
@@ -2685,7 +2874,7 @@
                                                             );
                                                         })()}
                                                         {r.photoUrl && (
-                                                            <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
+                                                            <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
                                                                 <img src={r.photoUrl} className="w-full h-full object-cover" />
                                                             </div>
                                                         )}
@@ -2720,6 +2909,45 @@
                                             {checkInLocation?.id === loc.id && <CheckCircle className="w-4 h-4" />}
                                         </button>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <LeaveRequestModal 
+                        isOpen={showLeaveModal} 
+                        onClose={() => setShowLeaveModal(false)}
+                        defaultCompany={currentUser.companyName || (companies || []).find(c => c.id === currentUser.companyId)?.name || '所屬公司'}
+                        onSubmit={async (data) => {
+                            if (onLeaveSubmit) {
+                                setLeaveLoading(true);
+                                try {
+                                    await onLeaveSubmit(data);
+                                    setShowLeaveModal(false);
+                                } catch (e) {
+                                    console.error(e);
+                                } finally {
+                                    setLeaveLoading(false);
+                                }
+                            }
+                        }}
+                        loading={leaveLoading}
+                    />
+                    
+                    {showDescriptionModal && (
+                        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDescriptionModal(false)}>
+                            <div className="bg-white rounded-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-bold text-lg mb-4 text-gray-800">說明內容</h3>
+                                <div className="bg-gray-50 p-4 rounded-xl text-gray-600 min-h-[100px] whitespace-pre-wrap">
+                                    {selectedDescription}
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                    <button 
+                                        onClick={() => setShowDescriptionModal(false)}
+                                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold"
+                                    >
+                                        關閉
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2859,6 +3087,9 @@
         // Image Preview Modal
         const ImagePreviewModal = ({ url, onClose }) => {
             if (!url) return null;
+            const imgSrc = typeof url === 'object' ? url.url : url;
+            const isLeave = typeof url === 'object' ? url.isLeave : false;
+
             return (
                 <div className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
                     <button 
@@ -2867,12 +3098,22 @@
                     >
                         <X className="w-6 h-6" />
                     </button>
-                    <img 
-                        src={url} 
-                        alt="Preview" 
-                        className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                        onClick={e => e.stopPropagation()}
-                    />
+                    {isLeave ? (
+                        <div className="w-full max-w-md aspect-square bg-black flex items-center justify-center overflow-hidden rounded-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+                            <img 
+                                src={imgSrc} 
+                                alt="Preview" 
+                                className="w-full h-full object-cover"
+                            />
+                        </div>
+                    ) : (
+                        <img 
+                            src={imgSrc} 
+                            alt="Preview" 
+                            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                            onClick={e => e.stopPropagation()}
+                        />
+                    )}
                 </div>
             );
         };
@@ -3603,6 +3844,43 @@
                 }
             };
 
+            const handleLeaveSubmit = async (leaveData) => {
+                if (!dbUser) return;
+                
+                try {
+                    let photoUrl = '';
+                    if (leaveData.photo) {
+                        const filename = `leave/${dbUser.id}/${Date.now()}.jpg`;
+                        const imgRef = storageRef(storage, filename);
+                        await uploadBytes(imgRef, leaveData.photo);
+                        photoUrl = await getDownloadURL(imgRef);
+                    }
+
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                        userId: dbUser.id,
+                        userName: dbUser.name,
+                        userRole: dbUser.role,
+                        communityId: dbUser.communityId,
+                        checkInLocationName: dbUser.communityName || '',
+                        type: 'leave',
+                        timestamp: serverTimestamp(),
+                        device: 'Web Browser',
+                        // Leave specific fields
+                        leaveReason: leaveData.reason,
+                        leaveDate: leaveData.date,
+                        leaveTime: leaveData.time,
+                        leaveDescription: leaveData.description,
+                        photoUrl: photoUrl
+                    });
+
+                    alert('請假申請已送出');
+                } catch (e) {
+                    console.error('Leave Submit Error:', e);
+                    alert('送出失敗：' + e.message);
+                    throw e; // Propagate error to stop loading state in modal
+                }
+            };
+
             const handleAddUser = async (userData) => {
                 if (!user) return;
 
@@ -4054,6 +4332,24 @@
                                         mode="card"
                                     />
                                 )}
+                                {clockSubtab === 'leave' && (
+                                    <StaffDashboard 
+                                        currentUser={dbUser} 
+                                        onClockIn={handleClockIn}
+                                        onLeaveSubmit={handleLeaveSubmit}
+                                        attendanceHistory={myAttendance.filter(r => r.type === 'leave')}
+                                        timeOffset={timeOffset}
+                                        companies={companies}
+                                        communities={communities}
+                                        checkInLocation={checkInLocation}
+                                        setCheckInLocation={setCheckInLocation}
+                                        setMapPreviewTarget={setMapPreviewTarget}
+                                        setPreviewImageUrl={setPreviewImageUrl}
+                                        roles={roles}
+                                        hideHeaderInfo={true}
+                                        mode="leave"
+                                    />
+                                )}
 
                             </div>
                         )}
@@ -4135,7 +4431,7 @@
                             </div>
                         )}
 
-                        {activeTab === 'cadre' && hasPermission('cadre') && (
+                        {activeTab === 'cadre' && (
                             <div className="space-y-6">
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                     <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
