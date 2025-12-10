@@ -113,6 +113,7 @@
             Settings,
             X,
             Edit,
+            Trash2,
             Camera,
             RefreshCw,
             ChevronLeft,
@@ -418,14 +419,7 @@
                             </div>
                         </div>
                     )}
-                    <LeaveRequestModal 
-                        isOpen={showLeaveModal} 
-                        onClose={() => setShowLeaveModal(false)} 
-                        onSubmit={(data) => {
-                            if (onLeaveSubmit) onLeaveSubmit(data);
-                            setShowLeaveModal(false);
-                        }} 
-                    />
+
                 </div>
             );
         };
@@ -852,25 +846,25 @@
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
                 
-                // Resize logic
-                let w = video.videoWidth;
-                let h = video.videoHeight;
-                const maxDim = 800; // Reduced to 800px
-                if (w > maxDim || h > maxDim) {
-                    if (w > h) {
-                        h = Math.round((h / w) * maxDim);
-                        w = maxDim;
-                    } else {
-                        w = Math.round((w / h) * maxDim);
-                        h = maxDim;
-                    }
-                }
-
-                canvas.width = w;
-                canvas.height = h;
+                // Resize logic - Force 1:1 Crop
+                const videoW = video.videoWidth;
+                const videoH = video.videoHeight;
                 
-                // Draw Video
-                ctx.drawImage(video, 0, 0, w, h);
+                // Determine crop size (square)
+                const size = Math.min(videoW, videoH);
+                
+                // Calculate center crop
+                const startX = (videoW - size) / 2;
+                const startY = (videoH - size) / 2;
+                
+                const outputSize = 800; // Output resolution
+
+                canvas.width = outputSize;
+                canvas.height = outputSize;
+                
+                // Draw Video - Crop center square
+                // drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+                ctx.drawImage(video, startX, startY, size, size, 0, 0, outputSize, outputSize);
                 
                 // Draw Watermark
                 const dateStr = new Date().toLocaleString('zh-TW');
@@ -1053,17 +1047,19 @@
                             )}
 
                             {step === 'camera' && (
-                                <>
+                                <div className="w-full max-w-md aspect-square relative overflow-hidden bg-black shadow-lg rounded-2xl">
                                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
                                     <div className="absolute bottom-4 left-4 right-4 text-white text-xs bg-black/50 p-2 rounded-2xl">
                                         <MapPin className="w-3 h-3 inline mr-1" />
                                         {address}
                                     </div>
-                                </>
+                                </div>
                             )}
 
                             {step === 'preview' && (
-                                <img src={URL.createObjectURL(image)} className="w-full h-full object-contain" />
+                                <div className="w-full max-w-md aspect-square relative overflow-hidden bg-black shadow-lg rounded-2xl">
+                                    <img src={URL.createObjectURL(image)} className="w-full h-full object-cover" />
+                                </div>
                             )}
                             <canvas ref={canvasRef} className="hidden"></canvas>
                         </div>
@@ -1500,16 +1496,20 @@
                 reader.readAsDataURL(file);
             };
 
-            const formatDateTime = (v) => {
+            const formatDateTime = (v, withSeconds = true) => {
                 if (!v) return '-';
                 const d = v && typeof v.toDate === 'function' ? v.toDate() : new Date(v);
                 if (!d || isNaN(d.getTime())) return '-';
-                return new Intl.DateTimeFormat('zh-TW', {
+                const options = {
                     timeZone: 'Asia/Taipei',
                     year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                    hour: '2-digit', minute: '2-digit',
                     hour12: false
-                }).format(d).replace(/\//g, '/');
+                };
+                if (withSeconds) {
+                    options.second = '2-digit';
+                }
+                return new Intl.DateTimeFormat('zh-TW', options).format(d).replace(/\//g, '/');
             };
 
             return (
@@ -2814,14 +2814,19 @@
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                             <Clock className="w-3 h-3" /> 
                                                             {isLeave 
-                                                                ? `請假日期 : ${r.leaveDate} ${r.leaveTime}` 
+                                                                ? `請假日期 : ${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}` 
                                                                 : timeStr
                                                             }
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                                                            <MapPin className="w-3 h-3" /> 
+                                                            {isLeave ? <Clock className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
                                                             {isLeave
-                                                                ? `申請日期 : ${new Date(r.timestamp.seconds * 1000).toLocaleString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'})}`
+                                                                ? `申請日期 : ${new Intl.DateTimeFormat('zh-TW', {
+                                                                    timeZone: 'Asia/Taipei',
+                                                                    year: 'numeric', month: '2-digit', day: '2-digit',
+                                                                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                                                    hour12: false
+                                                                }).format(new Date(r.timestamp.seconds * 1000)).replace(/\//g, '/')}`
                                                                 : (r.checkInLocationName || r.address || '未記錄')
                                                             }
                                                         </div>
@@ -3088,8 +3093,8 @@
         const ImagePreviewModal = ({ url, onClose }) => {
             if (!url) return null;
             const imgSrc = typeof url === 'object' ? url.url : url;
-            const isLeave = typeof url === 'object' ? url.isLeave : false;
-
+            // Removed isLeave check to enforce 1:1 for all images as requested
+            
             return (
                 <div className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
                     <button 
@@ -3098,22 +3103,13 @@
                     >
                         <X className="w-6 h-6" />
                     </button>
-                    {isLeave ? (
-                        <div className="w-full max-w-md aspect-square bg-black flex items-center justify-center overflow-hidden rounded-lg shadow-2xl" onClick={e => e.stopPropagation()}>
-                            <img 
-                                src={imgSrc} 
-                                alt="Preview" 
-                                className="w-full h-full object-cover"
-                            />
-                        </div>
-                    ) : (
+                    <div className="w-full max-w-md aspect-square bg-black flex items-center justify-center overflow-hidden rounded-lg shadow-2xl" onClick={e => e.stopPropagation()}>
                         <img 
                             src={imgSrc} 
                             alt="Preview" 
-                            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                            onClick={e => e.stopPropagation()}
+                            className="w-full h-full object-cover"
                         />
-                    )}
+                    </div>
                 </div>
             );
         };
@@ -3160,6 +3156,8 @@
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
             const [availableClockInLocations, setAvailableClockInLocations] = useState([]);
+            const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+            const [selectedDescription, setSelectedDescription] = useState('');
 
             // Helper to suppress network noise - Defined at component level for reuse
             const handleFetchError = (err, context) => {
@@ -3870,7 +3868,8 @@
                         leaveDate: leaveData.date,
                         leaveTime: leaveData.time,
                         leaveDescription: leaveData.description,
-                        photoUrl: photoUrl
+                        photoUrl: photoUrl,
+                        approvalStatus: 'pending'
                     });
 
                     alert('請假申請已送出');
@@ -4164,7 +4163,6 @@
                                     <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>外出</button>
                                     <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>
                                     <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>
-                                    <button onClick={() => setClockSubtab('record')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>紀錄</button>
                                     <button onClick={() => setClockSubtab('points')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'points' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>計點</button>
                                 </div>
                             )}
@@ -4182,6 +4180,7 @@
                                 <div className="flex gap-2">
                                     <button onClick={() => setCadreSubtab('map')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'map' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>地圖</button>
                                     <button onClick={() => setCadreSubtab('record')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>紀錄</button>
+                                    <button onClick={() => setCadreSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>
                                     <button onClick={() => setCadreSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>
                                     <button onClick={() => setCadreSubtab('approval')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'approval' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簽呈</button>
                                     <button onClick={() => setCadreSubtab('account')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>帳號</button>
@@ -4265,7 +4264,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
-                                        attendanceHistory={myAttendance}
+                                        attendanceHistory={myAttendance.filter(r => r.type !== 'leave')}
                                         timeOffset={timeOffset}
                                         companies={companies}
                                         communities={communities}
@@ -4672,6 +4671,134 @@
                                         </div>
                                         );
                                     })()}
+                                    {cadreSubtab === 'leave' && (function() {
+                                        const targetCompany = companies.find(c => c.name === cadreCompany);
+                                        const companyUserIds = targetCompany ? usersList
+                                            .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
+                                            .map(u => u.id) : [];
+
+                                        const currentMonth = cadreRecordDate.substring(0, 7); // YYYY-MM
+
+                                        const records = targetCompany ? attendanceList.filter(r => {
+                                            if (!companyUserIds.includes(r.userId)) return false;
+                                            if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
+                                            if (r.type !== 'leave') return false;
+                                            
+                                            const rDateStr = r.leaveDate || (() => {
+                                                const d = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
+                                                return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                                            })();
+                                            
+                                            return rDateStr.startsWith(currentMonth);
+                                        }) : [];
+                                        
+                                        const now = new Date();
+                                        const thisMonthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+                                        const isThisMonth = currentMonth === thisMonthStr;
+
+                                        return (
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 mb-4 text-sm flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            d.setDate(1);
+                                                            d.setMonth(d.getMonth() - 1);
+                                                            setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                        }} 
+                                                        className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
+                                                    >
+                                                        <ChevronLeft className="w-5 h-5" />
+                                                    </button>
+                                                    <span>{isThisMonth ? '本月請假紀錄' : `${currentMonth.replace(/-/g, '/')} 請假紀錄`}</span>
+                                                    <button 
+                                                        onClick={() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            d.setDate(1);
+                                                            d.setMonth(d.getMonth() + 1);
+                                                            setCadreRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                        }}
+                                                        disabled={isThisMonth}
+                                                        className={`p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isThisMonth ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                                    >
+                                                        <ChevronRight className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                                <span className="text-xs text-gray-400 font-normal">共 {records.length} 筆</span>
+                                            </h3>
+                                            
+                                            <div className="space-y-3 pb-24">
+                                                {!targetCompany ? (
+                                                    <div className="text-center text-gray-400 py-8">請選擇公司</div>
+                                                ) : records.length === 0 ? (
+                                                    <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                        本月尚無請假紀錄
+                                                    </div>
+                                                ) : (
+                                                    records.map(r => {
+                                                        const user = usersList.find(u => u.id === r.userId) || {};
+                                                        
+                                                        return (
+                                                            <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
+                                                                <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                    {user.avatarUrl ? (
+                                                                        <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                    ) : (
+                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                            {user.name?.[0]}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <div>
+                                                                            <div className="font-bold text-gray-800 flex items-center gap-2">
+                                                                                {r.userName}
+                                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-orange-100 text-orange-700">
+                                                                                    {r.leaveReason || '請假'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                <Clock className="w-3 h-3" /> 
+                                                                                請假日期 : {(r.leaveDate || '').replace(/-/g, '/')} {r.leaveTime}
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                <Clock className="w-3 h-3" />
+                                                                                申請日期 : {new Intl.DateTimeFormat('zh-TW', {
+                                                                                    timeZone: 'Asia/Taipei',
+                                                                                    year: 'numeric', month: '2-digit', day: '2-digit',
+                                                                                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                                                                    hour12: false
+                                                                                }).format(new Date((r.timestamp?.seconds || Date.now()/1000) * 1000)).replace(/\//g, '/')}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                             <button 
+                                                                                onClick={() => {
+                                                                                    setSelectedDescription(r.leaveDescription || '無說明');
+                                                                                    setShowDescriptionModal(true);
+                                                                                }}
+                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                            >
+                                                                                <FileText className="w-5 h-5" />
+                                                                            </button>
+                                                                            {r.photoUrl && (
+                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
+                                                                                    <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+                                        );
+                                    })()}
                                     {cadreSubtab === 'schedule' && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -4884,7 +5011,7 @@
 
                     {mapPreviewTarget && (
                         <div className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4" onClick={()=>setMapPreviewTarget(null)}>
-                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl h-[500px] overflow-hidden flex flex-col relative" onClick={e=>e.stopPropagation()}>
+                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md aspect-square overflow-hidden flex flex-col relative" onClick={e=>e.stopPropagation()}>
                                 <div className="absolute top-4 right-4 z-10">
                                     <button onClick={()=>setMapPreviewTarget(null)} className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100">
                                         <X className="w-5 h-5" />
@@ -4900,6 +5027,25 @@
                                         <div className="text-sm mb-1">{mapPreviewTarget.name}</div>
                                         <div>打卡範圍: {mapPreviewTarget.radius || 100}m</div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showDescriptionModal && (
+                        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDescriptionModal(false)}>
+                            <div className="bg-white rounded-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-bold text-lg mb-4 text-gray-800">說明內容</h3>
+                                <div className="bg-gray-50 p-4 rounded-xl text-gray-600 min-h-[100px] whitespace-pre-wrap">
+                                    {selectedDescription}
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                    <button 
+                                        onClick={() => setShowDescriptionModal(false)}
+                                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold"
+                                    >
+                                        關閉
+                                    </button>
                                 </div>
                             </div>
                         </div>
