@@ -490,25 +490,29 @@
             // Initialize Map when location is found and step is 'location'
             useEffect(() => {
                 if (step === 'location' && location && mapRef.current && window.google && window.google.maps) {
-                    // Calculate Work Site Location
-                    let wsLocation = null;
-                    if (workSite) {
-                        if (workSite.lat && workSite.lng) {
-                            wsLocation = { lat: parseFloat(workSite.lat), lng: parseFloat(workSite.lng) };
-                        } else if (workSite.location && typeof workSite.location === 'string') {
-                            const parts = workSite.location.split(',');
+                    // Calculate Target Location (prioritize checkInLocation over workSite)
+                    let targetLocation = null;
+                    let targetName = "服務單位";
+                    const target = checkInLocation || workSite;
+
+                    if (target) {
+                        if (target.lat && target.lng) {
+                            targetLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
+                        } else if (target.location && typeof target.location === 'string') {
+                            const parts = target.location.split(',');
                             if (parts.length === 2) {
                                 const lat = parseFloat(parts[0].trim());
                                 const lng = parseFloat(parts[1].trim());
                                 if (!isNaN(lat) && !isNaN(lng)) {
-                                    wsLocation = { lat, lng };
+                                    targetLocation = { lat, lng };
                                 }
                             }
                         }
+                        targetName = target.name || "服務單位";
                     }
 
-                    // Center on Work Site if available, otherwise User Location
-                    const mapCenter = wsLocation || location;
+                    // Center on Target Location if available, otherwise User Location
+                    const mapCenter = targetLocation || location;
 
                     const map = new google.maps.Map(mapRef.current, {
                         center: mapCenter,
@@ -532,8 +536,8 @@
                         },
                     });
 
-                    // Work Site Marker and Circle
-                    if (wsLocation) {
+                    // Target Location Marker and Circle
+                    if (targetLocation) {
                         if (workSiteCircleRef.current) {
                             workSiteCircleRef.current.setMap(null);
                         }
@@ -545,14 +549,14 @@
                             fillColor: "#FF0000",
                             fillOpacity: 0.15,
                             map: map,
-                            center: wsLocation,
+                            center: targetLocation,
                             radius: 100 // Default 100m
                         });
 
                         new google.maps.Marker({
-                            position: wsLocation,
+                            position: targetLocation,
                             map: map,
-                            title: workSite.name || "服務單位",
+                            title: targetName,
                             label: {
                                 text: "打卡點",
                                 color: "white",
@@ -562,7 +566,7 @@
                         });
                     }
                 }
-            }, [step, location, workSite]);
+            }, [step, location, workSite, checkInLocation]);
 
             const startCamera = async () => {
                 try {
@@ -661,16 +665,17 @@
             };
 
             const handleShowWorkSite = () => {
-                if (!workSite) {
+                const target = checkInLocation || workSite;
+                if (!target) {
                     alert('未找到您的服務單位資料');
                     return;
                 }
                 
                 let wsLocation = null;
-                if (workSite.lat && workSite.lng) {
-                    wsLocation = { lat: parseFloat(workSite.lat), lng: parseFloat(workSite.lng) };
-                } else if (workSite.location && typeof workSite.location === 'string') {
-                    const parts = workSite.location.split(',');
+                if (target.lat && target.lng) {
+                    wsLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
+                } else if (target.location && typeof target.location === 'string') {
+                    const parts = target.location.split(',');
                     if (parts.length === 2) {
                         const lat = parseFloat(parts[0].trim());
                         const lng = parseFloat(parts[1].trim());
@@ -730,7 +735,7 @@
                     new google.maps.Marker({
                         position: wsLocation,
                         map: mapInstance,
-                        title: workSite.name || "服務單位",
+                        title: target.name || "服務單位",
                         label: {
                             text: "打卡點",
                             color: "white",
