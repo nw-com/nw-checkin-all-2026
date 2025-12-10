@@ -2312,7 +2312,12 @@
                      return allCompanies;
                  } else {
                      const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
-                     const userComms = (communities || []).filter(c => userCommIds.includes(c.id)).map(c => ({ ...c, type: 'community' }));
+                     const userComms = (communities || []).filter(c => userCommIds.includes(c.id)).map(c => ({ 
+                         ...c, 
+                         type: 'community',
+                         lat: c.coordLat, // Map coordLat to lat for CameraModal
+                         lng: c.coordLng  // Map coordLng to lng for CameraModal
+                     }));
                      
                      if (currentLocation && userComms.length > 1) {
                          return userComms.sort((a, b) => {
@@ -2343,11 +2348,11 @@
                 
                 if (availableLocations.length > 0) {
                     if (!checkInLocation) {
-                        setCheckInLocation({ id: availableLocations[0].id, name: availableLocations[0].name, type: availableLocations[0].type });
+                        setCheckInLocation(availableLocations[0]);
                         if (!isCompanyGroup && currentLocation) setHasLocationSorted(true);
                     } else if (!isCompanyGroup && currentLocation && !hasLocationSorted) {
                         // Group 2: Update default to closest if not yet sorted-selected
-                        setCheckInLocation({ id: availableLocations[0].id, name: availableLocations[0].name, type: availableLocations[0].type });
+                        setCheckInLocation(availableLocations[0]);
                         setHasLocationSorted(true);
                     }
                 }
