@@ -460,7 +460,7 @@
         }
 
         // 1. Camera Modal
-        const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, workSite, checkInLocationName, availableLocations = [], checkInLocation, setCheckInLocation }) => {
+        const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, userAvatar, workSite, checkInLocationName, availableLocations = [], checkInLocation, setCheckInLocation }) => {
             const videoRef = useRef(null);
             const canvasRef = useRef(null);
             const mapRef = useRef(null);
@@ -529,19 +529,85 @@
                         });
 
                         // User Marker
-                        new google.maps.Marker({
-                            position: location,
-                            map: map,
-                            title: "目前位置",
-                            icon: {
-                                path: google.maps.SymbolPath.CIRCLE,
-                                scale: 7,
-                                fillColor: "#4285F4",
-                                fillOpacity: 1,
-                                strokeColor: "white",
-                                strokeWeight: 2,
-                            },
-                        });
+                        const createDefaultMarker = () => {
+                            new google.maps.Marker({
+                                position: location,
+                                map: map,
+                                title: "目前位置",
+                                icon: {
+                                    path: google.maps.SymbolPath.CIRCLE,
+                                    scale: 7,
+                                    fillColor: "#4285F4",
+                                    fillOpacity: 1,
+                                    strokeColor: "white",
+                                    strokeWeight: 2,
+                                },
+                                zIndex: 1000
+                            });
+                        };
+
+                        if (userAvatar) {
+                            const img = new Image();
+                            img.crossOrigin = "Anonymous";
+                            img.src = userAvatar;
+                            img.onload = () => {
+                                try {
+                                    const canvas = document.createElement('canvas');
+                                    canvas.width = 80;
+                                    canvas.height = 80;
+                                    const ctx = canvas.getContext('2d');
+
+                                    // White background/border
+                                    ctx.beginPath();
+                                    ctx.arc(40, 40, 40, 0, Math.PI * 2, true);
+                                    ctx.fillStyle = '#ffffff';
+                                    ctx.fill();
+
+                                    // Clip for image
+                                    ctx.save();
+                                    ctx.beginPath();
+                                    ctx.arc(40, 40, 36, 0, Math.PI * 2, true);
+                                    ctx.closePath();
+                                    ctx.clip();
+                                    
+                                    // Draw Image (cover)
+                                    // Calculate aspect ratio to cover
+                                    const scale = Math.max(80 / img.width, 80 / img.height);
+                                    const x = (80 - img.width * scale) / 2;
+                                    const y = (80 - img.height * scale) / 2;
+                                    ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+                                    ctx.restore();
+
+                                    // Blue Border Ring
+                                    ctx.beginPath();
+                                    ctx.lineWidth = 4;
+                                    ctx.strokeStyle = '#4285F4';
+                                    ctx.arc(40, 40, 38, 0, Math.PI * 2, true);
+                                    ctx.stroke();
+
+                                    new google.maps.Marker({
+                                        position: location,
+                                        map: map,
+                                        title: "目前位置",
+                                        icon: {
+                                            url: canvas.toDataURL(),
+                                            scaledSize: new google.maps.Size(48, 48),
+                                            anchor: new google.maps.Point(24, 24)
+                                        },
+                                        zIndex: 1000
+                                    });
+                                } catch (e) {
+                                    console.error("Avatar marker error:", e);
+                                    createDefaultMarker();
+                                }
+                            };
+                            img.onerror = () => {
+                                console.warn("Avatar load failed, using default marker");
+                                createDefaultMarker();
+                            };
+                        } else {
+                            createDefaultMarker();
+                        }
 
                         // Target Location Marker and Circle
                         if (targetLocation) {
@@ -577,7 +643,7 @@
                     console.error("Map initialization error:", err);
                     // Don't crash the UI, just log the error
                 }
-            }, [step, location, workSite, checkInLocation]);
+            }, [step, location, workSite, checkInLocation, userAvatar]);
 
             const startCamera = async () => {
                 try {
@@ -4432,6 +4498,7 @@
                         onConfirm={handleCameraConfirm}
                         type={clockType}
                         userName={dbUser?.name}
+                        userAvatar={dbUser?.avatarUrl}
                         workSite={communities.find(c => c.id === dbUser?.communityId)}
                         checkInLocationName={checkInLocation ? checkInLocation.name : (dbUser?.communityName || '')}
                         availableLocations={availableClockInLocations}
