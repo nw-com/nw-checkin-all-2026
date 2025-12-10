@@ -456,7 +456,7 @@
         }
 
         // 1. Camera Modal
-        const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, workSite, checkInLocationName }) => {
+        const CameraModal = ({ isOpen, onClose, onConfirm, type, userName, workSite, checkInLocationName, availableLocations = [], checkInLocation, setCheckInLocation }) => {
             const videoRef = useRef(null);
             const canvasRef = useRef(null);
             const mapRef = useRef(null);
@@ -843,7 +843,15 @@
                 <div className="fixed inset-0 z-[100] bg-black bg-opacity-90 flex flex-col items-center justify-center p-4">
                     <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh] h-[600px]">
                         <div className="p-4 border-b flex justify-between items-center bg-gray-50 flex-shrink-0">
-                            <h3 className="font-bold text-lg">{type === 'in' ? '上班打卡' : '下班簽退'} - 流程</h3>
+                            <h3 className="font-bold text-lg">
+                                {{
+                                    'in': '上班打卡',
+                                    'out': '下班簽退',
+                                    'outing_start': '外出打卡',
+                                    'outing_arrive': '抵達打卡',
+                                    'outing_end': '離開打卡'
+                                }[type] || '打卡'} - 流程
+                            </h3>
                             <button onClick={onClose} className="p-2 bg-gray-200 rounded-full"><X className="w-5 h-5" /></button>
                         </div>
                         
@@ -854,6 +862,34 @@
                                         {location ? (
                                             <div className="relative w-full h-full">
                                                 <div ref={mapRef} className="w-full h-full"></div>
+
+                                                {/* Check-In Location Selector */}
+                                                <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
+                                                    <div className="bg-white/90 px-3 py-1 rounded-t-lg shadow-sm text-xs font-bold text-gray-500 w-fit">
+                                                        打卡位置
+                                                    </div>
+                                                    <div className="bg-white rounded-lg shadow-lg overflow-hidden min-w-[160px]">
+                                                        {availableLocations.length > 1 ? (
+                                                            <div className="flex flex-col">
+                                                                {availableLocations.map(loc => (
+                                                                    <button
+                                                                        key={loc.id}
+                                                                        onClick={() => setCheckInLocation && setCheckInLocation(loc)}
+                                                                        className={`px-4 py-3 text-left font-bold text-sm border-b last:border-0 hover:bg-gray-50 transition-colors flex items-center justify-between ${checkInLocation?.id === loc.id ? 'bg-red-50 text-red-600' : 'text-gray-800'}`}
+                                                                    >
+                                                                        {loc.name}
+                                                                        {checkInLocation?.id === loc.id && <Check className="w-4 h-4" />}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="px-4 py-3 font-bold text-sm text-gray-800 flex items-center gap-2">
+                                                                <Building2 className="w-4 h-4 text-red-600" />
+                                                                {checkInLocationName || '未指定位置'}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
                                                 
                                                 {/* Relocate Button */}
                                                 <button 
@@ -2108,7 +2144,7 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [showLocationSelector, setShowLocationSelector] = useState(false);
             const [viewDate, setViewDate] = useState(new Date());
@@ -2274,6 +2310,39 @@
             const lastRecord = attendanceHistory[0];
             const isWorking = lastRecord && lastRecord.type === 'in';
 
+            const getButtonConfig = () => {
+                if (mode === 'outing') {
+                    const lastType = lastRecord?.type;
+                    if (lastType === 'outing_start') {
+                        return { type: 'outing_arrive', text: '抵達打卡', sub: '紀錄抵達時間', icon: MapPin, colorClass: 'bg-white text-blue-600 border-2 border-blue-100', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' };
+                    } else if (lastType === 'outing_arrive') {
+                        return { type: 'outing_end', text: '離開打卡', sub: '紀錄離開時間', icon: LogOut, colorClass: 'bg-gray-800 text-white border-2 border-gray-700', iconBg: 'bg-gray-700', iconColor: 'text-white' };
+                    } else {
+                        // null or 'outing_end'
+                        return { type: 'outing_start', text: '外出打卡', sub: '紀錄外出時間', icon: MapPin, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' };
+                    }
+                }
+                
+                // Default work mode
+                return isWorking 
+                    ? { type: 'out', text: '下班簽退', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-gray-800 text-white border-2 border-gray-700', iconBg: 'bg-gray-700', iconColor: 'text-white' }
+                    : { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' };
+            };
+
+            const btnConfig = getButtonConfig();
+            const BtnIcon = btnConfig.icon;
+
+            const getTypeLabel = (type) => {
+                const map = {
+                    'in': { text: '上班', color: 'bg-green-100 text-green-700' },
+                    'out': { text: '下班', color: 'bg-orange-100 text-orange-700' },
+                    'outing_start': { text: '外出', color: 'bg-blue-100 text-blue-700' },
+                    'outing_arrive': { text: '抵達', color: 'bg-purple-100 text-purple-700' },
+                    'outing_end': { text: '離開', color: 'bg-gray-100 text-gray-700' }
+                };
+                return map[type] || { text: type, color: 'bg-gray-100 text-gray-700' };
+            };
+
             return (
                 <div className="max-w-md mx-auto space-y-4 pb-20">
                     {/* Header Info Card */}
@@ -2344,37 +2413,17 @@
                     {/* Big Action Button */}
                     <div className="px-2">
                         <button
-                            onClick={() => onClockIn(isWorking ? 'out' : 'in')}
-                            className={`w-full h-32 rounded-2xl flex flex-row items-center justify-center gap-4 shadow-lg transition-all transform active:scale-95 ${
-                                isWorking 
-                                ? 'bg-gray-800 text-white border-2 border-gray-700' 
-                                : 'bg-white text-red-600 border-2 border-red-100'
-                            }`}
+                            onClick={() => onClockIn(btnConfig.type, availableLocations)}
+                            className={`w-full h-32 rounded-2xl flex flex-row items-center justify-center gap-4 shadow-lg transition-all transform active:scale-95 ${btnConfig.colorClass}`}
                         >
-                            {isWorking ? (
-                                <>
-                                    <div className="bg-gray-700 p-3 rounded-full">
-                                        <LogOut className="w-8 h-8" />
-                                    </div>
-                                    <div className="text-left">
-                                        <span className="block text-2xl font-bold">下班簽退</span>
-                                        <span className="text-xs text-gray-400">結束今日勤務</span>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="bg-red-50 p-3 rounded-full">
-                                        <MapPin className="w-8 h-8 text-red-600" />
-                                    </div>
-                                    <div className="text-left">
-                                        <span className="block text-2xl font-bold">上班打卡</span>
-                                        <span className="text-xs text-gray-400">紀錄開始時間</span>
-                                    </div>
-                                </>
-                            )}
+                            <div className={`${btnConfig.iconBg} p-3 rounded-full`}>
+                                <BtnIcon className={`w-8 h-8 ${btnConfig.iconColor}`} />
+                            </div>
+                            <div className="text-left">
+                                <span className="block text-2xl font-bold">{btnConfig.text}</span>
+                                <span className="text-xs opacity-60">{btnConfig.sub}</span>
+                            </div>
                         </button>
-                        
-
                     </div>
 
                     {/* History List */}
@@ -2406,6 +2455,7 @@
                             ) : (
                                 filteredHistory.map((r, idx) => {
                                     const timeStr = new Date(r.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                    const typeConfig = getTypeLabel(r.type);
                                     return (
                                         <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
                                             <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
@@ -2422,10 +2472,8 @@
                                                     <div>
                                                         <div className="font-bold text-gray-800 flex items-center gap-2">
                                                             {currentUser.name}
-                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${
-                                                                r.type === 'in' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                                                            }`}>
-                                                                {r.type === 'in' ? '上班' : '下班'}
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${typeConfig.color}`}>
+                                                                {typeConfig.text}
                                                             </span>
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
@@ -2688,6 +2736,7 @@
             const [dateTime, setDateTime] = useState('');
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
+            const [availableClockInLocations, setAvailableClockInLocations] = useState([]);
 
             // Helper to suppress network noise - Defined at component level for reuse
             const handleFetchError = (err, context) => {
@@ -3313,8 +3362,11 @@
                 }
             };
 
-            const handleClockIn = (type) => {
+            const handleClockIn = (type, locations = []) => {
                 setClockType(type);
+                if (locations.length > 0) {
+                    setAvailableClockInLocations(locations);
+                }
                 setShowCameraModal(true);
             };
 
@@ -3802,7 +3854,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
-                                        attendanceHistory={myAttendance}
+                                        attendanceHistory={myAttendance.filter(r => ['in', 'out'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         companies={companies}
                                         communities={communities}
@@ -3812,6 +3864,24 @@
                                         setPreviewImageUrl={setPreviewImageUrl}
                                         roles={roles}
                                         hideHeaderInfo={true}
+                                        mode="work"
+                                    />
+                                )}
+                                {clockSubtab === 'out' && (
+                                    <StaffDashboard 
+                                        currentUser={dbUser} 
+                                        onClockIn={handleClockIn} 
+                                        attendanceHistory={myAttendance.filter(r => ['outing_start', 'outing_arrive', 'outing_end'].includes(r.type))}
+                                        timeOffset={timeOffset}
+                                        companies={companies}
+                                        communities={communities}
+                                        checkInLocation={checkInLocation}
+                                        setCheckInLocation={setCheckInLocation}
+                                        setMapPreviewTarget={setMapPreviewTarget}
+                                        setPreviewImageUrl={setPreviewImageUrl}
+                                        roles={roles}
+                                        hideHeaderInfo={true}
+                                        mode="outing"
                                     />
                                 )}
                                 {clockSubtab !== 'work' && (
@@ -4379,6 +4449,9 @@
                         userName={dbUser?.name}
                         workSite={communities.find(c => c.id === dbUser?.communityId)}
                         checkInLocationName={checkInLocation ? checkInLocation.name : (dbUser?.communityName || '')}
+                        availableLocations={availableClockInLocations}
+                        checkInLocation={checkInLocation}
+                        setCheckInLocation={setCheckInLocation}
                     />
 
                     <ImagePreviewModal 
