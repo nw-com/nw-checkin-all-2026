@@ -1102,7 +1102,7 @@
         };
 
         // 2. Login Component (Mobile Optimized, Red Theme)
-        const Login = ({ onLogin, onRegister, onLoginSuccess, isOnline }) => {
+        const Login = ({ onLogin, onLoginSuccess, isOnline }) => {
             const [identifier, setIdentifier] = useState('');
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
@@ -1205,43 +1205,7 @@
                                     '登入系統'
                                 )}
                             </button>
-                            <button
-                                type="button"
-                                disabled={!isOnline || isLoading}
-                                onClick={async () => {
-                                    if (!identifier || !password) {
-                                        setError('請輸入帳號密碼');
-                                        return;
-                                    }
-                                    if (identifier.indexOf('@') === -1) {
-                                        setError('註冊請使用 Email');
-                                        return;
-                                    }
-                                    setError('');
-                                    setIsLoading(true);
-                                    try {
-                                        await onRegister(identifier, password, rememberMe);
-                                        setError('註冊成功！正在跳轉...');
-                                        setTimeout(() => {
-                                            onLoginSuccess();
-                                        }, 1000);
-                                    } catch (e) {
-                                        setIsLoading(false);
-                                        if (e && e.code === 'auth/network-request-failed') {
-                                            setError('網路連線失敗，請確認網路與允許網域設定後重試');
-                                        } else if (e && e.code === 'auth/email-already-in-use') {
-                                            setError('Email 已被使用，請改用其他帳號');
-                                        } else if (e && e.code === 'auth/weak-password') {
-                                            setError('密碼強度不足');
-                                        } else {
-                                            setError('註冊錯誤，請重試');
-                                        }
-                                    }
-                                }}
-                                className="w-full mt-3 bg-white hover:bg-gray-50 text-red-600 font-bold py-3 rounded-2xl transition border border-red-200 disabled:opacity-50"
-                            >
-                                註冊帳號
-                            </button>
+
                             
                             {!isOnline && (
                                 <div className="mt-3 text-center text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-2xl py-2">
@@ -3664,21 +3628,7 @@
                 }
             };
 
-            const registerWithRetry = async (email, password) => {
-                let i = 0;
-                const delays = [500, 1000, 2000];
-                while (true) {
-                    try {
-                        return await createUserWithEmailAndPassword(auth, email, password);
-                    } catch (e) {
-                        if (e && e.code === 'auth/network-request-failed' && i < delays.length) {
-                            await new Promise(r => setTimeout(r, delays[i++]));
-                            continue;
-                        }
-                        throw e;
-                    }
-                }
-            };
+
 
             const handleLogin = async (identifier, password, rememberMe = false) => {
                 // setLoading(true); // Disable global loading to keep Login component mounted
@@ -3754,33 +3704,7 @@
                 }
             };
 
-            const handleRegister = async (email, password, rememberMe = false) => {
-                // setLoading(true);
-                try {
-                    await registerWithRetry(email, password);
-                    const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-                    const name = email.split('@')[0];
-                    const defaultRole = 'staff';
-                    const defaultCommunity = 'HQ';
-                    const docRef = await addDoc(baseUserRef, { name, email, role: defaultRole, communityId: defaultCommunity });
-                    const userData = { id: docRef.id, name, email, role: defaultRole, communityId: defaultCommunity };
-                    const comm = communities.find(c => c.id === userData.communityId);
-                    userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
-                    setDbUser(userData);
-                    // setView('dashboard');
-                    if (rememberMe) {
-                        try {
-                            localStorage.setItem('remember_until', String(Date.now() + 48 * 60 * 60 * 1000));
-                            localStorage.setItem('remember_user', JSON.stringify(userData));
-                        } catch {}
-                    }
-                } catch (e) {
-                    console.error(e);
-                    throw e;
-                } finally {
-                    // setLoading(false);
-                }
-            };
+
 
             
 
@@ -4102,7 +4026,7 @@
             if (loading) return <Loading />;
 
             if (view === 'login') {
-                return <Login onLogin={handleLogin} onRegister={handleRegister} onLoginSuccess={() => setView('dashboard')} isOnline={isOnline} />;
+                return <Login onLogin={handleLogin} onLoginSuccess={() => setView('dashboard')} isOnline={isOnline} />;
             }
 
             return (
