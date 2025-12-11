@@ -2267,29 +2267,76 @@
         };
 
         // Leave Request Modal
-        const LeaveRequestModal = ({ isOpen, onClose, onSubmit, loading, defaultCompany }) => {
+        const LeaveRequestModal = ({ isOpen, onClose, onSubmit, loading, defaultCompany, initialData }) => {
             const [company, setCompany] = useState(defaultCompany || '所屬公司');
             const [reason, setReason] = useState('病假');
-            
-            useEffect(() => {
-                if (defaultCompany) setCompany(defaultCompany);
-            }, [defaultCompany]);
-
             const [customReason, setCustomReason] = useState('');
-            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-            const [time, setTime] = useState('09:00');
+            
+            const getFormattedDateTime = (date, timeStr) => {
+                const d = date ? new Date(date) : new Date();
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}T${timeStr}`;
+            };
+
+            const [startDate, setStartDate] = useState(getFormattedDateTime(new Date(), '09:00'));
+            const [endDate, setEndDate] = useState(getFormattedDateTime(new Date(), '18:00'));
             const [description, setDescription] = useState('');
             const [photo, setPhoto] = useState(null);
+            const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
 
+            useEffect(() => {
+                if (isOpen) {
+                    if (initialData) {
+                        setCompany(defaultCompany || '所屬公司'); // Company usually doesn't change
+                        if (['病假', '事假'].includes(initialData.leaveReason)) {
+                            setReason(initialData.leaveReason);
+                            setCustomReason('');
+                        } else {
+                            setReason('其他');
+                            setCustomReason(initialData.leaveReason);
+                        }
+                        setStartDate(initialData.leaveStartDate || getFormattedDateTime(new Date(), '09:00'));
+                        setEndDate(initialData.leaveEndDate || getFormattedDateTime(new Date(), '18:00'));
+                        setDescription(initialData.leaveDescription || '');
+                        if (initialData.photoUrl) {
+                            setPhoto(initialData.photoUrl); // Store URL string as photo state for edit mode
+                            setPreviewPhotoUrl(initialData.photoUrl);
+                        } else {
+                            setPhoto(null);
+                            setPreviewPhotoUrl(null);
+                        }
+                    } else {
+                        // Reset for new entry
+                        setCompany(defaultCompany || '所屬公司');
+                        setReason('病假');
+                        setCustomReason('');
+                        setStartDate(getFormattedDateTime(new Date(), '09:00'));
+                        setEndDate(getFormattedDateTime(new Date(), '18:00'));
+                        setDescription('');
+                        setPhoto(null);
+                        setPreviewPhotoUrl(null);
+                    }
+                }
+            }, [isOpen, initialData, defaultCompany]);
+            
             if (!isOpen) return null;
 
             const handleSubmit = (e) => {
                 e.preventDefault();
+                
+                if (new Date(endDate) < new Date(startDate)) {
+                    alert('結束日期不可以早於開始日期');
+                    return;
+                }
+
                 onSubmit({
+                    id: initialData?.id, // Pass ID if editing
                     company,
                     reason: reason === '其他' ? customReason : reason,
-                    date,
-                    time,
+                    startDate,
+                    endDate,
                     description,
                     photo
                 });
@@ -2297,7 +2344,14 @@
 
             const handleFileChange = (e) => {
                 if (e.target.files && e.target.files[0]) {
-                    setPhoto(e.target.files[0]);
+                    const file = e.target.files[0];
+                    setPhoto(file);
+                    // Create local preview
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setPreviewPhotoUrl(reader.result);
+                    };
+                    reader.readAsDataURL(file);
                 }
             };
 
@@ -2305,7 +2359,7 @@
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
                     <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <div className="p-6">
-                            <h3 className="text-xl font-bold mb-4">請假申請</h3>
+                            <h3 className="text-xl font-bold mb-4">{initialData ? '編輯請假申請' : '請假申請'}</h3>
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-bold mb-1">所屬公司</label>
@@ -2342,29 +2396,27 @@
                                 )}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-bold mb-1">日期</label>
+                                        <label className="block text-sm font-bold mb-1">開始日期</label>
                                         <input 
-                                            type="date" 
-                                            value={date}
-                                            onChange={(e) => setDate(e.target.value)}
+                                            type="datetime-local" 
+                                            value={startDate}
+                                            onChange={(e) => setStartDate(e.target.value)}
                                             className="w-full p-2 border rounded-xl"
                                             required
+                                            step="600"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold mb-1">時間</label>
-                                        <select 
-                                            value={time}
-                                            onChange={(e) => setTime(e.target.value)}
+                                        <label className="block text-sm font-bold mb-1">結束日期</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            value={endDate}
+                                            min={startDate}
+                                            onChange={(e) => setEndDate(e.target.value)}
                                             className="w-full p-2 border rounded-xl"
-                                        >
-                                            {Array.from({ length: 144 }).map((_, i) => {
-                                                const h = Math.floor(i * 10 / 60);
-                                                const m = (i * 10) % 60;
-                                                const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                                                return <option key={timeStr} value={timeStr}>{timeStr}</option>;
-                                            })}
-                                        </select>
+                                            required
+                                            step="600"
+                                        />
                                     </div>
                                 </div>
                                 <div>
@@ -2378,18 +2430,35 @@
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold mb-1">拍照上傳</label>
-                                    <input 
-                                        type="file" 
-                                        accept="image/*" 
-                                        capture="environment"
-                                        onChange={handleFileChange}
-                                        className="w-full"
-                                    />
+                                    <div className="flex flex-col gap-2">
+                                        {previewPhotoUrl && (
+                                            <div className="relative w-full h-40 bg-gray-100 rounded-xl overflow-hidden">
+                                                <img src={previewPhotoUrl} className="w-full h-full object-cover" />
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setPhoto(null);
+                                                        setPreviewPhotoUrl(null);
+                                                    }}
+                                                    className="absolute top-2 right-2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        )}
+                                        <input 
+                                            type="file" 
+                                            accept="image/*" 
+                                            capture="environment"
+                                            onChange={handleFileChange}
+                                            className="w-full"
+                                        />
+                                    </div>
                                 </div>
                                 <div className="flex gap-2 pt-4">
                                     <button type="button" onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-600">取消</button>
                                     <button type="submit" disabled={loading} className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold disabled:opacity-50">
-                                        {loading ? '送出中...' : '送出申請'}
+                                        {loading ? (initialData ? '更新中...' : '送出中...') : (initialData ? '更新申請' : '送出申請')}
                                     </button>
                                 </div>
                             </form>
@@ -2410,6 +2479,7 @@
             const [hasLocationSorted, setHasLocationSorted] = useState(false);
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
+            const [editingLeave, setEditingLeave] = useState(null);
 
             // Robust isCompanyGroup check
             const isCompanyGroup = useMemo(() => {
@@ -2688,7 +2758,15 @@
                                         {(function() {
                                             // Show Last Record Location + Time
                                             if (lastRecord) {
-                                                const timeStr = new Date((lastRecord.timestamp?.seconds || Date.now()/1000) * 1000).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                                const timeStr = new Date((lastRecord.timestamp?.seconds || Date.now()/1000) * 1000).toLocaleString('zh-TW', { 
+                                                    year: 'numeric', 
+                                                    month: '2-digit', 
+                                                    day: '2-digit', 
+                                                    hour: '2-digit', 
+                                                    minute: '2-digit', 
+                                                    second: '2-digit',
+                                                    hour12: false 
+                                                });
                                                 return `${lastRecord.checkInLocationName || lastRecord.address || '未記錄位置'} ${timeStr}`;
                                             }
                                             return '尚無打卡紀錄';
@@ -2810,11 +2888,20 @@
                                                             <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${typeConfig.color}`}>
                                                                 {typeConfig.text}
                                                             </span>
+                                                            {isLeave && (
+                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ml-1 ${
+                                                                    r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' : 
+                                                                    r.approvalStatus === 'rejected' ? 'bg-red-100 text-red-700' : 
+                                                                    'bg-yellow-100 text-yellow-700'
+                                                                }`}>
+                                                                    {r.approvalStatus === 'approved' ? '已核准' : (r.approvalStatus === 'rejected' ? '已駁回' : '待核准')}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                             <Clock className="w-3 h-3" /> 
                                                             {isLeave 
-                                                                ? `請假日期 : ${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}` 
+                                                                ? `請假日期 : ${r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}` 
                                                                 : timeStr
                                                             }
                                                         </div>
@@ -2835,15 +2922,52 @@
                                                         {(function(){
                                                             if (isLeave) {
                                                                 return (
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            setSelectedDescription(r.leaveDescription || '無說明');
-                                                                            setShowDescriptionModal(true);
-                                                                        }}
-                                                                        className="w-12 h-12 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
-                                                                    >
-                                                                        <FileText className="w-5 h-5" />
-                                                                    </button>
+                                                                    <div className="flex gap-2">
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    setSelectedDescription(r.leaveDescription || '無說明');
+                                                                                    setShowDescriptionModal(true);
+                                                                                }}
+                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                            >
+                                                                                <FileText className="w-5 h-5" />
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    setEditingLeave(r);
+                                                                                    setShowLeaveModal(true);
+                                                                                }}
+                                                                                className="w-12 h-12 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 hover:opacity-90 transition-opacity"
+                                                                            >
+                                                                                <Edit className="w-5 h-5" />
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-2">
+                                                                            {r.photoUrl ? (
+                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
+                                                                                    <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                </div>
+                                                                            ) : <div className="w-12 h-12"></div>}
+                                                                            <button 
+                                                                                onClick={async (e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (confirm('確定要刪除此筆請假紀錄嗎？')) {
+                                                                                        try {
+                                                                                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id));
+                                                                                            alert('刪除成功');
+                                                                                        } catch (err) {
+                                                                                            console.error(err);
+                                                                                            alert('刪除失敗: ' + err.message);
+                                                                                        }
+                                                                                    }
+                                                                                }}
+                                                                                className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
+                                                                            >
+                                                                                <Trash2 className="w-5 h-5" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
                                                                 );
                                                             }
 
@@ -2878,7 +3002,7 @@
                                                                 </button>
                                                             );
                                                         })()}
-                                                        {r.photoUrl && (
+                                                        {!isLeave && r.photoUrl && (
                                                             <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
                                                                 <img src={r.photoUrl} className="w-full h-full object-cover" />
                                                             </div>
@@ -2921,14 +3045,16 @@
 
                     <LeaveRequestModal 
                         isOpen={showLeaveModal} 
-                        onClose={() => setShowLeaveModal(false)}
+                        onClose={() => { setShowLeaveModal(false); setEditingLeave(null); }}
                         defaultCompany={currentUser.companyName || (companies || []).find(c => c.id === currentUser.companyId)?.name || '所屬公司'}
+                        initialData={editingLeave}
                         onSubmit={async (data) => {
                             if (onLeaveSubmit) {
                                 setLeaveLoading(true);
                                 try {
                                     await onLeaveSubmit(data);
                                     setShowLeaveModal(false);
+                                    setEditingLeave(null);
                                 } catch (e) {
                                     console.error(e);
                                 } finally {
@@ -3158,6 +3284,9 @@
             const [availableClockInLocations, setAvailableClockInLocations] = useState([]);
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
+            const [showCadreLeaveModal, setShowCadreLeaveModal] = useState(false);
+            const [editingCadreLeave, setEditingCadreLeave] = useState(null);
+            const [cadreLeaveLoading, setCadreLeaveLoading] = useState(false);
 
             // Helper to suppress network noise - Defined at component level for reuse
             const handleFetchError = (err, context) => {
@@ -3429,42 +3558,32 @@
                 return () => unsubscribes.forEach(u => u());
             }, [user]);
 
+            // 1. Stable Data (Companies, Areas, Users, All Attendance)
             useEffect(() => {
                 if (!user || !dbUser) return;
                 
                 const unsubscribes = [];
                 const isManagerOrAdmin = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role);
                 
-                // Conditions for fetching specific data
-                const needsCommonData = isManagerOrAdmin || 
-                                      ((activeTab === 'settings' && settingsSubtab === 'general') || activeTab === 'cadre' || activeTab === 'home' || activeTab === 'clock');
-                const needsUsersList = needsCommonData || (activeTab === 'settings' && settingsSubtab === 'account');
+                // Always fetch reference data to prevent connection cycling
+                const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
+                const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
+                const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
 
-                // 1. Common Data (Roles, Companies, Areas)
-                if (needsCommonData) {
-                    const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
-                    const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
+                unsubscribes.push(onSnapshot(refCompanies, 
+                    (snap) => setCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                    (e) => handleFetchError(e, 'companies_snap')
+                ));
+                unsubscribes.push(onSnapshot(refAreas, 
+                    (snap) => setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                    (e) => handleFetchError(e, 'areas_snap')
+                ));
+                unsubscribes.push(onSnapshot(refUsers, 
+                    (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+                    (e) => handleFetchError(e, 'users_snap')
+                ));
 
-                    unsubscribes.push(onSnapshot(refCompanies, 
-                        (snap) => setCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
-                        (e) => handleFetchError(e, 'companies_snap')
-                    ));
-                    unsubscribes.push(onSnapshot(refAreas, 
-                        (snap) => setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
-                        (e) => handleFetchError(e, 'areas_snap')
-                    ));
-                }
-
-                // 2. Users List (for counts and display)
-                if (needsUsersList) {
-                    const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-                    unsubscribes.push(onSnapshot(refUsers, 
-                        (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
-                        (e) => handleFetchError(e, 'users_snap')
-                    ));
-                }
-
-                // 3. All Attendance (Manager Only)
+                // All Attendance (Manager Only)
                 if (isManagerOrAdmin) {
                     const dateLimit = new Date();
                     dateLimit.setDate(dateLimit.getDate() - 30);
@@ -3481,7 +3600,15 @@
                     ));
                 }
 
-                // 4. My Attendance (Home Only)
+                return () => unsubscribes.forEach(u => u());
+            }, [user, dbUser]);
+
+            // 2. Tab-Specific Data (My Attendance)
+            useEffect(() => {
+                if (!user || !dbUser) return;
+                const unsubscribes = [];
+
+                // My Attendance (Home Only)
                 if (activeTab === 'home') {
                     const qMine = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
@@ -3494,10 +3621,8 @@
                     ));
                 }
 
-                return () => {
-                    unsubscribes.forEach(u => u());
-                };
-            }, [user, dbUser, activeTab, settingsSubtab]);
+                return () => unsubscribes.forEach(u => u());
+            }, [user, dbUser, activeTab]);
 
             // Auto-select first company when in Cadre tab
             useEffect(() => {
@@ -3848,34 +3973,53 @@
                 try {
                     let photoUrl = '';
                     if (leaveData.photo) {
-                        const filename = `leave/${dbUser.id}/${Date.now()}.jpg`;
-                        const imgRef = storageRef(storage, filename);
-                        await uploadBytes(imgRef, leaveData.photo);
-                        photoUrl = await getDownloadURL(imgRef);
+                        // If photo is a string, it means it's already a URL (from edit mode)
+                        if (typeof leaveData.photo === 'string') {
+                            photoUrl = leaveData.photo;
+                        } else {
+                            const filename = `leave/${dbUser.id}/${Date.now()}.jpg`;
+                            const imgRef = storageRef(storage, filename);
+                            await uploadBytes(imgRef, leaveData.photo);
+                            photoUrl = await getDownloadURL(imgRef);
+                        }
                     }
 
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
-                        userId: dbUser.id,
-                        userName: dbUser.name,
-                        userRole: dbUser.role,
-                        communityId: dbUser.communityId,
-                        checkInLocationName: dbUser.communityName || '',
-                        type: 'leave',
-                        timestamp: serverTimestamp(),
-                        device: 'Web Browser',
-                        // Leave specific fields
-                        leaveReason: leaveData.reason,
-                        leaveDate: leaveData.date,
-                        leaveTime: leaveData.time,
-                        leaveDescription: leaveData.description,
-                        photoUrl: photoUrl,
-                        approvalStatus: 'pending'
-                    });
-
-                    alert('請假申請已送出');
+                    if (leaveData.id) {
+                        // Update existing leave record
+                        const leaveRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', leaveData.id);
+                        await updateDoc(leaveRef, {
+                            leaveReason: leaveData.reason,
+                            leaveStartDate: leaveData.startDate,
+                            leaveEndDate: leaveData.endDate,
+                            leaveDescription: leaveData.description,
+                            photoUrl: photoUrl,
+                            // Maintain existing timestamp and other fields
+                        });
+                        alert('請假申請已更新');
+                    } else {
+                        // Create new leave record
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                            userId: dbUser.id,
+                            userName: dbUser.name,
+                            userRole: dbUser.role,
+                            communityId: dbUser.communityId,
+                            checkInLocationName: dbUser.communityName || '',
+                            type: 'leave',
+                            timestamp: serverTimestamp(),
+                            device: 'Web Browser',
+                            // Leave specific fields
+                            leaveReason: leaveData.reason,
+                            leaveStartDate: leaveData.startDate,
+                            leaveEndDate: leaveData.endDate,
+                            leaveDescription: leaveData.description,
+                            photoUrl: photoUrl,
+                            approvalStatus: 'pending'
+                        });
+                        alert('請假申請已送出');
+                    }
                 } catch (e) {
-                    console.error('Leave Submit Error:', e);
-                    alert('送出失敗：' + e.message);
+                    console.error('Leave Submit/Update Error:', e);
+                    alert('操作失敗：' + e.message);
                     throw e; // Propagate error to stop loading state in modal
                 }
             };
@@ -4758,10 +4902,17 @@
                                                                                 <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-orange-100 text-orange-700">
                                                                                     {r.leaveReason || '請假'}
                                                                                 </span>
+                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ml-1 ${
+                                                                                    r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' : 
+                                                                                    r.approvalStatus === 'rejected' ? 'bg-red-100 text-red-700' : 
+                                                                                    'bg-yellow-100 text-yellow-700'
+                                                                                }`}>
+                                                                                    {r.approvalStatus === 'approved' ? '已核准' : (r.approvalStatus === 'rejected' ? '已駁回' : '待核准')}
+                                                                                </span>
                                                                             </div>
                                                                             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                                                 <Clock className="w-3 h-3" /> 
-                                                                                請假日期 : {(r.leaveDate || '').replace(/-/g, '/')} {r.leaveTime}
+                                                                                請假日期 : {r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}
                                                                             </div>
                                                                             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                                                 <Clock className="w-3 h-3" />
@@ -4774,20 +4925,52 @@
                                                                             </div>
                                                                         </div>
                                                                         <div className="flex items-center gap-2">
-                                                                             <button 
-                                                                                onClick={() => {
-                                                                                    setSelectedDescription(r.leaveDescription || '無說明');
-                                                                                    setShowDescriptionModal(true);
-                                                                                }}
-                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
-                                                                            >
-                                                                                <FileText className="w-5 h-5" />
-                                                                            </button>
-                                                                            {r.photoUrl && (
-                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
-                                                                                    <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                            <div className="flex gap-2">
+                                                                                <div className="flex flex-col gap-2">
+                                                                                    <button 
+                                                        onClick={() => {
+                                                            setSelectedDescription(r.leaveDescription || '無說明');
+                                                            setShowDescriptionModal(true);
+                                                        }}
+                                                        className="w-12 h-12 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                    >
+                                                        <FileText className="w-5 h-5" />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => {
+                                                            setEditingCadreLeave(r);
+                                                            setShowCadreLeaveModal(true);
+                                                        }}
+                                                        className="w-12 h-12 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 hover:opacity-90 transition-opacity"
+                                                    >
+                                                        <Edit className="w-5 h-5" />
+                                                    </button>
                                                                                 </div>
-                                                                            )}
+                                                                                <div className="flex flex-col gap-2">
+                                                                                    {r.photoUrl ? (
+                                                                                        <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
+                                                                                            <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                        </div>
+                                                                                    ) : <div className="w-12 h-12"></div>}
+                                                                                    <button 
+                                                                                        onClick={async (e) => {
+                                                                                            e.stopPropagation();
+                                                                                            if (confirm('確定要刪除此筆請假紀錄嗎？')) {
+                                                                                                try {
+                                                                                                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id));
+                                                                                                    alert('刪除成功');
+                                                                                                } catch (err) {
+                                                                                                    console.error(err);
+                                                                                                    alert('刪除失敗: ' + err.message);
+                                                                                                }
+                                                                                            }
+                                                                                        }}
+                                                                                        className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
+                                                                                    >
+                                                                                        <Trash2 className="w-5 h-5" />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -5068,6 +5251,26 @@
                     <ImagePreviewModal 
                         url={previewImageUrl} 
                         onClose={() => setPreviewImageUrl(null)}
+                    />
+
+                    <LeaveRequestModal 
+                        isOpen={showCadreLeaveModal} 
+                        onClose={() => { setShowCadreLeaveModal(false); setEditingCadreLeave(null); }}
+                        defaultCompany={cadreCompany || '所屬公司'}
+                        initialData={editingCadreLeave}
+                        onSubmit={async (data) => {
+                            setCadreLeaveLoading(true);
+                            try {
+                                await handleLeaveSubmit(data);
+                                setShowCadreLeaveModal(false);
+                                setEditingCadreLeave(null);
+                            } catch (e) {
+                                console.error(e);
+                            } finally {
+                                setCadreLeaveLoading(false);
+                            }
+                        }}
+                        loading={cadreLeaveLoading}
                     />
                 </div>
             );
