@@ -83,7 +83,8 @@
             setDoc,
             deleteDoc,
             doc,
-            onSnapshot
+            onSnapshot,
+            limit
         } from 'firebase/firestore';
         import {
             getStorage,
@@ -122,7 +123,8 @@
             ChevronDown,
             Check,
             Gavel,
-            XCircle
+            XCircle,
+            CheckSquare
         } from 'lucide-react';
 
         // --- Firebase Configuration ---
@@ -2477,7 +2479,7 @@
         };
 
         // Approval Modal
-        const ApprovalModal = ({ isOpen, onClose, onApprove, onReject, leaveData }) => {
+        const ApprovalModal = ({ isOpen, onClose, onApprove, onReject, onReset, leaveData }) => {
             if (!isOpen || !leaveData) return null;
             return (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -2504,17 +2506,162 @@
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
+                                {leaveData.approvalStatus === 'rejected' ? (
+                                    <button 
+                                        onClick={onReset}
+                                        className="w-full py-3 rounded-xl bg-yellow-50 text-yellow-600 font-bold hover:bg-yellow-100 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <AlertCircle className="w-5 h-5" /> 待核准
+                                    </button>
+                                ) : (
+                                    <button 
+                                        onClick={onReject}
+                                        className="w-full py-3 rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <XCircle className="w-5 h-5" /> 拒絕
+                                    </button>
+                                )}
+                                
+                                {leaveData.approvalStatus === 'approved' ? (
+                                    <button 
+                                        onClick={onReset}
+                                        className="w-full py-3 rounded-xl bg-yellow-50 text-yellow-600 font-bold hover:bg-yellow-100 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <AlertCircle className="w-5 h-5" /> 待核准
+                                    </button>
+                                ) : (
+                                    <button 
+                                        onClick={onApprove}
+                                        className="w-full py-3 rounded-xl bg-green-50 text-green-600 font-bold hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <CheckCircle className="w-5 h-5" /> 核准
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // 3.5 Attendance Edit Modal
+        const AttendanceEditModal = ({ isOpen, onClose, record, mode, onSubmit, loading }) => {
+            const [formData, setFormData] = useState({
+                type: '',
+                date: '',
+                time: '',
+                reason: ''
+            });
+
+            useEffect(() => {
+                if (record) {
+                    const seconds = record.timestamp?.seconds || record.createdAt?.seconds || Date.now() / 1000;
+                    const dateObj = new Date(seconds * 1000);
+                    
+                    // Format date as YYYY-MM-DD
+                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                    // Format time as HH:mm
+                    const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+
+                    setFormData({
+                        type: record.type,
+                        date: dateStr,
+                        time: timeStr,
+                        reason: ''
+                    });
+                }
+            }, [record, isOpen]);
+
+            if (!isOpen) return null;
+
+            const typeOptions = [
+                { value: 'in', label: '上班' },
+                { value: 'out', label: '下班' },
+                { value: 'outing_start', label: '外出' },
+                { value: 'outing_arrive', label: '抵達' },
+                { value: 'outing_end', label: '離開' },
+                { value: 'late_in', label: '卡班上班' },
+                { value: 'late_out', label: '卡班下班' }
+            ];
+
+            return (
+                <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+                    <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <Edit className="w-6 h-6 text-red-600" />
+                            {mode === 'request' ? '申請修改打卡紀錄' : '編輯打卡紀錄'}
+                        </h3>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">打卡狀態</label>
+                                {mode === 'request' ? (
+                                    <input 
+                                        type="text" 
+                                        value={typeOptions.find(opt => opt.value === formData.type)?.label || formData.type} 
+                                        disabled 
+                                        className="w-full p-3 bg-gray-100 border border-gray-200 rounded-xl text-gray-500 cursor-not-allowed focus:outline-none"
+                                    />
+                                ) : (
+                                    <select 
+                                        value={formData.type}
+                                        onChange={e => setFormData({...formData, type: e.target.value})}
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none"
+                                    >
+                                        {typeOptions.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">日期</label>
+                                    <input 
+                                        type="date"
+                                        value={formData.date}
+                                        onChange={e => setFormData({...formData, date: e.target.value})}
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">時間</label>
+                                    <input 
+                                        type="time"
+                                        value={formData.time}
+                                        onChange={e => setFormData({...formData, time: e.target.value})}
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            {mode === 'request' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">修改原因</label>
+                                    <textarea 
+                                        value={formData.reason}
+                                        onChange={e => setFormData({...formData, reason: e.target.value})}
+                                        placeholder="請輸入修改原因..."
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none h-24 resize-none"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 mt-6">
                                 <button 
-                                    onClick={onReject}
-                                    className="w-full py-3 rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                                    onClick={onClose}
+                                    className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
                                 >
-                                    <XCircle className="w-5 h-5" /> 拒絕
+                                    取消
                                 </button>
                                 <button 
-                                    onClick={onApprove}
-                                    className="w-full py-3 rounded-xl bg-green-50 text-green-600 font-bold hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+                                    onClick={() => onSubmit(formData)}
+                                    disabled={loading}
+                                    className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    <CheckCircle className="w-5 h-5" /> 核准
+                                    {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+                                    {mode === 'request' ? '送出申請' : '確認修改'}
                                 </button>
                             </div>
                         </div>
@@ -2523,8 +2670,80 @@
             );
         };
 
+        // 3.6 Modification Review Modal
+        const ModificationReviewModal = ({ isOpen, onClose, record, onApprove, onReject }) => {
+            if (!isOpen || !record || !record.modification) return null;
+
+            const { modification } = record;
+            
+            const typeMap = {
+                'in': '上班',
+                'out': '下班',
+                'outing_start': '外出',
+                'outing_arrive': '抵達',
+                'outing_end': '離開',
+                'late_in': '卡班上班',
+                'late_out': '卡班下班'
+            };
+
+            const originalDate = new Date((record.timestamp?.seconds || Date.now()/1000) * 1000);
+            const originalType = typeMap[record.type] || record.type;
+            const originalTimeStr = originalDate.toLocaleString('zh-TW', { hour12: false });
+
+            return (
+                <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+                    <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <CheckSquare className="w-6 h-6 text-red-600" />
+                            審核修改申請
+                        </h3>
+
+                        <div className="bg-gray-50 p-4 rounded-xl space-y-3 mb-6">
+                            <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+                                <span className="text-gray-500 font-bold text-sm">申請人</span>
+                                <span className="font-bold text-gray-800">{record.userName || '未知'}</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-xs text-gray-400 mb-1">原始資料</div>
+                                    <div className="font-bold text-gray-600 text-sm">{originalType}</div>
+                                    <div className="text-xs text-gray-500">{originalTimeStr}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-red-400 mb-1">修改為</div>
+                                    <div className="font-bold text-red-600 text-sm">{typeMap[modification.type] || modification.type}</div>
+                                    <div className="text-xs text-red-500">{modification.date} {modification.time}</div>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-gray-200">
+                                <span className="text-gray-500 font-bold text-sm block mb-1">修改原因</span>
+                                <p className="text-gray-700 text-sm">{modification.reason || '無'}</p>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={onReject}
+                                className="flex-1 py-3 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <X className="w-5 h-5" /> 拒絕
+                            </button>
+                            <button 
+                                onClick={onApprove}
+                                className="flex-1 py-3 bg-green-50 text-green-600 rounded-xl font-bold hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <CheckCircle className="w-5 h-5" /> 核准
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [showLeaveModal, setShowLeaveModal] = useState(false);
             const [leaveLoading, setLeaveLoading] = useState(false);
@@ -2535,6 +2754,34 @@
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
             const [editingLeave, setEditingLeave] = useState(null);
+            const [showEditModal, setShowEditModal] = useState(false);
+            const [editData, setEditData] = useState(null);
+            const [editLoading, setEditLoading] = useState(false);
+
+            const handleRequestModification = async (formData) => {
+                if (!editData) return;
+                setEditLoading(true);
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', editData.id), {
+                        modification: {
+                            status: 'pending',
+                            type: formData.type,
+                            date: formData.date,
+                            time: formData.time,
+                            reason: formData.reason,
+                            requestTime: new Date()
+                        }
+                    });
+                    alert('修改申請已送出');
+                    setShowEditModal(false);
+                    setEditData(null);
+                } catch (e) {
+                    console.error(e);
+                    alert('申請失敗: ' + e.message);
+                } finally {
+                    setEditLoading(false);
+                }
+            };
 
             // Robust isCompanyGroup check
             const isCompanyGroup = useMemo(() => {
@@ -2930,8 +3177,9 @@
                                     
                                     return (
                                         <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
-                                            r.approvalStatus === 'approved' ? 'border-green-500' : 
-                                            r.approvalStatus === 'rejected' ? 'border-red-500' : 
+                                            r.approvalStatus === 'approved' || r.modification?.status === 'approved' ? 'border-green-500' : 
+                                            r.approvalStatus === 'rejected' || r.modification?.status === 'rejected' ? 'border-red-500' : 
+                                            r.modification?.status === 'pending' ? 'border-orange-500' :
                                             'border-gray-100'
                                         }`}>
                                             <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
@@ -2960,6 +3208,21 @@
                                                                     {r.approvalStatus === 'approved' ? '核准' : (r.approvalStatus === 'rejected' ? '拒絕' : '待核准')}
                                                                 </span>
                                                             )}
+                                                            {!isLeave && r.modification?.status === 'pending' && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">
+                                                                    修改審核中
+                                                                </span>
+                                                            )}
+                                                            {!isLeave && r.modification?.status === 'approved' && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-green-100 text-green-700">
+                                                                    核准
+                                                                </span>
+                                                            )}
+                                                            {!isLeave && r.modification?.status === 'rejected' && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-red-100 text-red-700">
+                                                                    拒絕
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                             <Clock className="w-3 h-3" /> 
@@ -2976,7 +3239,7 @@
                                                                     year: 'numeric', month: '2-digit', day: '2-digit',
                                                                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                                                                     hour12: false
-                                                                }).format(new Date(r.timestamp.seconds * 1000)).replace(/\//g, '/')}`
+                                                                }).format(new Date((r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000) * 1000)).replace(/\//g, '/')}`
                                                                 : (r.checkInLocationName || r.address || '未記錄')
                                                             }
                                                         </div>
@@ -2998,10 +3261,12 @@
                                                                             </button>
                                                                             <button 
                                                                                 onClick={() => {
+                                                                                    if (r.approvalStatus === 'approved') return;
                                                                                     setEditingLeave(r);
                                                                                     setShowLeaveModal(true);
                                                                                 }}
-                                                                                className="w-12 h-12 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 hover:opacity-90 transition-opacity"
+                                                                                disabled={r.approvalStatus === 'approved'}
+                                                                                className={`w-12 h-12 rounded-lg flex items-center justify-center border transition-opacity ${r.approvalStatus === 'approved' ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-blue-50 text-blue-500 border-blue-100 hover:opacity-90'}`}
                                                                             >
                                                                                 <Edit className="w-5 h-5" />
                                                                             </button>
@@ -3012,23 +3277,6 @@
                                                                                     <img src={r.photoUrl} className="w-full h-full object-cover" />
                                                                                 </div>
                                                                             ) : <div className="w-12 h-12"></div>}
-                                                                            <button 
-                                                                                onClick={async (e) => {
-                                                                                    e.stopPropagation();
-                                                                                    if (confirm('確定要刪除此筆請假紀錄嗎？')) {
-                                                                                        try {
-                                                                                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id));
-                                                                                            alert('刪除成功');
-                                                                                        } catch (err) {
-                                                                                            console.error(err);
-                                                                                            alert('刪除失敗: ' + err.message);
-                                                                                        }
-                                                                                    }
-                                                                                }}
-                                                                                className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
-                                                                            >
-                                                                                <Trash2 className="w-5 h-5" />
-                                                                            </button>
                                                                         </div>
                                                                     </div>
                                                                 );
@@ -3042,34 +3290,51 @@
                                                                 mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
                                                             }
                                                             return (
-                                                                <button 
-                                                                    onClick={() => {
-                                                                        if (parts.length === 2) {
-                                                                            setMapPreviewTarget({
-                                                                                lat: parseFloat(parts[0]),
-                                                                                lng: parseFloat(parts[1]),
-                                                                                name: currentUser.name + ' - ' + (r.address || '打卡位置'),
-                                                                                radius: 10
-                                                                            });
-                                                                        } else {
-                                                                            alert('無座標資訊: ' + (r.address || ''));
-                                                                        }
-                                                                    }}
-                                                                    className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
-                                                                >
-                                                                    {mapImgUrl ? (
-                                                                        <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
-                                                                    ) : (
-                                                                        <MapPin className="w-5 h-5" />
-                                                                    )}
-                                                                </button>
+                                                                <div className="flex gap-2">
+                                                                    <div className="flex gap-2">
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    if (parts.length === 2) {
+                                                                                        setMapPreviewTarget({
+                                                                                            lat: parseFloat(parts[0]),
+                                                                                            lng: parseFloat(parts[1]),
+                                                                                            name: currentUser.name + ' - ' + (r.address || '打卡位置'),
+                                                                                            radius: 10
+                                                                                        });
+                                                                                    } else {
+                                                                                        alert('無座標資訊: ' + (r.address || ''));
+                                                                                    }
+                                                                                }}
+                                                                                className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                            >
+                                                                                {mapImgUrl ? (
+                                                                                    <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
+                                                                                ) : (
+                                                                                    <MapPin className="w-5 h-5" />
+                                                                                )}
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    setEditData(r);
+                                                                                    setShowEditModal(true);
+                                                                                }}
+                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity text-[10px] font-bold"
+                                                                            >
+                                                                                申請修改
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-2">
+                                                                            {r.photoUrl ? (
+                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
+                                                                                    <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                </div>
+                                                                            ) : <div className="w-12 h-12"></div>}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
                                                             );
                                                         })()}
-                                                        {!isLeave && r.photoUrl && (
-                                                            <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
-                                                                <img src={r.photoUrl} className="w-full h-full object-cover" />
-                                                            </div>
-                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -3146,6 +3411,15 @@
                             </div>
                         </div>
                     )}
+
+                    <AttendanceEditModal 
+                        isOpen={showEditModal} 
+                        onClose={() => { setShowEditModal(false); setEditData(null); }}
+                        record={editData}
+                        mode="request"
+                        onSubmit={handleRequestModification}
+                        loading={editLoading}
+                    />
                 </div>
             );
         };
@@ -3352,6 +3626,83 @@
             const [cadreLeaveLoading, setCadreLeaveLoading] = useState(false);
             const [showApprovalModal, setShowApprovalModal] = useState(false);
             const [selectedApprovalLeave, setSelectedApprovalLeave] = useState(null);
+            const [adminEditData, setAdminEditData] = useState(null);
+            const [showAdminEditModal, setShowAdminEditModal] = useState(false);
+            const [showReviewModal, setShowReviewModal] = useState(false);
+            const [reviewData, setReviewData] = useState(null);
+            const [adminEditLoading, setAdminEditLoading] = useState(false);
+            const [showAdminDeleteModal, setShowAdminDeleteModal] = useState(false);
+            const [adminDeleteTarget, setAdminDeleteTarget] = useState(null);
+
+            const handleAdminDeleteRecord = (record) => {
+                setAdminDeleteTarget(record);
+                setShowAdminDeleteModal(true);
+            };
+
+            const confirmAdminDelete = async () => {
+                if (!adminDeleteTarget) return;
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', adminDeleteTarget.id));
+                    // alert('刪除成功'); // User wants immediate deletion and update, alert might be annoying or fine, but user said "按下'確認'即刪除該筆全部資料", implying direct action. I'll keep it simple or use a toast if available, but for now I'll just close modal.
+                    setShowAdminDeleteModal(false);
+                    setAdminDeleteTarget(null);
+                } catch (err) {
+                    console.error(err);
+                    alert('刪除失敗: ' + err.message);
+                }
+            };
+
+            const handleAdminEditRecord = async (formData) => {
+                if (!adminEditData) return;
+                setAdminEditLoading(true);
+                try {
+                    const newDate = new Date(`${formData.date}T${formData.time}`);
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', adminEditData.id), {
+                        type: formData.type,
+                        timestamp: newDate,
+                        updatedAt: serverTimestamp()
+                    });
+                    
+                    alert('修改成功');
+                    setShowAdminEditModal(false);
+                    setAdminEditData(null);
+                } catch (e) {
+                    console.error(e);
+                    alert('修改失敗: ' + e.message);
+                } finally {
+                    setAdminEditLoading(false);
+                }
+            };
+
+            const handleReviewApprove = async () => {
+                if (!reviewData || !reviewData.modification) return;
+                try {
+                    const mod = reviewData.modification;
+                    const newDate = new Date(`${mod.date}T${mod.time}`);
+                    
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', reviewData.id), {
+                        type: mod.type,
+                        timestamp: newDate,
+                        modification: {
+                            ...mod,
+                            status: 'approved',
+                            reviewTime: new Date(),
+                            reviewerName: dbUser.name
+                        }
+                    });
+                    alert('已核准修改');
+                    setShowReviewModal(false);
+                    setReviewData(null);
+                } catch (e) {
+                    console.error(e);
+                    alert('核准失敗: ' + e.message);
+                }
+            };
+
+            const handleReviewReject = () => {
+                setShowReviewModal(false);
+                setReviewData(null);
+            };
 
             // Helper to suppress network noise - Defined at component level for reuse
             const handleFetchError = (err, context) => {
@@ -3694,14 +4045,19 @@
                 ));
 
                 // All Attendance (Manager Only)
-                if (isManagerOrAdmin) {
-                    const dateLimit = new Date();
-                    dateLimit.setDate(dateLimit.getDate() - 30);
+                // Check if user is admin/manager/hr/cadre OR has cadre permission via custom role
+                const hasCadrePermission = (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('cadre');
+                const shouldFetchAllAttendance = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role) || hasCadrePermission;
+
+                if (shouldFetchAllAttendance) {
+                    // Removed dateLimit filter to allow fetching records with malformed timestamp (Map instead of Timestamp)
+                    // This ensures records that were incorrectly saved (previous bug) can still be retrieved.
+                    // We use limit(2000) to prevent fetching too much data, which should cover more than a month of active records.
                     
                     const qAll = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
-                        where('timestamp', '>=', dateLimit),
-                        orderBy('timestamp', 'desc')
+                        orderBy('timestamp', 'desc'),
+                        limit(2000)
                     );
                     
                     unsubscribes.push(onSnapshot(qAll, 
@@ -3711,15 +4067,18 @@
                 }
 
                 return () => unsubscribes.forEach(u => u());
-            }, [user, dbUser]);
+            }, [user, dbUser, roles]);
 
             // 2. Tab-Specific Data (My Attendance)
             useEffect(() => {
                 if (!user || !dbUser) return;
                 const unsubscribes = [];
 
-                // My Attendance (Home Only)
-                if (activeTab === 'home') {
+                // My Attendance (Home and Clock)
+                // Use a boolean check to avoid re-subscribing when switching between home and clock
+                const shouldWatchMyAttendance = activeTab === 'home' || activeTab === 'clock';
+                
+                if (shouldWatchMyAttendance) {
                     const qMine = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
                         where('userId', '==', dbUser.id),
@@ -3732,7 +4091,7 @@
                 }
 
                 return () => unsubscribes.forEach(u => u());
-            }, [user, dbUser, activeTab]);
+            }, [user, dbUser, activeTab === 'home' || activeTab === 'clock']);
 
             // Auto-select first company when in Cadre tab
             useEffect(() => {
@@ -4100,12 +4459,16 @@
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', selectedApprovalLeave.id), {
                         approvalStatus: status,
                         approvalTime: serverTimestamp(),
-                        approverId: currentUser.id,
-                        approverName: currentUser.name
+                        approverId: dbUser.id,
+                        approverName: dbUser.name
                     });
                     setShowApprovalModal(false);
                     setSelectedApprovalLeave(null);
-                    alert(`已${status === 'approved' ? '核准' : '拒絕'}此請假申請`);
+                    if (status === 'pending') {
+                        alert('已恢復待核准請假狀態');
+                    } else {
+                        alert(`已${status === 'approved' ? '核准' : '拒絕'}此請假申請`);
+                    }
                 } catch (e) {
                     console.error(e);
                     alert('更新失敗: ' + e.message);
@@ -4164,14 +4527,14 @@
                 }
 
                 try {
-                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: passwordToUse, updatedByName: '新增', updatedAt: serverTimestamp() });
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: passwordToUse, updatedByName: (dbUser && dbUser.name) || '新增', updatedAt: serverTimestamp() });
                     
                     // Optimistic update for immediate UI feedback
                     setUsersList(prev => [...prev, { 
                         id: docRef.id, 
                         ...userData, 
                         password: passwordToUse, 
-                        updatedByName: '新增', 
+                        updatedByName: (dbUser && dbUser.name) || '新增', 
                         updatedAt: new Date() 
                     }]);
                 } catch (firestoreError) {
@@ -4184,7 +4547,7 @@
 
             const handleAddCommunity = async (name) => {
                 if (!user) return;
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name, updatedByName: '新增', updatedAt: serverTimestamp() });
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { name: name, updatedByName: (dbUser && dbUser.name) || '新增', updatedAt: serverTimestamp() });
             };
 
             if (loading) return <Loading />;
@@ -4496,6 +4859,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
+                                        onDeleteRecord={handleAdminDeleteRecord} 
                                         attendanceHistory={myAttendance.filter(r => r.type !== 'leave')}
                                         timeOffset={timeOffset}
                                         companies={companies}
@@ -4516,6 +4880,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
+                                        onDeleteRecord={handleAdminDeleteRecord}
                                         attendanceHistory={myAttendance.filter(r => ['in', 'out'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         companies={companies}
@@ -4533,6 +4898,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
+                                        onDeleteRecord={handleAdminDeleteRecord}
                                         attendanceHistory={myAttendance.filter(r => ['outing_start', 'outing_arrive', 'outing_end'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         companies={companies}
@@ -4550,6 +4916,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
+                                        onDeleteRecord={handleAdminDeleteRecord}
                                         attendanceHistory={myAttendance.filter(r => ['late_in', 'late_out'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         companies={companies}
@@ -4567,6 +4934,7 @@
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn}
+                                        onDeleteRecord={handleAdminDeleteRecord}
                                         onLeaveSubmit={handleLeaveSubmit}
                                         attendanceHistory={myAttendance.filter(r => r.type === 'leave')}
                                         timeOffset={timeOffset}
@@ -4759,8 +5127,21 @@
                                         const records = targetCompany ? attendanceList.filter(r => {
                                             if (!companyUserIds.includes(r.userId)) return false;
                                             if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
+                                            if (r.type === 'leave') return false;
                                             
-                                            const rDate = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
+                                            // Handle various timestamp formats: Timestamp object, Date object, or Map-like object
+                                            let seconds;
+                                            if (r.timestamp?.seconds) {
+                                                seconds = r.timestamp.seconds;
+                                            } else if (r.timestamp instanceof Date) {
+                                                seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                            } else if (r.createdAt?.seconds) {
+                                                seconds = r.createdAt.seconds;
+                                            } else {
+                                                seconds = Date.now() / 1000;
+                                            }
+                                            
+                                            const rDate = new Date(seconds * 1000);
                                             const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
                                             return recordDate === cadreRecordDate;
                                         }) : [];
@@ -4800,6 +5181,21 @@
                                                 <span className="text-xs text-gray-400 font-normal">共 {records.length} 筆</span>
                                             </h3>
                                             
+                                            {cadreMapSelectedUserId && (
+                                                <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Users className="w-4 h-4" />
+                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setCadreMapSelectedUserId(null)}
+                                                        className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                    >
+                                                        清除篩選
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             <div className="space-y-3 pb-24">
                                                 {!targetCompany ? (
                                                     <div className="text-center text-gray-400 py-8">請選擇公司</div>
@@ -4810,10 +5206,25 @@
                                                 ) : (
                                                     records.map(r => {
                                                         const user = usersList.find(u => u.id === r.userId) || {};
-                                                        const timeStr = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                                        
+                                                        // Safe time parsing
+                                                        let seconds;
+                                                        if (r.timestamp?.seconds) {
+                                                            seconds = r.timestamp.seconds;
+                                                        } else if (r.timestamp instanceof Date) {
+                                                            seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                        } else {
+                                                            seconds = Date.now() / 1000;
+                                                        }
+                                                        const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
                                                         
                                                         return (
-                                                            <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-start gap-3">
+                                                            <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
+                                                                r.modification?.status === 'approved' ? 'border-green-500' :
+                                                                r.modification?.status === 'rejected' ? 'border-red-500' :
+                                                                r.modification?.status === 'pending' ? 'border-orange-500' :
+                                                                'border-gray-100'
+                                                            }`}>
                                                                 <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
                                                                     {user.avatarUrl ? (
                                                                         <img src={user.avatarUrl} className="w-full h-full object-cover" />
@@ -4846,6 +5257,15 @@
                                                         </span>
                                                     );
                                                 })()}
+                                                                                {r.modification?.status === 'approved' && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-green-100 text-green-700">核准</span>
+                                                                                )}
+                                                                                {r.modification?.status === 'rejected' && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-red-100 text-red-700">拒絕</span>
+                                                                                )}
+                                                                                {r.modification?.status === 'pending' && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">修改審核中</span>
+                                                                                )}
                                                                             </div>
                                                                             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                                                                 <Clock className="w-3 h-3" /> {timeStr}
@@ -4854,44 +5274,81 @@
                                                                                 <MapPin className="w-3 h-3" /> {r.checkInLocationName || r.address || '未記錄'}
                                                                             </div>
                                                                         </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            {(function(){
-                                                                                const parts = (r.location || '').split(',');
-                                                                                let mapImgUrl = null;
-                                                                                if (parts.length === 2) {
-                                                                                    const lat = parts[0];
-                                                                                    const lng = parts[1];
-                                                                                    mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
-                                                                                }
-                                                                                return (
+                                                                        <div className="flex gap-2">
+                                                                            <div className="flex gap-2 items-end">
+                                                                                {r.modification?.status === 'pending' && (
                                                                                     <button 
                                                                                         onClick={() => {
-                                                                                            if (parts.length === 2) {
-                                                                                                setMapPreviewTarget({
-                                                                                                    lat: parseFloat(parts[0]),
-                                                                                                    lng: parseFloat(parts[1]),
-                                                                                                    name: r.userName + ' - ' + (r.address || '打卡位置'),
-                                                                                                    radius: 10
-                                                                                                });
-                                                                                            } else {
-                                                                                                alert('無座標資訊: ' + (r.address || ''));
-                                                                                            }
+                                                                                            setReviewData(r);
+                                                                                            setShowReviewModal(true);
                                                                                         }}
-                                                                                        className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                                        className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity font-bold text-xs"
                                                                                     >
-                                                                                        {mapImgUrl ? (
-                                                                                            <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
-                                                                                        ) : (
-                                                                                            <MapPin className="w-5 h-5" />
-                                                                                        )}
+                                                                                        批示
                                                                                     </button>
-                                                                                );
-                                                                            })()}
-                                                                            {r.photoUrl && (
-                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl(r.photoUrl)}>
-                                                                                    <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                )}
+                                                                                <div className="flex flex-col gap-2">
+                                                                                    {(function(){
+                                                                                        const parts = (r.location || '').split(',');
+                                                                                        let mapImgUrl = null;
+                                                                                        if (parts.length === 2) {
+                                                                                            const lat = parts[0];
+                                                                                            const lng = parts[1];
+                                                                                            mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                                                        }
+                                                                                        return (
+                                                                                            <button 
+                                                                                                onClick={() => {
+                                                                                                    if (parts.length === 2) {
+                                                                                                        setMapPreviewTarget({
+                                                                                                            lat: parseFloat(parts[0]),
+                                                                                                            lng: parseFloat(parts[1]),
+                                                                                                            name: r.userName + ' - ' + (r.address || '打卡位置'),
+                                                                                                            radius: 10
+                                                                                                        });
+                                                                                                    } else {
+                                                                                                        alert('無座標資訊: ' + (r.address || ''));
+                                                                                                    }
+                                                                                                }}
+                                                                                                className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                                            >
+                                                                                                {mapImgUrl ? (
+                                                                                                    <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
+                                                                                                ) : (
+                                                                                                    <MapPin className="w-5 h-5" />
+                                                                                                )}
+                                                                                            </button>
+                                                                                        );
+                                                                                    })()}
+                                                                                    
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            setAdminEditData(r);
+                                                                                            setShowAdminEditModal(true);
+                                                                                        }}
+                                                                                        className="w-12 h-12 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center border border-blue-100 hover:opacity-90 transition-opacity"
+                                                                                    >
+                                                                                        <Edit className="w-5 h-5" />
+                                                                                    </button>
                                                                                 </div>
-                                                                            )}
+                                                                            </div>
+                                                                            
+                                                                            <div className="flex flex-col gap-2">
+                                                                                {r.photoUrl ? (
+                                                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl })}>
+                                                                                        <img src={r.photoUrl} className="w-full h-full object-cover" />
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="w-12 h-12"></div>
+                                                                                )}
+                                                                                
+                                                                                <button 
+                                                                                    onClick={() => handleAdminDeleteRecord(r)}
+                                                                                    className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
+                                                                                >
+                                                                                    <Trash2 className="w-5 h-5" />
+                                                                                </button>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -4960,6 +5417,21 @@
                                                 <span className="text-xs text-gray-400 font-normal">共 {records.length} 筆</span>
                                             </h3>
                                             
+                                            {cadreMapSelectedUserId && (
+                                                <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Users className="w-4 h-4" />
+                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setCadreMapSelectedUserId(null)}
+                                                        className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                    >
+                                                        清除篩選
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             <div className="space-y-3 pb-24">
                                                 {!targetCompany ? (
                                                     <div className="text-center text-gray-400 py-8">請選擇公司</div>
@@ -5045,22 +5517,14 @@
                                                                                         </div>
                                                                                     ) : <div className="w-12 h-12"></div>}
                                                                                     <button 
-                                                                                        onClick={async (e) => {
-                                                                                            e.stopPropagation();
-                                                                                            if (confirm('確定要刪除此筆請假紀錄嗎？')) {
-                                                                                                try {
-                                                                                                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id));
-                                                                                                    alert('刪除成功');
-                                                                                                } catch (err) {
-                                                                                                    console.error(err);
-                                                                                                    alert('刪除失敗: ' + err.message);
-                                                                                                }
-                                                                                            }
-                                                                                        }}
-                                                                                        className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
-                                                                                    >
-                                                                                        <Trash2 className="w-5 h-5" />
-                                                                                    </button>
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleAdminDeleteRecord(r);
+                                                        }}
+                                                        className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -5093,6 +5557,22 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Users className="w-5 h-5 mr-2 text-red-600" /> 帳號資料
                                             </h3>
+                                            
+                                            {cadreMapSelectedUserId && (
+                                                <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Users className="w-4 h-4" />
+                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setCadreMapSelectedUserId(null)}
+                                                        className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                    >
+                                                        清除篩選
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             <div className="space-y-3">
                                                 {(function() {
                                                     const targetCompany = companies.find(c => c.name === cadreCompany);
@@ -5370,8 +5850,49 @@
                         onClose={() => setShowApprovalModal(false)}
                         onApprove={() => handleUpdateLeaveStatus('approved')}
                         onReject={() => handleUpdateLeaveStatus('rejected')}
+                        onReset={() => handleUpdateLeaveStatus('pending')}
                         leaveData={selectedApprovalLeave}
                     />
+
+                    <ModificationReviewModal 
+                        isOpen={showReviewModal}
+                        onClose={() => { setShowReviewModal(false); setReviewData(null); }}
+                        record={reviewData}
+                        onApprove={handleReviewApprove}
+                        onReject={handleReviewReject}
+                    />
+
+                    <AttendanceEditModal 
+                        isOpen={showAdminEditModal} 
+                        onClose={() => { setShowAdminEditModal(false); setAdminEditData(null); }}
+                        record={adminEditData}
+                        mode="edit"
+                        onSubmit={handleAdminEditRecord}
+                        loading={adminEditLoading}
+                    />
+
+                    {showAdminDeleteModal && (
+                        <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowAdminDeleteModal(false)}>
+                            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-xl font-bold text-gray-800 mb-4">確認刪除</h3>
+                                <p className="text-gray-600 mb-6">確定要刪除此筆紀錄嗎？此動作無法復原。</p>
+                                <div className="flex gap-3">
+                                    <button 
+                                        onClick={() => setShowAdminDeleteModal(false)}
+                                        className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        onClick={confirmAdminDelete}
+                                        className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
+                                    >
+                                        確認
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
