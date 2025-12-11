@@ -520,8 +520,8 @@
                             targetName = target.name || "服務單位";
                         }
 
-                        // Center on Target Location if available, otherwise User Location
-                        const mapCenter = targetLocation || location;
+                        // Center on User Location if available, otherwise Target Location
+                        const mapCenter = location || targetLocation;
 
                         const map = new google.maps.Map(mapRef.current, {
                             center: mapCenter,
@@ -919,6 +919,12 @@
                 startCamera();
             };
 
+            const isMounted = useRef(true);
+            useEffect(() => {
+                isMounted.current = true;
+                return () => { isMounted.current = false; };
+            }, []);
+
             const confirm = async () => {
                 if (!image || !location) return;
                 setIsProcessing(true);
@@ -927,7 +933,9 @@
                 } catch (e) {
                     console.error(e);
                 } finally {
-                    setIsProcessing(false);
+                    if (isMounted.current) {
+                        setIsProcessing(false);
+                    }
                 }
             };
 
@@ -2453,7 +2461,7 @@
                 // 2. Check Title
                 if (currentUser.title && currentUser.title.includes('幹部')) return true;
                 // 3. Check Role Name (using passed roles prop)
-                const roleObj = roles.find(r => r.id === currentUser.role);
+                const roleObj = (roles || []).find(r => r.id === currentUser.role);
                 if (roleObj && (roleObj.name.includes('幹部') || roleObj.name.includes('人事') || roleObj.name.includes('系統管理員'))) return true;
                 
                 return false;
@@ -2699,7 +2707,7 @@
                                         {(function() {
                                             if (!currentUser) return '';
                                             // 1. Try to find role name from roles list
-                                            const roleObj = roles?.find(r => r?.id === currentUser?.role);
+                                            const roleObj = (roles || []).find(r => r?.id === currentUser?.role);
                                             if (roleObj) return roleObj.name;
                                             
                                             // 2. Fallback to hardcoded mapping
@@ -3372,7 +3380,7 @@
             const hasPermission = (pageKey) => {
                 if (!dbUser) return false;
                 if (dbUser.role === 'admin') return true;
-                const userRole = roles.find(r => r.id === dbUser.role);
+                const userRole = (roles || []).find(r => r.id === dbUser.role);
                 return userRole?.permissions?.includes(pageKey) || false;
             };
 
@@ -3853,7 +3861,7 @@
                         msg = '連線不穩，已達重試上限';
                     }
                     alert("【步驟1：照片上傳失敗】\n" + msg);
-                    setIsProcessing(false);
+                    // setIsProcessing is not defined in App scope, handled by CameraModal if needed
                     return; // Stop here
                 }
 
@@ -3887,7 +3895,7 @@
                     }
                     alert("【步驟2：資料儲存失敗】\n" + msg);
                 } finally {
-                    setIsProcessing(false);
+                    // setIsProcessing is not defined in App scope
                 }
             };
 
@@ -4074,7 +4082,7 @@
                                         <h3 className="text-lg font-bold text-white drop-shadow-md uppercase tracking-wider">
                                             個人資訊 {(function() {
                                                 if (!dbUser) return '';
-                                                const roleObj = roles.find(r => r.id === dbUser.role);
+                                                const roleObj = (roles || []).find(r => r.id === dbUser.role);
                                                 if (roleObj) return roleObj.name;
                                                 const roleMap = {
                                                     'admin': '系統管理員',
@@ -4265,7 +4273,7 @@
                                         // Filter: Company + Roles (admin, hr, cadre, staff)
                                         // Expand target roles to include custom roles with matching names
                                         const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
-                                        const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                        const targetRoleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
                                         const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
 
                                         const companyUsers = usersList.filter(u => 
