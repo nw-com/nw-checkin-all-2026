@@ -1319,6 +1319,137 @@
             const [showAreaModal, setShowAreaModal] = useState(false);
             const [areaForm, setAreaForm] = useState({ id: '', name: '' });
 
+            const handleExportUsers = () => {
+                if (!users || users.length === 0) {
+                    setToast('無資料可匯出');
+                    return;
+                }
+                const data = users.map(u => {
+                     const roleName = u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role);
+                     const companyNames = (u.companyIds || (u.companyId ? [u.companyId] : [])).map(id => {
+                         const c = companies.find(c => c.id === id);
+                         return c ? c.name : id;
+                     }).join('、');
+                     const communityNames = (u.communityIds || (u.communityId ? [u.communityId] : [])).map(id => {
+                         const c = communities.find(c => c.id === id);
+                         return c ? c.name : id;
+                     }).join('、');
+
+                     return {
+                        '角色': roleName,
+                        '職稱': u.title || '',
+                        '姓名': u.name || '',
+                        '電子郵件': u.email || '',
+                        '密碼': u.password || '',
+                        '手機號碼': u.phone || '',
+                        '所屬公司': companyNames,
+                        '服務社區': communityNames,
+                        '狀況': u.status || '在職'
+                     };
+                });
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Users");
+                XLSX.writeFile(wb, "users_export.xlsx");
+            };
+
+            const handleImportUsers = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    try {
+                        const bstr = evt.target.result;
+                        const wb = XLSX.read(bstr, { type: 'binary' });
+                        const wsname = wb.SheetNames[0];
+                        const ws = wb.Sheets[wsname];
+                        const data = XLSX.utils.sheet_to_json(ws);
+
+                        if (!data || data.length === 0) {
+                            setToast('檔案無資料');
+                            return;
+                        }
+
+                        let successCount = 0;
+                        let failCount = 0;
+
+                        setToast('開始匯入...');
+
+                        for (const row of data) {
+                            const email = (row['電子郵件'] || '').toString().trim();
+                            if (!email) continue;
+
+                            const roleName = (row['角色'] || '').trim();
+                            let roleId = 'staff';
+                            if (roleName === '系統管理員') roleId = 'admin';
+                            else {
+                                const foundRole = roles.find(r => r.name === roleName);
+                                if (foundRole) roleId = foundRole.id;
+                            }
+
+                            const companyNamesStr = (row['所屬公司'] || '').toString();
+                            const companyIds = [];
+                            if (companyNamesStr) {
+                                const names = companyNamesStr.split(/[、,]/).map(s => s.trim());
+                                names.forEach(name => {
+                                    const c = companies.find(c => c.name === name || c.id === name);
+                                    if (c) companyIds.push(c.id);
+                                });
+                            }
+
+                            const communityNamesStr = (row['服務社區'] || '').toString();
+                            const communityIds = [];
+                            if (communityNamesStr) {
+                                const names = communityNamesStr.split(/[、,]/).map(s => s.trim());
+                                names.forEach(name => {
+                                    const c = communities.find(c => c.name === name || c.id === name);
+                                    if (c) communityIds.push(c.id);
+                                });
+                            }
+
+                            const userData = {
+                                role: roleId,
+                                title: (row['職稱'] || '').toString().trim(),
+                                name: (row['姓名'] || '').toString().trim(),
+                                email: email,
+                                password: (row['密碼'] || '').toString().trim(),
+                                phone: (row['手機號碼'] || '').toString().trim(),
+                                companyIds: companyIds,
+                                communityIds: communityIds,
+                                status: (row['狀況'] || '在職').toString().trim(),
+                                companyId: companyIds.length > 0 ? companyIds[0] : '',
+                                communityId: communityIds.length > 0 ? communityIds[0] : ''
+                            };
+
+                            const existingUser = users.find(u => u.email === email);
+                            
+                            try {
+                                if (existingUser) {
+                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', existingUser.id), {
+                                        ...userData,
+                                        updatedByName: (currentUser && currentUser.name) || '匯入',
+                                        updatedAt: serverTimestamp()
+                                    });
+                                } else {
+                                    await onAddUser(userData);
+                                }
+                                successCount++;
+                            } catch (err) {
+                                console.error(`Error importing ${email}:`, err);
+                                failCount++;
+                            }
+                        }
+                        setToast(`匯入完成：成功 ${successCount} 筆，失敗 ${failCount} 筆`);
+                    } catch (err) {
+                        console.error(err);
+                        setToast('匯入失敗：' + err.message);
+                    }
+                };
+                reader.readAsBinaryString(file);
+                e.target.value = '';
+            };
+
             const handleExportCommunities = () => {
                 if (!communities || communities.length === 0) {
                     setToast('無資料可匯出');
@@ -1890,8 +2021,13 @@
                                 <Users className="w-5 h-5 mr-2 text-red-600" />
                                 帳號列表
                             </h3>
-                            <div className="mb-4">
+                            <div className="mb-4 flex gap-2">
                                 <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                <button onClick={handleExportUsers} className="bg-green-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-700">匯出</button>
+                                <label className="bg-blue-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-blue-700 cursor-pointer flex items-center">
+                                    匯入
+                                    <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportUsers} />
+                                </label>
                             </div>
                             <div className="h-[calc(100vh-280px)] overflow-y-auto overflow-x-auto no-scrollbar">
                                 <div className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1750px] text-left">
