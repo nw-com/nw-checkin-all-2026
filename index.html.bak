@@ -1,0 +1,2825 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>西北社區財務系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome (圖示) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS (Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Google Fonts (Noto Sans TC) -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDK (使用兼容版本以確保穩定性) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        /* 自定義滾動條樣式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        
+        /* 載入動畫 */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #dc2626; /* Red-600 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 overflow-hidden h-screen">
+
+    <!-- 1. 登入頁面容器 -->
+    <div id="login-view" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-200" style="background-image: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); visibility:hidden;">
+        <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md border-t-4 border-red-700">
+            <div class="text-center mb-8">
+                <div id="login-logo" class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 text-red-700 mb-4">
+                    <i class="fa-solid fa-building-columns text-3xl"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-800">西北社區財務系統</h1>
+                <p class="text-gray-500 text-sm mt-1">西北好用心    住戶更安心</p>
+            </div>
+
+            <form id="login-form" class="space-y-6">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <label for="email" class="block text-sm font-medium text-gray-700">電子郵件</label>
+                        <label class="inline-flex items-center text-sm text-gray-600">
+                            <input type="checkbox" id="remember-me" class="mr-2 rounded border-gray-300">
+                            記住我
+                        </label>
+                    </div>
+                    <div class="mt-1 relative rounded-md shadow-sm">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-envelope text-gray-400"></i>
+                        </div>
+                        <input type="email" id="email" class="focus:ring-red-500 focus:border-red-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md p-2 border" placeholder="admin@northwest.com" required>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">密碼</label>
+                    <div class="mt-1 relative rounded-md shadow-sm">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-lock text-gray-400"></i>
+                        </div>
+                        <input type="password" id="password" class="focus:ring-red-500 focus:border-red-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md p-2 border pr-10" placeholder="••••••••" required>
+                        <button type="button" id="toggle-password" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600">
+                            <i class="fa-solid fa-eye-slash"></i>
+                        </button>
+                    </div>
+                </div>
+
+
+                <div id="login-error" class="text-red-600 text-sm hidden">
+                    <i class="fa-solid fa-circle-exclamation mr-1"></i> 帳號或密碼錯誤
+                </div>
+
+                <button type="submit" id="login-btn" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-700 hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
+                    登入系統
+                </button>
+                
+                <div id="diagnose-output" class="mt-2 hidden text-xs bg-gray-50 border border-gray-200 rounded p-3 text-gray-700"></div>
+            </form>
+            <div class="mt-6 text-center text-xs text-gray-400">
+                &copy; 2025 西北保全
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 主系統介面容器 (登入後顯示) -->
+    <div id="main-app" class="flex h-screen hidden">
+        
+        <!-- 左側導覽列 (10% 寬度) -->
+        <aside class="w-[15%] bg-red-900 text-white flex flex-col shadow-lg relative z-20 min-w-[100px]">
+            <div class="flex flex-col h-full">
+                <div id="main-logo" class="h-[10%] box-border flex-none flex items-center justify-center px-6 border-b border-red-800 bg-red-950">
+                    <i class="fa-solid fa-shield-halved text-[28px] text-red-100"></i>
+                </div>
+                <div class="h-[10%] box-border flex-none flex items-center justify-center">
+                    <span id="sidebar-community-name" class="text-[20px] font-bold text-red-100 cursor-pointer">西北保全社區</span>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent bg-red-800 border-white">
+                        <i class="fa-solid fa-chart-pie text-[20px]"></i>
+                        <span class="text-[20px]">總覽</span>
+                    </a>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('income')" id="nav-income" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-hand-holding-dollar text-[20px]"></i>
+                        <span class="text-[20px]">收入</span>
+                    </a>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('expense')" id="nav-expense" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-file-invoice-dollar text-[20px]"></i>
+                        <span class="text-[20px]">支出</span>
+                    </a>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('bank')" id="nav-bank" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-building-columns text-[20px]"></i>
+                        <span class="text-[20px]">銀行</span>
+                    </a>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('residents')" id="nav-residents" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-users text-[20px]"></i>
+                        <span class="text-[20px]">住戶</span>
+                    </a>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('reports')" id="nav-reports" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-chart-line text-[20px]"></i>
+                        <span class="text-[20px]">報表</span>
+                    </a>
+                </div>
+                <div class="h-[10%] box-border flex-none">
+                    <a href="#" onclick="switchTab('settings')" id="nav-settings" class="nav-item w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-gear text-[20px]"></i>
+                        <span class="text-[20px]">設定</span>
+                    </a>
+                </div>
+                <div class="h-[10%] border-t border-red-800">
+                    <button onclick="logout()" class="w-full h-full flex flex-row items-center justify-center gap-2 text-red-100 hover:bg-red-800 hover:text-white transition-colors border-l-4 border-transparent">
+                        <i class="fa-solid fa-right-from-bracket text-[20px]"></i>
+                        <span class="text-[20px]">登出</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 右側主要內容 (90% 寬度) -->
+        <main class="w-[85%] flex flex-col bg-gray-50 relative">
+            <!-- R01 標題列 -->
+            <header class="h-[10%] box-border flex-none bg-white shadow-sm flex items-center justify-between px-6 border-b border-gray-200">
+                <h2 id="page-title" class="text-xl font-bold text-gray-800 flex items-center">
+                    <i class="fa-solid fa-chart-pie mr-2 text-red-600"></i>
+                    財務總覽
+                </h2>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                        <i class="fa-regular fa-clock mr-1"></i> <span id="current-date">2023-10-27</span>
+                    </span>
+                    <span id="connection-status" class="text-sm px-3 py-1 rounded-full"></span>
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center text-sm font-bold mr-2">
+                            A
+                        </div>
+                        <span class="text-sm font-medium text-gray-700" id="user-display-name">管理員</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- R02 子分頁按鈕列 -->
+            <div id="subtab-bar" class="h-[10%] bg-white border-b border-gray-200 px-6 flex items-center gap-4"></div>
+
+            <!-- R03~R10 10% 列結構，用於與左側對齊 -->
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%] border-b border-gray-100"></div>
+            <div class="h-[10%]"></div>
+
+            <!-- 子分頁內容覆蓋於 R03~R10 區域，保持列高 1:1 對齊 -->
+            <div id="right-content" class="absolute inset-x-0 top-[20%] bottom-0 overflow-auto p-6">
+                <!-- 載入指示器 -->
+                <div id="content-loader" class="hidden absolute inset-0 bg-white/50 flex items-center justify-center z-10">
+                    <div class="loader"></div>
+                </div>
+
+                <!-- 1. 儀表板視圖 (Dashboard) -->
+                <div id="view-dashboard" class="content-view space-y-6">
+                    <!-- 數據卡片 -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="bg-white rounded-lg p-5 shadow-sm border-l-4 border-red-600">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-medium text-gray-500 uppercase">本月總收入</p>
+                                    <h3 class="text-2xl font-bold text-gray-800 mt-1">$158,200</h3>
+                                </div>
+                                <div class="p-2 bg-red-50 rounded-lg text-red-600">
+                                    <i class="fa-solid fa-arrow-trend-up"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-green-600 mt-2 flex items-center">
+                                <i class="fa-solid fa-caret-up mr-1"></i> 較上月 +5.2%
+                            </p>
+                        </div>
+
+                        <div class="bg-white rounded-lg p-5 shadow-sm border-l-4 border-gray-500">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-medium text-gray-500 uppercase">本月總支出</p>
+                                    <h3 class="text-2xl font-bold text-gray-800 mt-1">$42,500</h3>
+                                </div>
+                                <div class="p-2 bg-gray-100 rounded-lg text-gray-600">
+                                    <i class="fa-solid fa-arrow-trend-down"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-red-500 mt-2 flex items-center">
+                                <i class="fa-solid fa-caret-up mr-1"></i> 較上月 +1.2%
+                            </p>
+                        </div>
+
+                        <div class="bg-white rounded-lg p-5 shadow-sm border-l-4 border-red-800">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-medium text-gray-500 uppercase">目前結餘</p>
+                                    <h3 class="text-2xl font-bold text-red-800 mt-1">$2,105,700</h3>
+                                </div>
+                                <div class="p-2 bg-red-50 rounded-lg text-red-800">
+                                    <i class="fa-solid fa-piggy-bank"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-2">包含定存與活儲</p>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg p-5 shadow-sm border-l-4 border-orange-400">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-medium text-gray-500 uppercase">未繳管理費</p>
+                                    <h3 class="text-2xl font-bold text-gray-800 mt-1">5 戶</h3>
+                                </div>
+                                <div class="p-2 bg-orange-50 rounded-lg text-orange-400">
+                                    <i class="fa-solid fa-circle-exclamation"></i>
+                                </div>
+                            </div>
+                            <p class="text-xs text-orange-500 mt-2 cursor-pointer hover:underline">查看名單</p>
+                        </div>
+                    </div>
+
+                    <!-- 最近交易表格 -->
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                            <h3 class="font-bold text-gray-700">最近收支紀錄</h3>
+                            <button class="text-sm text-red-600 hover:text-red-800 font-medium">查看全部</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-gray-600">
+                                <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                    <tr>
+                                        <th class="px-6 py-3">日期</th>
+                                        <th class="px-6 py-3">項目/摘要</th>
+                                        <th class="px-6 py-3">類型</th>
+                                        <th class="px-6 py-3">經手人</th>
+                                        <th class="px-6 py-3 text-right">金額</th>
+                                        <th class="px-6 py-3 text-center">狀態</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200" id="transaction-list">
+                                    <!-- 交易紀錄已清空 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 其他視圖佔位符 (Other Views Placeholder) -->
+                <div id="view-income" class="content-view hidden">
+                    <div id="income-detail-view" class="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                            <h3 class="font-bold text-gray-700">收入明細列表</h3>
+                            <button id="btn-add-income-record" class="px-3 py-2 bg-red-600 text-white rounded">新增收入</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-gray-600">
+                                <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                    <tr>
+                                        <th class="px-6 py-3">編號</th>
+                                        <th class="px-6 py-3">日期</th>
+                                        <th class="px-6 py-3">對象</th>
+                                        <th class="px-6 py-3">類型</th>
+                                        <th class="px-6 py-3">類別</th>
+                                        <th class="px-6 py-3">月份</th>
+                                        <th class="px-6 py-3 text-right">金額</th>
+                                        <th class="px-6 py-3">收支方式</th>
+                                        <th class="px-6 py-3">備註</th>
+                                        <th class="px-6 py-3">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="income-detail-tbody" class="divide-y divide-gray-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="income-settings-view" class="space-y-6 hidden">
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">固定收入列表</h3>
+                                <button id="btn-add-income-fixed" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">項目</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="income-fixed-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">其他收入列表</h3>
+                                <button id="btn-add-income-other" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">項目</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="income-other-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-expense" class="content-view hidden">
+                    <div id="expense-detail-view" class="bg-white rounded-lg shadow-sm border border-gray-200">
+                        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                            <h3 class="font-bold text-gray-700">支出明細列表</h3>
+                            <button id="btn-add-expense-record" class="px-3 py-2 bg-red-600 text-white rounded">新增支出</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-gray-600">
+                                <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                    <tr>
+                                        <th class="px-6 py-3">編號</th>
+                                        <th class="px-6 py-3">日期</th>
+                                        <th class="px-6 py-3">對象</th>
+                                        <th class="px-6 py-3">類型</th>
+                                        <th class="px-6 py-3">類別</th>
+                                        <th class="px-6 py-3">月份</th>
+                                        <th class="px-6 py-3 text-right">金額</th>
+                                        <th class="px-6 py-3">收支方式</th>
+                                        <th class="px-6 py-3">備註</th>
+                                        <th class="px-6 py-3">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="expense-detail-tbody" class="divide-y divide-gray-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="expense-settings-view" class="space-y-6 hidden">
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">固定支出列表</h3>
+                                <button id="btn-add-expense-fixed" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">項目</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="expense-fixed-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">其他支出列表</h3>
+                                <button id="btn-add-expense-other" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">項目</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="expense-other-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                 <div id="view-reports" class="content-view hidden">
+                    <div class="bg-white p-8 rounded-lg shadow-sm text-center">
+                        <i class="fa-solid fa-chart-line text-4xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-700">財務報表中心</h3>
+                        <p class="text-gray-500 mt-2">月報表、季報表與年度預算執行率分析。</p>
+                    </div>
+                </div>
+
+                <div id="view-bank" class="content-view hidden">
+                    <div id="bank-detail-view" class="space-y-6 hidden">
+                        <!-- Account Info Card -->
+                        <div class="bg-white rounded-lg p-6 shadow-sm border-l-4 border-red-600 flex justify-between items-center">
+                            <div>
+                                <p class="text-sm font-medium text-gray-500 uppercase" id="bank-detail-type">帳戶類型</p>
+                                <h3 id="bank-detail-name" class="text-2xl font-bold text-gray-800 mt-1">銀行名稱</h3>
+                                <p id="bank-detail-info" class="text-sm text-gray-500 mt-1">帳號資料</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-medium text-gray-500 uppercase">目前餘額</p>
+                                <h3 id="bank-detail-balance" class="text-3xl font-bold text-red-800 mt-1">$0</h3>
+                            </div>
+                        </div>
+
+                        <!-- Transactions List -->
+                        <div id="bank-transactions-view" class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">交易明細</h3>
+                                <button class="text-sm text-red-600 hover:text-red-800 font-medium">匯出報表</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">日期</th>
+                                            <th class="px-6 py-3">類型</th>
+                                            <th class="px-6 py-3">類別</th>
+                                            <th class="px-6 py-3">對象</th>
+                                            <th class="px-6 py-3">摘要</th>
+                                            <th class="px-6 py-3 text-right">支出金額</th>
+                                            <th class="px-6 py-3 text-right">收入金額</th>
+                                            <th class="px-6 py-3 text-right">餘額</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bank-detail-tbody" class="divide-y divide-gray-200">
+                                        <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400">尚無交易紀錄</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Fixed Deposit Detail View -->
+                        <div id="bank-fixed-deposit-view" class="bg-white rounded-lg shadow-sm border border-gray-200 hidden">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">定存明細</h3>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">銀行名稱</th>
+                                            <th class="px-6 py-3">分行名稱</th>
+                                            <th class="px-6 py-3">戶名</th>
+                                            <th class="px-6 py-3">定存帳號</th>
+                                            <th class="px-6 py-3">金額</th>
+                                            <th class="px-6 py-3">起始日期</th>
+                                            <th class="px-6 py-3">到期日期</th>
+                                            <th class="px-6 py-3">備註</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bank-fixed-deposit-tbody" class="divide-y divide-gray-200">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="bank-settings-view" class="space-y-6 hidden">
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">銀行列表</h3>
+                                <button id="btn-add-bank" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">項目</th>
+                                            <th class="px-6 py-3">銀行名稱</th>
+                                            <th class="px-6 py-3">分行名稱</th>
+                                            <th class="px-6 py-3">零用金名稱</th>
+                                            <th class="px-6 py-3">戶名</th>
+                                            <th class="px-6 py-3">帳號</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bank-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-residents" class="content-view hidden">
+                    <div id="residents-detail-view" class="space-y-6 hidden">
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">住戶列表</h3>
+                                <div class="flex gap-2">
+                                    <button id="btn-import-resident" class="px-3 py-2 bg-green-600 text-white rounded">匯入Excel</button>
+                                    <button id="btn-export-resident" class="px-3 py-2 bg-blue-600 text-white rounded">匯出Excel</button>
+                                    <button id="btn-add-resident" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                                </div>
+                                <input type="file" id="file-import-resident" class="hidden" accept=".xlsx, .xls" />
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">編號</th>
+                                            <th class="px-6 py-3">戶號</th>
+                                            <th class="px-6 py-3">姓名</th>
+                                            <th class="px-6 py-3">地址</th>
+                                            <th class="px-6 py-3">棟別</th>
+                                            <th class="px-6 py-3 text-right">每月管理費</th>
+                                            <th class="px-6 py-3 text-right">每月停車費</th>
+                                            <th class="px-6 py-3 text-right">每月其他費用</th>
+                                            <th class="px-6 py-3">欠繳狀況</th>
+                                            <th class="px-6 py-3">備註</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="residents-detail-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="residents-settings-view" class="space-y-6 hidden">
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                <h3 class="font-bold text-gray-700">社區分棟列表</h3>
+                                <button id="btn-add-building" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                                        <tr>
+                                            <th class="px-6 py-3">分棟名稱</th>
+                                            <th class="px-6 py-3">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="residents-buildings-tbody" class="divide-y divide-gray-200"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-settings" class="content-view hidden">
+                    <div class="bg-white p-8 rounded-lg shadow-sm text-center">
+                        <i class="fa-solid fa-gear text-4xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-700">系統設定</h3>
+                        <p class="text-gray-500 mt-2">此處將顯示使用者偏好與系統參數。</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black/50 hidden z-[60]">
+        <div class="absolute inset-0 bg-white flex flex-col">
+            <div class="h-14 flex items-center justify-between px-6 border-b">
+                <div class="flex items-center gap-4">
+                    <button id="settings-tab-accounts" class="px-3 py-1 border-b-2 border-transparent text-gray-700">帳號設定</button>
+                    <button id="settings-tab-communities" class="px-3 py-1 border-b-2 border-transparent text-gray-700">社區設定</button>
+                </div>
+                <button id="settings-close" class="text-gray-600 hover:text-red-700"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div id="settings-error" class="px-6 py-2 text-sm text-orange-700 bg-orange-50 border-b hidden">雲端權限不足或讀取失敗，改用本機設定</div>
+            <div class="flex-1 overflow-auto p-6">
+                <div id="settings-view-accounts" class="space-y-4 hidden">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold text-gray-800">帳號列表</h3>
+                        <button id="btn-add-account" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                    </div>
+                    <div class="border rounded-lg overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-100 text-gray-700">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">帳號編號</th>
+                                    <th class="px-4 py-2 text-left">社區名稱</th>
+                                    <th class="px-4 py-2 text-left">姓名</th>
+                                    <th class="px-4 py-2 text-left">電子郵件</th>
+                                    <th class="px-4 py-2 text-left">手機號碼</th>
+                                    <th class="px-4 py-2 text-left">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="accounts-tbody" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="settings-view-communities" class="space-y-4 hidden">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold text-gray-800">社區列表</h3>
+                        <button id="btn-add-community" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                    </div>
+                    <div class="border rounded-lg overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-100 text-gray-700">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">社區編號</th>
+                                    <th class="px-4 py-2 text-left">社區名稱</th>
+                                    <th class="px-4 py-2 text-left">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="communities-tbody" class="divide-y"></tbody>
+                        </table>
+                    </div>
+
+
+    </div>
+            </div>
+        </div>
+
+        <div id="modal-add-account" class="fixed inset-0 hidden z-[70]"> 
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-lg p-6 space-y-4 shadow-xl">
+                    <h4 class="text-lg font-bold">新增帳號</h4>
+                    <div>
+                        <label class="block text-sm mb-1">社區名稱</label>
+                        <select id="input-account-community" class="w-full border rounded px-3 py-2"></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">姓名</label>
+                        <input id="input-account-name" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">電子郵件 (預設帳號)</label>
+                        <input id="input-account-email" type="email" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">手機號碼 (預設密碼)</label>
+                        <input id="input-account-phone" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-add-account" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-add-account" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-add-community" class="fixed inset-0 hidden z-[70]"> 
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-lg p-6 space-y-4">
+                    <h4 class="text-lg font-bold">新增社區</h4>
+                    <div>
+                        <label class="block text-sm mb-1">社區編號</label>
+                        <input id="input-community-code" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-1">社區名稱</label>
+                        <input id="input-community-name" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-add-community" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-add-community" class="px-3 py-2 bg-red-600 text-white rounded">新增</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-settings-password" class="fixed inset-0 hidden z-[65]">
+        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-6">
+            <div class="bg-white rounded-lg w-full max-w-sm p-6 space-y-4">
+                <h4 class="text-lg font-bold">輸入設定密碼</h4>
+                <input id="settings-pass-input" type="password" class="w-full border rounded px-3 py-2" placeholder="密碼" />
+                <p id="settings-pass-error" class="text-sm text-red-600 hidden">密碼錯誤</p>
+                <div class="flex justify-end gap-2">
+                    <button id="settings-pass-cancel" class="px-3 py-2 border rounded">取消</button>
+                    <button id="settings-pass-confirm" class="px-3 py-2 bg-red-600 text-white rounded">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <div id="community-switcher-modal" class="fixed inset-0 hidden z-[66]">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-2xl p-6 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h4 class="text-lg font-bold">選擇社區</h4>
+                        <button id="community-switcher-close" class="text-gray-600 hover:text-red-700"><i class="fa-solid fa-xmark text-xl"></i></button>
+                    </div>
+                    <div id="community-switcher-list" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-edit-item" class="fixed inset-0 hidden z-[70]">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-sm p-6 space-y-4">
+                    <h4 class="text-lg font-bold">輸入項目</h4>
+                    <input id="input-item-name" class="w-full border rounded px-3 py-2" placeholder="項目" />
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-edit-item" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-edit-item" class="px-3 py-2 bg-red-600 text-white rounded">確認</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-edit-bank" class="fixed inset-0 hidden z-[70]">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-lg p-6 space-y-4">
+                    <h4 class="text-lg font-bold">輸入銀行資料</h4>
+                    <div>
+                        <label class="block text-sm mb-1">項目</label>
+                        <select id="input-bank-type" class="w-full border rounded px-3 py-2">
+                            <option value="活存">活存</option>
+                            <option value="定存">定存</option>
+                            <option value="零用金">零用金</option>
+                        </select>
+                    </div>
+                    <div id="field-petty-name" class="hidden">
+                        <label class="block text-sm mb-1">零用金名稱</label>
+                        <input id="input-bank-petty-name" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-name">
+                        <label class="block text-sm mb-1">銀行名稱</label>
+                        <input id="input-bank-name" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-branch">
+                        <label class="block text-sm mb-1">分行名稱</label>
+                        <input id="input-bank-branch" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-holder">
+                        <label class="block text-sm mb-1">戶名</label>
+                        <input id="input-bank-holder" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-account">
+                        <label class="block text-sm mb-1" id="label-bank-account">帳號</label>
+                        <input id="input-bank-account" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-amount" class="hidden">
+                        <label class="block text-sm mb-1">金額</label>
+                        <input id="input-bank-amount" type="number" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-start-date" class="hidden">
+                        <label class="block text-sm mb-1">起始日期</label>
+                        <input id="input-bank-start-date" type="date" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-end-date" class="hidden">
+                        <label class="block text-sm mb-1">到期日期</label>
+                        <input id="input-bank-end-date" type="date" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div id="field-bank-note" class="hidden">
+                        <label class="block text-sm mb-1">備註</label>
+                        <input id="input-bank-note" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-edit-bank" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-edit-bank" class="px-3 py-2 bg-red-600 text-white rounded">確認</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-edit-building" class="fixed inset-0 hidden z-[70]">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-sm p-6 space-y-4">
+                    <h4 class="text-lg font-bold">輸入分棟名稱</h4>
+                    <input id="input-building-name" class="w-full border rounded px-3 py-2" placeholder="分棟名稱" />
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-edit-building" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-edit-building" class="px-3 py-2 bg-red-600 text-white rounded">確認</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-edit-resident" class="fixed inset-0 hidden z-[70]">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-2xl p-6 space-y-4">
+                    <h4 class="text-lg font-bold">輸入住戶資料</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm mb-1">戶號</label>
+                            <input id="input-res-unit" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">姓名</label>
+                            <input id="input-res-name" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm mb-1">地址</label>
+                            <input id="input-res-addr" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">棟別</label>
+                            <select id="input-res-building" class="w-full border rounded px-3 py-2"></select>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">欠繳狀況</label>
+                            <select id="input-res-arrears" class="w-full border rounded px-3 py-2">
+                                <option value="正常">正常</option>
+                                <option value="欠繳">欠繳</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">每月管理費</label>
+                            <input id="input-res-fee-mgmt" type="number" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">每月停車費</label>
+                            <input id="input-res-fee-park" type="number" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">每月其他費用</label>
+                            <input id="input-res-fee-other" type="number" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm mb-1">備註</label>
+                            <input id="input-res-note" class="w-full border rounded px-3 py-2" />
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-edit-resident" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-edit-resident" class="px-3 py-2 bg-red-600 text-white rounded">確認</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-edit-transaction" class="fixed inset-0 hidden z-[70]">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-6">
+                <div class="bg-white rounded-lg w-full max-w-2xl p-6 space-y-4">
+                    <h4 id="modal-trans-title" class="text-lg font-bold">輸入交易資料</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm mb-1">編號 (自動產生)</label>
+                            <input id="input-trans-id" class="w-full border rounded px-3 py-2 bg-gray-100" readonly />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">日期</label>
+                            <input id="input-trans-date" type="date" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">對象</label>
+                            <input id="input-trans-target" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">月份</label>
+                            <input id="input-trans-month" type="month" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">類型</label>
+                            <select id="input-trans-type" class="w-full border rounded px-3 py-2">
+                                <option value="固定">固定</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">類別</label>
+                            <select id="input-trans-category" class="w-full border rounded px-3 py-2"></select>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">金額</label>
+                            <input id="input-trans-amount" type="number" class="w-full border rounded px-3 py-2" />
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">收支方式</label>
+                            <select id="input-trans-method" class="w-full border rounded px-3 py-2"></select>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm mb-1">備註</label>
+                            <input id="input-trans-note" class="w-full border rounded px-3 py-2" />
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button id="cancel-edit-transaction" class="px-3 py-2 border rounded">取消</button>
+                        <button id="confirm-edit-transaction" class="px-3 py-2 bg-red-600 text-white rounded">確認</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+            </div>
+        </div>
+
+
+    <script>
+        // ==========================================
+        // Firebase 設定與初始化
+        // ==========================================
+        
+        // 注意：在真實專案中，建議將此部分配置移至外部 config.js 檔案
+        // 為了讓此範例可直接運行，我們優先檢查環境變數
+        
+        let firebaseConfig = {};
+        let appId = 'default-app';
+
+        // 檢查環境是否提供了配置
+        if (typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+            if(typeof __app_id !== 'undefined') appId = __app_id;
+        } else {
+            // [使用者需在此填入自己的 Firebase 配置]
+            // 如果您要部署到 GitHub Pages，請取消註解並填入您的金鑰
+            /*
+            firebaseConfig = {
+                apiKey: "您的API_KEY",
+                authDomain: "您的專案ID.firebaseapp.com",
+                projectId: "您的專案ID",
+                storageBucket: "您的專案ID.appspot.com",
+                messagingSenderId: "您的SENDER_ID",
+                appId: "您的APP_ID"
+            };
+            */
+            console.warn("未檢測到 Firebase Config");
+        }
+
+        // 初始化 Firebase (如果有配置)
+        let app, auth, db;
+        let cloudAvailable = true;
+        let isDemoMode = false; // 預設為線上模式
+
+        try {
+            // 只要有 Config 就嘗試初始化 Firebase
+            if (Object.keys(firebaseConfig).length > 0) {
+                app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.firestore();
+                // Default to standard settings.
+                try {
+                    db.settings({ 
+                        ignoreUndefinedProperties: true,
+                        experimentalForceLongPolling: false
+                    });
+                } catch(err) {
+                    console.warn("Error setting firestore settings:", err);
+                }
+                console.log("Firebase initialized successfully");
+                
+                // 確保有身份以便讀取雲端設定
+                // 若尚未登入，進行匿名登入（需在 Firebase Console 啟用 Anonymous）
+                (async ()=>{ 
+                    try { 
+                        if (!auth.currentUser) { 
+                            // 嘗試匿名登入，若失敗則不報錯，僅記錄警告
+                            await auth.signInAnonymously().catch(e => {
+                                console.warn('Auto anonymous sign-in failed (likely disabled in console):', e.code);
+                            });
+                            localStorage.setItem('lastLoginMode','anonymous'); 
+                        } 
+                    } catch(e){ 
+                        console.warn('Anonymous sign-in process error:', e); 
+                    } 
+                })();
+            } else {
+                console.warn("No firebase config found, running in local mode but keeping UI as Online.");
+            }
+        } catch (e) {
+            console.error("Firebase init error:", e);
+        }
+
+        function updateConnectionStatus() {
+            const el = document.getElementById('connection-status');
+            if (!el) return;
+            // 依據使用者要求：「不要有預覽模式，只有一種模式 全都是線上模式」
+            // 這裡強制顯示為線上模式
+            el.className = 'text-sm px-3 py-1 rounded-full bg-green-100 text-green-700';
+            el.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> 線上模式';
+        }
+        updateConnectionStatus();
+
+        // ==========================================
+        // 應用程式邏輯
+        // ==========================================
+
+        // 設定日期
+        const today = new Date();
+        document.getElementById('current-date').textContent = today.toISOString().split('T')[0];
+
+        // UI 參考
+        const loginView = document.getElementById('login-view');
+        const mainApp = document.getElementById('main-app');
+        const loginForm = document.getElementById('login-form');
+        const loginError = document.getElementById('login-error');
+        const loginBtn = document.getElementById('login-btn');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const togglePasswordBtn = document.getElementById('toggle-password');
+        const rememberMe = document.getElementById('remember-me');
+
+        const persistedLogin = localStorage.getItem('persistLogin') === 'true';
+        const lastLoginMode = localStorage.getItem('lastLoginMode');
+        if (persistedLogin) {
+            if (lastLoginMode === 'demo') isDemoMode = true;
+            enterApp();
+        } else {
+            if (loginView) loginView.style.visibility = 'visible';
+        }
+
+        function setLoginLoading(loading) {
+            if (!loginBtn) return;
+            if (loading) {
+                loginBtn.disabled = true;
+                loginBtn.classList.add('opacity-60','cursor-not-allowed');
+                loginBtn.textContent = '登入中...';
+            } else {
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('opacity-60','cursor-not-allowed');
+                loginBtn.textContent = '登入系統';
+            }
+        }
+
+        if (rememberMe) {
+            const savedRemember = localStorage.getItem('rememberMe') === 'true';
+            if (savedRemember && emailInput) {
+                emailInput.value = localStorage.getItem('rememberEmail') || '';
+                rememberMe.checked = true;
+            }
+        }
+
+        if (togglePasswordBtn && passwordInput) {
+            togglePasswordBtn.addEventListener('click', () => {
+                const isHidden = passwordInput.getAttribute('type') === 'password';
+                passwordInput.setAttribute('type', isHidden ? 'text' : 'password');
+                const icon = togglePasswordBtn.querySelector('i');
+                if (icon) {
+                    icon.classList.remove(isHidden ? 'fa-eye-slash' : 'fa-eye');
+                    icon.classList.add(isHidden ? 'fa-eye' : 'fa-eye-slash');
+                }
+            });
+        }
+
+        // 1. 處理登入
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = (emailInput.value || '').trim();
+            const password = (passwordInput.value || '').trim();
+            if (rememberMe && rememberMe.checked) {
+                localStorage.setItem('rememberMe', 'true');
+                localStorage.setItem('rememberEmail', email);
+            } else {
+                localStorage.removeItem('rememberMe');
+                localStorage.removeItem('rememberEmail');
+            }
+            setLoginLoading(true);
+
+            // 先嘗試本機帳號登入（使用手機號碼作為預設密碼）
+            if (!navigator.onLine) {
+                isDemoMode = true;
+                loginError.classList.remove('hidden');
+                loginError.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i> 網路離線，進入預覽模式`;
+                setCurrentCommunityByEmailAsync(email).then(()=> setTimeout(() => enterApp(), 300));
+                updateConnectionStatus();
+                setLoginLoading(false);
+                return;
+            }
+
+            if (isDemoMode) {
+                // 演示模式：任何非空輸入都允許登入
+                setCurrentCommunityByEmailAsync(email).then(()=> enterApp());
+            } else {
+                // 真實 Firebase 登入
+                try {
+                    await auth.signInWithEmailAndPassword(email, password);
+                    // 狀態監聽器會處理頁面切換
+                } catch (error) {
+                    console.warn("Login failed:", error);
+                    if (error && error.code === 'auth/network-request-failed') {
+                        isDemoMode = true;
+                        loginError.classList.remove('hidden');
+                        loginError.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i> 網路異常，切換為離線預覽模式`;
+                        setCurrentCommunityByEmailAsync(email).then(()=> setTimeout(() => enterApp(), 300));
+                        updateConnectionStatus();
+                    } else {
+                        // 允許本機帳號作為後備登入
+                        const handled = tryLocalLogin(email, password);
+                        if (!handled) {
+                            if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                                // 如果是 Firebase 帳號錯誤，但本機帳號也失敗，就顯示「帳號或密碼錯誤」
+                                loginError.classList.remove('hidden');
+                                loginError.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i> 帳號或密碼錯誤`;
+                            } else {
+                                loginError.classList.remove('hidden');
+                                loginError.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i> ${error.message}`;
+                            }
+                        }
+                    }
+                    setLoginLoading(false);
+                }
+            }
+        });
+
+
+        
+
+        // 3. 監聽認證狀態 (僅在 Firebase 初始化成功時有效)
+        if (!isDemoMode && auth) {
+            auth.onAuthStateChanged((user) => {
+                if (user) {
+                    const email = user.email || '';
+                    localStorage.setItem('currentUserEmail', email);
+                    setCurrentCommunityByEmailAsync(email).then(()=> enterApp());
+                } else {
+                    exitApp();
+                }
+            });
+        }
+
+        // 進入主程式
+        function enterApp() {
+            loginView.classList.add('hidden');
+            mainApp.classList.remove('hidden');
+            // 這裡可以觸發資料加載
+            loadDashboardData();
+            setLoginLoading(false);
+            localStorage.setItem('persistLogin','true');
+            localStorage.setItem('lastLoginMode', isDemoMode ? 'demo' : 'firebase');
+            applyCommunityToUI();
+            updateUserDisplayName();
+            attachMainLogoPermission();
+        }
+
+        // 登出/離開主程式
+        function exitApp() {
+            loginView.classList.remove('hidden');
+            mainApp.classList.add('hidden');
+            if (loginView) loginView.style.visibility = 'visible';
+            loginForm.reset();
+            loginError.classList.add('hidden');
+            localStorage.removeItem('persistLogin');
+            localStorage.removeItem('lastLoginMode');
+            localStorage.removeItem('currentCommunityCode');
+            localStorage.removeItem('currentCommunityName');
+            localStorage.removeItem('currentUserEmail');
+            const savedRemember = localStorage.getItem('rememberMe') === 'true';
+            if (savedRemember) {
+                const savedEmail = localStorage.getItem('rememberEmail') || '';
+                if (emailInput) emailInput.value = savedEmail;
+                if (rememberMe) rememberMe.checked = true;
+            }
+            
+            // 重置選單
+            switchTab('dashboard');
+            updateUserDisplayName();
+        }
+
+        // 登出功能
+        async function logout() {
+            try {
+                if (!isDemoMode && auth && auth.currentUser) {
+                    await auth.signOut();
+                }
+            } catch (e) {
+                console.warn('Logout error:', e);
+            }
+            exitApp();
+        }
+
+        // ==========================================
+        // 頁面切換邏輯
+        // ==========================================
+        
+        const SUBTAB_CONFIG = {
+            'dashboard': [],
+            'income': ['收入明細','收入設定'],
+            'expense': ['支出明細','支出設定'],
+            'bank': [], // Initial empty, will be populated by updateBankSubtabs
+            'residents': ['住戶明細','住戶設定'],
+            'reports': ['日報表','月報表','年報表','報表設定'],
+            'settings': ['一般設定','社區帳號','備份還原']
+        };
+
+        function renderSubtabs(tabId) {
+            const bar = document.getElementById('subtab-bar');
+            if (!bar) return;
+            const items = SUBTAB_CONFIG[tabId] || [];
+            if (items.length === 0) {
+                bar.innerHTML = '';
+                return;
+            }
+            bar.innerHTML = items.map((label, idx) => {
+                const id = 'subtab-' + tabId + '-' + idx;
+                return '<a id="' + id + '" href="#" class="subtab-item h-full flex items-center px-3 text-gray-700 hover:text-red-700 border-b-2 border-transparent">' + label + '</a>';
+            }).join('');
+            const anchors = Array.from(bar.querySelectorAll('.subtab-item'));
+            anchors.forEach(a => {
+                a.addEventListener('click', e => {
+                    e.preventDefault();
+                    setActiveSubtab(a);
+                });
+            });
+            setActiveSubtab(anchors[0]);
+        }
+
+        function setActiveSubtab(el) {
+            if (!el) return;
+            const bar = document.getElementById('subtab-bar');
+            if (!bar) return;
+            bar.querySelectorAll('.subtab-item').forEach(a => {
+                a.classList.remove('text-red-700','border-red-700');
+                a.classList.add('text-gray-700');
+            });
+            el.classList.add('text-red-700','border-red-700');
+            el.classList.remove('text-gray-700');
+            const parts = (el.id||'').split('-');
+            const tab = parts[1];
+            const idx = parseInt(parts[2]||'0');
+            if (tab === 'income'){
+                const d = document.getElementById('income-detail-view');
+                const s = document.getElementById('income-settings-view');
+                if (d && s){ 
+                    d.classList.toggle('hidden', idx!==0); 
+                    s.classList.toggle('hidden', idx!==1); 
+                    if (idx===1) renderIncomeSettings(); 
+                    if (idx===0) renderIncomeDetail();
+                }
+            } else if (tab === 'expense'){
+                const d2 = document.getElementById('expense-detail-view');
+                const s2 = document.getElementById('expense-settings-view');
+                if (d2 && s2){ 
+                    d2.classList.toggle('hidden', idx!==0); 
+                    s2.classList.toggle('hidden', idx!==1); 
+                    if (idx===1) renderExpenseSettings(); 
+                    if (idx===0) renderExpenseDetail();
+                }
+            } else if (tab === 'bank'){
+                const bd = document.getElementById('bank-detail-view');
+                const bs = document.getElementById('bank-settings-view');
+                
+                // The last tab is always "Bank Settings"
+                const totalTabs = document.getElementById('subtab-bar').children.length;
+                const isSettings = (idx === totalTabs - 1);
+                
+                if (bd && bs){ 
+                    bd.classList.toggle('hidden', isSettings); 
+                    bs.classList.toggle('hidden', !isSettings); 
+                    if (isSettings) renderBankSettings();
+                    else {
+                        // Render specific account details
+                        const accounts = getBankAccounts();
+                        const acc = accounts[idx];
+                        
+                        const elType = document.getElementById('bank-detail-type');
+                        const elName = document.getElementById('bank-detail-name');
+                        const elInfo = document.getElementById('bank-detail-info');
+                        const elBalance = document.getElementById('bank-detail-balance');
+                        const elTbody = document.getElementById('bank-detail-tbody');
+                        const viewTrans = document.getElementById('bank-transactions-view');
+                        const viewFixed = document.getElementById('bank-fixed-deposit-view');
+                        const elFixedTbody = document.getElementById('bank-fixed-deposit-tbody');
+                        
+                        if(acc && elType && elName && elInfo && elBalance && elTbody) {
+                            const type = acc.type || '活存';
+                            const isPetty = (type === '零用金');
+                            const isFixed = (type === '定存');
+                            
+                            const name = isPetty ? acc.pettyName : acc.bankName;
+                            
+                            elType.textContent = type;
+                            elName.textContent = name;
+                            
+                            if (isPetty) {
+                                elInfo.textContent = '零用金帳戶';
+                            } else {
+                                elInfo.textContent = (acc.bankName||'') + ' ' + (acc.branchName||'') + ' ' + (acc.accountNumber||'');
+                            }
+                            
+                            // Toggle views
+                            if(viewTrans) viewTrans.classList.toggle('hidden', isFixed);
+                            if(viewFixed) viewFixed.classList.toggle('hidden', !isFixed);
+                            
+                            if (isFixed) {
+                                // Render Fixed Deposit Detail
+                                if (elFixedTbody) {
+                                    elFixedTbody.innerHTML = `
+                                        <tr>
+                                            <td class="px-6 py-3">${acc.bankName || ''}</td>
+                                            <td class="px-6 py-3">${acc.branchName || ''}</td>
+                                            <td class="px-6 py-3">${acc.holderName || ''}</td>
+                                            <td class="px-6 py-3">${acc.accountNumber || ''}</td>
+                                            <td class="px-6 py-3">${acc.amount ? '$'+parseInt(acc.amount).toLocaleString() : ''}</td>
+                                            <td class="px-6 py-3">${acc.startDate || ''}</td>
+                                            <td class="px-6 py-3">${acc.endDate || ''}</td>
+                                            <td class="px-6 py-3">${acc.note || ''}</td>
+                                            <td class="px-6 py-3 flex gap-2">
+                                                <button class="px-2 py-1 bg-blue-100 text-blue-600 rounded hover:bg-blue-200 edit-bank-detail" data-i="${idx}">編輯</button>
+                                                <button class="px-2 py-1 bg-red-100 text-red-600 rounded hover:bg-red-200 del-bank-detail" data-i="${idx}">刪除</button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                    
+                                    // Add event listeners
+                                    const btnEdit = elFixedTbody.querySelector('.edit-bank-detail');
+                                    const btnDel = elFixedTbody.querySelector('.del-bank-detail');
+                                    
+                                    if(btnEdit) btnEdit.addEventListener('click', () => {
+                                        openEditBank({kind:'bank', index:idx, item:acc});
+                                    });
+                                    
+                                    if(btnDel) btnDel.addEventListener('click', () => {
+                                        if(confirm('確定要刪除此定存帳戶嗎？')) {
+                                            const arr = getBankAccounts();
+                                            arr.splice(idx, 1);
+                                            setBankAccounts(arr);
+                                            updateBankSubtabs();
+                                            // Switch to bank settings
+                                            const tabs = document.getElementById('subtab-bar').children;
+                                            if(tabs.length > 0) tabs[tabs.length-1].click();
+                                        }
+                                    });
+                                }
+                                
+                                // Update Balance Display for Fixed Deposit
+                                elBalance.textContent = acc.amount ? '$' + parseInt(acc.amount).toLocaleString() : '$0';
+                                
+                            } else {
+                                // Normal Transaction View Logic
+                                const allTrans = getTransactions();
+                                const myTrans = allTrans; 
+                                myTrans.sort((a,b) => new Date(a.date) - new Date(b.date));
+                                let runningBalance = 0; 
+                                const rows = myTrans.map(t => {
+                                    runningBalance += parseInt(t.amount||0);
+                                    const isIncome = parseInt(t.amount||0) > 0;
+                                    const expenseDisplay = !isIncome ? '$'+Math.abs(t.amount).toLocaleString() : '-';
+                                    const incomeDisplay = isIncome ? '$'+parseInt(t.amount).toLocaleString() : '-';
+                                    return `
+                                    <tr>
+                                        <td class="px-6 py-4">${t.date}</td>
+                                        <td class="px-6 py-4">${t.type}</td>
+                                        <td class="px-6 py-4">${t.category}</td>
+                                        <td class="px-6 py-4">${t.target}</td>
+                                        <td class="px-6 py-4 font-medium text-gray-800">${t.desc}</td>
+                                        <td class="px-6 py-4 text-right text-red-600">${expenseDisplay}</td>
+                                        <td class="px-6 py-4 text-right text-green-600">${incomeDisplay}</td>
+                                        <td class="px-6 py-4 text-right font-bold text-gray-800">$${runningBalance.toLocaleString()}</td>
+                                    </tr>
+                                    `;
+                                });
+                                elBalance.textContent = '$' + runningBalance.toLocaleString();
+                                elTbody.innerHTML = rows.reverse().join('');
+                                if (rows.length === 0) {
+                                    elTbody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center text-gray-500">尚無交易紀錄</td></tr>';
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (tab === 'residents'){
+                const rd = document.getElementById('residents-detail-view');
+                const rs = document.getElementById('residents-settings-view');
+                if (rd && rs){ 
+                    rd.classList.toggle('hidden', idx!==0); 
+                    rs.classList.toggle('hidden', idx!==1); 
+                    if (idx===1) renderResidentsSettings(); 
+                    if (idx===0) renderResidentsDetail();
+                }
+            }
+        }
+
+        function tryLocalLogin(email, password) {
+            const accounts = getAccounts();
+            const acc = accounts.find(a => a.email === email);
+            if (!acc) return false;
+            if (String(acc.phone).trim() === String(password).trim()) {
+                setCurrentCommunityByEmail(email);
+                localStorage.setItem('currentUserEmail', email);
+                localStorage.setItem('persistLogin','true');
+                localStorage.setItem('lastLoginMode','local');
+                enterApp('local');
+                return true;
+            } else {
+                loginError.classList.remove('hidden');
+                loginError.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i> 密碼錯誤`;
+                setLoginLoading(false);
+                return true; // 已處理（顯示錯誤），不再進行 Firebase 嘗試
+            }
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.remove('bg-red-800', 'border-white');
+                el.classList.add('border-transparent');
+            });
+            const activeNav = document.getElementById('nav-' + tabId);
+            if(activeNav) {
+                activeNav.classList.add('bg-red-800', 'border-white');
+                activeNav.classList.remove('border-transparent');
+            }
+
+            document.querySelectorAll('.content-view').forEach(el => el.classList.add('hidden'));
+            const viewEl = document.getElementById('view-' + tabId);
+            if (viewEl) viewEl.classList.remove('hidden');
+
+            const titles = {
+                'dashboard': '<i class="fa-solid fa-chart-pie mr-2 text-red-600"></i> 財務總覽',
+                'income': '<i class="fa-solid fa-hand-holding-dollar mr-2 text-red-600"></i> 收入管理',
+                'expense': '<i class="fa-solid fa-file-invoice-dollar mr-2 text-red-600"></i> 支出管理',
+                'reports': '<i class="fa-solid fa-print mr-2 text-red-600"></i> 報表中心',
+                'bank': '<i class="fa-solid fa-building-columns mr-2 text-red-600"></i> 銀行',
+                'residents': '<i class="fa-solid fa-users mr-2 text-red-600"></i> 住戶資料',
+                'settings': '<i class="fa-solid fa-gear mr-2 text-red-600"></i> 系統設定'
+            };
+            document.getElementById('page-title').innerHTML = titles[tabId] || '系統頁面';
+            renderSubtabs(tabId);
+        }
+
+        // ==========================================
+        // 資料模擬與 Firestore 整合範例
+        // ==========================================
+
+        async function loadDashboardData() {
+            // 如果是真實環境且有登入，可以從 Firestore 抓取資料
+            if (!isDemoMode && db && auth.currentUser) {
+                // 範例：從 Firestore 讀取交易 (須確保有建立對應集合)
+                /*
+                const snapshot = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('transactions').limit(5).get();
+                // 處理資料並更新 UI...
+                */
+               console.log("Fetch data from Firestore...");
+            } else {
+                // Demo 模式不需要做什麼，HTML 已經有假資料了
+            }
+        }
+
+        function setCurrentCommunityByEmail(email){
+            const accounts = getAccounts();
+            const acc = accounts.find(a => a.email === email);
+            const communities = getCommunities();
+            let name = '西北保全社區';
+            let code = 'NW001';
+            if (acc) {
+                name = acc.community;
+                const found = communities.find(c => c.name === name);
+                if (found) code = found.code;
+            } else {
+                const def = communities[0];
+                if (def) { name = def.name; code = def.code; }
+            }
+            localStorage.setItem('currentCommunityName', name);
+            localStorage.setItem('currentCommunityCode', code);
+        }
+
+        async function setCurrentCommunityByEmailAsync(email){
+            let name = '西北保全社區';
+            let code = 'NW001';
+            if (useCloud()){
+                const q = await db.collection('accounts').where('email','==',email).limit(1).get();
+                if (!q.empty){
+                    const acc = q.docs[0].data();
+                    name = acc.community || name;
+                    const c = await db.collection('communities').where('name','==',name).limit(1).get();
+                    if (!c.empty){ code = (c.docs[0].data().code || c.docs[0].id); }
+                }
+            } else {
+                setCurrentCommunityByEmail(email);
+                name = localStorage.getItem('currentCommunityName') || name;
+                code = localStorage.getItem('currentCommunityCode') || code;
+            }
+            localStorage.setItem('currentCommunityName', name);
+            localStorage.setItem('currentCommunityCode', code);
+        }
+
+        function applyCommunityToUI(){
+            const name = localStorage.getItem('currentCommunityName') || '西北保全社區';
+            const span = document.getElementById('sidebar-community-name');
+            if (span) span.textContent = name;
+        }
+
+        const settingsModal = document.getElementById('settings-modal');
+        const tabAccountsBtn = document.getElementById('settings-tab-accounts');
+        const tabCommunitiesBtn = document.getElementById('settings-tab-communities');
+        const viewAccounts = document.getElementById('settings-view-accounts');
+        const viewCommunities = document.getElementById('settings-view-communities');
+        const settingsClose = document.getElementById('settings-close');
+        const loginLogo = document.getElementById('login-logo');
+        const mainLogo = document.getElementById('main-logo');
+        const btnAddAccount = document.getElementById('btn-add-account');
+        const btnAddCommunity = document.getElementById('btn-add-community');
+        const modalAddAccount = document.getElementById('modal-add-account');
+        const modalAddCommunity = document.getElementById('modal-add-community');
+        const inputAccountCommunity = document.getElementById('input-account-community');
+        const inputAccountName = document.getElementById('input-account-name');
+        const inputAccountEmail = document.getElementById('input-account-email');
+        const inputAccountPhone = document.getElementById('input-account-phone');
+        const confirmAddAccount = document.getElementById('confirm-add-account');
+        const cancelAddAccount = document.getElementById('cancel-add-account');
+        const inputCommunityCode = document.getElementById('input-community-code');
+        const inputCommunityName = document.getElementById('input-community-name');
+        const confirmAddCommunity = document.getElementById('confirm-add-community');
+        const cancelAddCommunity = document.getElementById('cancel-add-community');
+        const accountsTbody = document.getElementById('accounts-tbody');
+        const communitiesTbody = document.getElementById('communities-tbody');
+        const communitySwitcherModal = document.getElementById('community-switcher-modal');
+        const communitySwitcherList = document.getElementById('community-switcher-list');
+        const communitySwitcherClose = document.getElementById('community-switcher-close');
+        const modalSettingsPass = document.getElementById('modal-settings-password');
+        const settingsPassInput = document.getElementById('settings-pass-input');
+        const settingsPassError = document.getElementById('settings-pass-error');
+        const settingsPassConfirm = document.getElementById('settings-pass-confirm');
+        const settingsPassCancel = document.getElementById('settings-pass-cancel');
+
+        function getAccounts(){
+            try { return JSON.parse(localStorage.getItem('admin_accounts')||'[]'); } catch(e){ return []; }
+        }
+        function setAccounts(arr){ localStorage.setItem('admin_accounts', JSON.stringify(arr)); }
+        function getCommunities(){
+            try { return JSON.parse(localStorage.getItem('communities')||'[]'); } catch(e){ return []; }
+        }
+        function setCommunities(arr){ localStorage.setItem('communities', JSON.stringify(arr)); }
+        function useCloud(){ 
+            const mode = localStorage.getItem('lastLoginMode');
+            if (mode === 'local') return false;
+            return !!db && cloudAvailable; 
+        }
+        async function fetchCommunities(){
+            if (useCloud()){
+                const snap = await db.collection('communities').get();
+                return snap.docs.map(d=>({code:(d.data().code||d.id), name:d.data().name||''}));
+            }
+            return getCommunities();
+        }
+        async function saveCommunity(code,name,forceLocal=false){
+            try {
+                if (useCloud() && !forceLocal){
+                    await db.collection('communities').doc(code).set({code,name});
+                } else {
+                    const arr = getCommunities();
+                    arr.push({code,name});
+                    setCommunities(arr);
+                }
+            } catch(e) {
+                console.error("Save community error:", e);
+                alert("儲存失敗，請檢查網路連線");
+                throw e;
+            }
+        }
+        async function updateCommunity(code,name,forceLocal=false){
+            try {
+                if (useCloud() && !forceLocal){
+                    await db.collection('communities').doc(code).set({code,name},{merge:true});
+                } else {
+                    const arr = getCommunities();
+                    const idx = arr.findIndex(x=>x.code===code);
+                    if (idx>=0){ arr[idx].name = name; setCommunities(arr); }
+                }
+            } catch(e) {
+                console.error("Update community error:", e);
+                alert("更新失敗，請檢查網路連線");
+                throw e;
+            }
+        }
+        async function deleteCommunity(code,forceLocal=false){
+            try {
+                if (useCloud() && !forceLocal){
+                    await db.collection('communities').doc(code).delete();
+                } else {
+                    const arr = getCommunities().filter(x=>x.code!==code);
+                    setCommunities(arr);
+                }
+            } catch(e) {
+                console.error("Delete community error:", e);
+                alert("刪除失敗，請檢查網路連線");
+                throw e;
+            }
+        }
+        async function fetchAccounts(){
+            try {
+                if (useCloud()){
+                    const snap = await db.collection('accounts').get();
+                    return snap.docs.map(d=>({id:d.data().id||d.id, community:d.data().community||'', name:d.data().name||'', email:d.data().email||'', phone:d.data().phone||''}));
+                }
+                return getAccounts();
+            } catch(e) {
+                console.warn("Fetch accounts failed, falling back to local:", e);
+                return getAccounts();
+            }
+        }
+        async function saveAccount(acc,forceLocal=false){
+            try {
+                if (useCloud() && !forceLocal){
+                    await db.collection('accounts').doc(acc.id).set(acc);
+                } else {
+                    const arr = getAccounts(); arr.push(acc); setAccounts(arr);
+                }
+            } catch(e) {
+                console.error("Save account error:", e);
+                alert("儲存帳號失敗，請檢查網路連線");
+                throw e;
+            }
+        }
+        async function updateAccount(acc,forceLocal=false){
+            try {
+                if (useCloud() && !forceLocal){
+                    await db.collection('accounts').doc(acc.id).set(acc,{merge:true});
+                } else {
+                    const arr = getAccounts(); const idx = arr.findIndex(x=>x.id===acc.id); if (idx>=0){ arr[idx]=acc; setAccounts(arr); }
+                }
+            } catch(e) {
+                console.error("Update account error:", e);
+                alert("更新帳號失敗，請檢查網路連線");
+                throw e;
+            }
+        }
+        async function deleteAccountById(id,forceLocal=false){
+            try {
+                if (useCloud() && !forceLocal){
+                    await db.collection('accounts').doc(id).delete();
+                } else {
+                    const arr = getAccounts().filter(x=>x.id!==id);
+                    setAccounts(arr);
+                    if(!useCloud()) {
+                        const newArr = await fetchAccounts();
+                        renderAccountsTable(newArr);
+                    }
+                }
+            } catch(e) {
+                console.error("Delete account error:", e);
+                alert("刪除帳號失敗，請檢查網路連線");
+                throw e;
+            }
+        }
+
+        function ensureDefaults(){
+            let c = getCommunities();
+            if (c.length === 0) { c = [{code:'NW001', name:'西北保全社區'}]; setCommunities(c); }
+            let a = getAccounts();
+            if (a.length === 0) { a = [{id: genAccountId(), community:'西北保全社區', name:'管理員', email:'admin@example.com', phone:'0912345678'}]; setAccounts(a); }
+        }
+        let globalAccountsCache = [];
+
+        function genAccountId(){
+            const d = new Date();
+            const ymd = d.getFullYear().toString()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+            // Use cache if available (for Cloud mode), otherwise fallback to LocalStorage
+            const source = (globalAccountsCache.length > 0) ? globalAccountsCache : getAccounts();
+            const a = source.filter(x => x.id && x.id.startsWith(ymd));
+            
+            // Find the max sequence number to avoid collision
+            let maxSeq = 0;
+            a.forEach(acc => {
+                const seqStr = acc.id.substring(ymd.length);
+                const seq = parseInt(seqStr);
+                if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+            });
+            
+            return ymd+String(maxSeq+1).padStart(2,'0');
+        }
+        async function renderCommunityOptions(){
+            const c = await fetchCommunities();
+            inputAccountCommunity.innerHTML = c.map(x=>'<option value="'+x.name+'">'+x.name+'</option>').join('');
+        }
+        
+        // Refactored for real-time updates and ID-based operations
+        let unsubscribeAccounts = null;
+        let unsubscribeCommunities = null;
+
+        function renderAccountsTable(arr){
+            globalAccountsCache = arr; // Update cache for ID generation
+            accountsTbody.innerHTML = arr.map((x)=>{
+                return '<tr><td class="px-4 py-2">'+x.id+'</td><td class="px-4 py-2">'+x.community+'</td><td class="px-4 py-2">'+x.name+'</td><td class="px-4 py-2">'+x.email+'</td><td class="px-4 py-2">'+x.phone+'</td><td class="px-4 py-2"><button data-id="'+x.id+'" class="edit-account text-blue-600 mr-2">編輯</button><button data-id="'+x.id+'" class="delete-account text-red-600">刪除</button></td></tr>';
+            }).join('');
+            
+            accountsTbody.querySelectorAll('.delete-account').forEach(btn=>{
+                btn.addEventListener('click', async ()=>{
+                    const id = btn.getAttribute('data-id');
+                    if(confirm('確定要刪除此帳號嗎？')) {
+                        try { await deleteAccountById(id); } catch(e){}
+                    }
+                });
+            });
+            
+            accountsTbody.querySelectorAll('.edit-account').forEach(btn=>{
+                btn.addEventListener('click', ()=>{
+                    const id = btn.getAttribute('data-id');
+                    const item = arr.find(a => a.id === id);
+                    if (!item) return;
+
+                    inputAccountCommunity.value = item.community; 
+                    inputAccountName.value = item.name; 
+                    inputAccountEmail.value = item.email; 
+                    inputAccountPhone.value = item.phone;
+                    
+                    const title = modalAddAccount.querySelector('h4');
+                    if (title) title.textContent = '編輯帳號';
+                    confirmAddAccount.textContent = '確認';
+
+                    modalAddAccount.classList.remove('hidden');
+                    confirmAddAccount.onclick = async () => {
+                        try {
+                            item.community = inputAccountCommunity.value; 
+                            item.name = inputAccountName.value.trim(); 
+                            item.email = inputAccountEmail.value.trim(); 
+                            item.phone = inputAccountPhone.value.trim(); 
+                            await updateAccount(item); 
+                            modalAddAccount.classList.add('hidden'); 
+                            if(!useCloud()) {
+                                const newArr = await fetchAccounts();
+                                renderAccountsTable(newArr);
+                            }
+                        } catch(e){}
+                    };
+                    cancelAddAccount.onclick = () => { modalAddAccount.classList.add('hidden'); };
+                });
+            });
+        }
+
+        function renderCommunitiesTable(arr){
+            communitiesTbody.innerHTML = arr.map((x)=>{
+                return '<tr><td class="px-4 py-2">'+x.code+'</td><td class="px-4 py-2">'+x.name+'</td><td class="px-4 py-2"><button data-id="'+x.code+'" class="edit-community text-blue-600 mr-2">編輯</button><button data-id="'+x.code+'" class="delete-community text-red-600">刪除</button></td></tr>';
+            }).join('');
+            
+            communitiesTbody.querySelectorAll('.delete-community').forEach(btn=>{
+                btn.addEventListener('click', async ()=>{
+                    const id = btn.getAttribute('data-id');
+                    if(confirm('確定要刪除此社區嗎？')) {
+                        try {
+                            await deleteCommunity(id);
+                            renderCommunityOptions();
+                            if(!useCloud()){
+                                fetchCommunities().then(renderCommunitiesTable);
+                            }
+                        } catch(e){}
+                    }
+                });
+            });
+            
+            communitiesTbody.querySelectorAll('.edit-community').forEach(btn=>{
+                btn.addEventListener('click', ()=>{
+                    const id = btn.getAttribute('data-id');
+                    const item = arr.find(c => c.code === id);
+                    if (!item) return;
+
+                    inputCommunityCode.value = item.code;
+                    inputCommunityName.value = item.name;
+                    
+                    const title = modalAddCommunity.querySelector('h4');
+                    if (title) title.textContent = '編輯社區';
+                    confirmAddCommunity.textContent = '確認';
+                    inputCommunityCode.disabled = true;
+                    inputCommunityCode.classList.add('bg-gray-100');
+
+                    modalAddCommunity.classList.remove('hidden');
+                    confirmAddCommunity.onclick = async () => {
+                        try {
+                            await updateCommunity(inputCommunityCode.value, inputCommunityName.value);
+                            modalAddCommunity.classList.add('hidden'); 
+                            renderCommunityOptions();
+                            if(!useCloud()){
+                                fetchCommunities().then(renderCommunitiesTable);
+                            }
+                        } catch(e){}
+                    };
+                    cancelAddCommunity.onclick = () => { modalAddCommunity.classList.add('hidden'); };
+                });
+            });
+        }
+
+        function safeOnSnapshot(query, onNext, onError) {
+            let unsub = null;
+            let failedCount = 0;
+            const tryListen = () => {
+                try {
+                    unsub = query.onSnapshot(onNext, (err) => {
+                         // Suppress console warning if we are handling it
+                         // console.warn("Snapshot listener failed", err); 
+                         failedCount++;
+                         // Fail fast on ANY error to prevent console spam
+                         if (failedCount >= 1 || (err && err.code === 'permission-denied')) {
+                             // CRITICAL FIX: Stop the failing listener immediately!
+                             if (unsub) { unsub(); unsub = null; }
+                             
+                             // Fallback to one-time get
+                             console.warn("Connection unstable. Switching to manual fetch mode.");
+                             query.get().then(onNext).catch(e => { if (onError) onError(e); });
+                         } else {
+                             if (onError) onError(err);
+                         }
+                    });
+                } catch (e) {
+                    console.error("Setup listener error", e);
+                    if (unsub) { unsub(); unsub = null; }
+                    query.get().then(onNext).catch(e2 => { if (onError) onError(e2); });
+                }
+            };
+            tryListen();
+            return () => { if (unsub) unsub(); };
+        }
+
+        async function startAccountsListener() {
+            if (unsubscribeAccounts) { unsubscribeAccounts(); unsubscribeAccounts = null; }
+            if (useCloud()) {
+                if (!auth.currentUser) {
+                    console.warn("Attempting to listen to Firestore without auth. Trying anonymous login...");
+                    try { await auth.signInAnonymously(); } catch(e) { console.error("Auto-login failed", e); }
+                }
+                
+                if (!auth.currentUser) {
+                    document.getElementById('settings-error').textContent = '無法連線至雲端：未登入且匿名登入失敗';
+                    document.getElementById('settings-error').classList.remove('hidden');
+                    return;
+                }
+
+                unsubscribeAccounts = safeOnSnapshot(db.collection('accounts'), snapshot => {
+                    const arr = snapshot.docs.map(d => ({
+                        id: d.data().id || d.id,
+                        community: d.data().community || '',
+                        name: d.data().name || '',
+                        email: d.data().email || '',
+                        phone: d.data().phone || ''
+                    }));
+                    renderAccountsTable(arr);
+                    document.getElementById('settings-error').classList.add('hidden');
+                }, err => {
+                    console.error("Accounts listener error:", err);
+                    let msg = '雲端連線中斷';
+                    if (err.code === 'permission-denied') msg = '權限不足：請確認您已正確登入';
+                    document.getElementById('settings-error').textContent = msg;
+                    document.getElementById('settings-error').classList.remove('hidden');
+                });
+            } else {
+                const arr = await fetchAccounts();
+                renderAccountsTable(arr);
+            }
+        }
+
+        async function startCommunitiesListener() {
+            if (unsubscribeCommunities) { unsubscribeCommunities(); unsubscribeCommunities = null; }
+            if (useCloud()) {
+                 if (!auth.currentUser) return; 
+
+                unsubscribeCommunities = safeOnSnapshot(db.collection('communities'), snapshot => {
+                    const arr = snapshot.docs.map(d => ({
+                        code: d.data().code || d.id,
+                        name: d.data().name || ''
+                    }));
+                    renderCommunitiesTable(arr);
+                }, err => {
+                     console.error("Communities listener error:", err);
+                });
+            } else {
+                const arr = await fetchCommunities();
+                renderCommunitiesTable(arr);
+            }
+        }
+
+        async function ensureAuthForSettings(){
+            if (useCloud()){
+                // Check network first
+                if (!navigator.onLine) {
+                    console.warn("Network offline, skipping auth check.");
+                    return;
+                }
+                try {
+                    if (!auth.currentUser) {
+                        await auth.signInAnonymously();
+                        localStorage.setItem('lastLoginMode','anonymous');
+                    }
+                } catch(e) {
+                    console.warn('Anonymous sign-in failed:', e);
+                    // If auth fails, we might want to switch to local mode or just let the user know
+                }
+            }
+        }
+        async function openSettingsModal(defaultTab){
+            await ensureAuthForSettings();
+            let fallback = false;
+            if (useCloud()){
+                try {
+                    const c = await fetchCommunities();
+                    const a = await fetchAccounts();
+                    const email = getCurrentUserEmail();
+                    const isAdmin = isAdminEmail(email);
+                    if (isAdmin) {
+                        if (c.length===0){ await saveCommunity('NW001','西北保全社區'); }
+                        if (a.length===0){ const seed = {id: genAccountId(), community:'西北保全社區', name:'管理員', email:'admin@example.com', phone:'0912345678'}; await saveAccount(seed); }
+                    }
+                } catch (e) {
+                    console.warn('Open settings cloud fetch failed:', e);
+                    // If fetch fails (likely permission or network), show error but allow opening modal
+                    cloudAvailable = false;
+                    fallback = true;
+                }
+            }
+            if (!useCloud()) {
+                ensureDefaults();
+            }
+            const errBar = document.getElementById('settings-error');
+            if (errBar) errBar.classList.toggle('hidden', !fallback);
+            await renderCommunityOptions(); 
+            // Replace static render with listener start
+            startAccountsListener(); 
+            startCommunitiesListener();
+            
+            settingsModal.classList.remove('hidden');
+            activateSettingsTab(defaultTab||'accounts');
+        }
+        function closeSettingsModal(){ 
+            settingsModal.classList.add('hidden'); 
+            if (unsubscribeAccounts) { unsubscribeAccounts(); unsubscribeAccounts = null; }
+            if (unsubscribeCommunities) { unsubscribeCommunities(); unsubscribeCommunities = null; }
+        }
+        function activateSettingsTab(which){
+            if (which==='accounts'){ viewAccounts.classList.remove('hidden'); viewCommunities.classList.add('hidden'); tabAccountsBtn.classList.add('border-red-700','text-red-700'); tabCommunitiesBtn.classList.remove('border-red-700','text-red-700'); }
+            else { viewAccounts.classList.add('hidden'); viewCommunities.classList.remove('hidden'); tabCommunitiesBtn.classList.add('border-red-700','text-red-700'); tabAccountsBtn.classList.remove('border-red-700','text-red-700'); }
+        }
+        function getGuardPass(){
+            const d = new Date();
+            const mm = String(d.getMonth()+1).padStart(2,'0');
+            const dd = String(d.getDate()).padStart(2,'0');
+            return mm+dd+'0217';
+        }
+        function openSettingsGuard(){
+            settingsPassError.classList.add('hidden');
+            settingsPassInput.value = '';
+            modalSettingsPass.classList.remove('hidden');
+        }
+        function closeSettingsGuard(){
+            modalSettingsPass.classList.add('hidden');
+        }
+
+        if (settingsPassCancel){ settingsPassCancel.addEventListener('click', closeSettingsGuard); }
+        if (settingsPassConfirm){ settingsPassConfirm.addEventListener('click', ()=>{
+            const ok = settingsPassInput.value === getGuardPass();
+            if (ok){
+                closeSettingsGuard();
+                if (loginError){
+                    loginError.classList.remove('hidden');
+                    loginError.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i> 雲端權限不足或讀取失敗，改用本機設定`;
+                }
+                openSettingsModal('communities');
+            }
+            else { settingsPassError.classList.remove('hidden'); }
+        }); }
+        if (settingsPassInput){ settingsPassInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ settingsPassConfirm.click(); } }); }
+
+        function getCurrentUserEmail(){
+            if (!isDemoMode && auth && auth.currentUser && auth.currentUser.email) return auth.currentUser.email;
+            return localStorage.getItem('currentUserEmail') || '';
+        }
+        function isAdminEmail(email){ 
+            if (!email) return false;
+            return String(email).trim().toLowerCase() === 'nwapp.eason@gmail.com'; 
+        }
+        function updateUserDisplayName(){
+            const el = document.getElementById('user-display-name');
+            if (!el) return;
+            const email = getCurrentUserEmail();
+            if (isAdminEmail(email)) {
+                el.textContent = '系統管理員';
+            } else {
+                el.textContent = email ? email : '未登入';
+            }
+        }
+        function attachMainLogoPermission(){
+            const email = getCurrentUserEmail();
+            const ml = document.getElementById('main-logo');
+            if (!ml) return;
+            ml.classList.remove('cursor-pointer');
+            ml.onclick = null;
+            if (isAdminEmail(email)){
+                ml.classList.add('cursor-pointer');
+                ml.onclick = ()=> openSettingsModal();
+            }
+        }
+        async function openCommunitySwitcher(){
+            const email = getCurrentUserEmail();
+            if (!isAdminEmail(email)) return;
+            await ensureAuthForSettings();
+            const communities = await fetchCommunities();
+            communitySwitcherList.innerHTML = communities.map(c => {
+                return '<button data-code="'+c.code+'" data-name="'+c.name+'" class="px-4 py-3 bg-gray-100 hover:bg-red-50 hover:text-red-700 rounded text-left">'+c.name+' <span class="text-xs text-gray-400 ml-2">('+c.code+')</span></button>';
+            }).join('');
+            communitySwitcherModal.classList.remove('hidden');
+            Array.from(communitySwitcherList.querySelectorAll('button')).forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const code = btn.getAttribute('data-code');
+                    const name = btn.getAttribute('data-name');
+                    localStorage.setItem('currentCommunityCode', code);
+                    localStorage.setItem('currentCommunityName', name);
+                    applyCommunityToUI();
+                    communitySwitcherModal.classList.add('hidden');
+                    switchTab('dashboard');
+                });
+            });
+        }
+        if (communitySwitcherClose){ communitySwitcherClose.addEventListener('click', ()=> communitySwitcherModal.classList.add('hidden')); }
+        const sidebarCommunityName = document.getElementById('sidebar-community-name');
+        if (sidebarCommunityName){ sidebarCommunityName.addEventListener('click', openCommunitySwitcher); }
+        if (settingsClose){ settingsClose.addEventListener('click', closeSettingsModal); }
+        if (tabAccountsBtn){ tabAccountsBtn.addEventListener('click', ()=> activateSettingsTab('accounts')); }
+        if (tabCommunitiesBtn){ tabCommunitiesBtn.addEventListener('click', ()=> activateSettingsTab('communities')); }
+        if (btnAddAccount){ btnAddAccount.addEventListener('click', async ()=>{ 
+            await ensureAuthForSettings(); 
+            await renderCommunityOptions(); 
+            inputAccountName.value=''; 
+            inputAccountEmail.value=''; 
+            inputAccountPhone.value=''; 
+            
+            // Switch to Add Mode
+            const title = modalAddAccount.querySelector('h4');
+            if (title) title.textContent = '新增帳號';
+            confirmAddAccount.textContent = '新增';
+            
+            modalAddAccount.classList.remove('hidden'); 
+            confirmAddAccount.onclick = async ()=>{ 
+                const acc = {
+                    id: genAccountId(), 
+                    community: inputAccountCommunity.value, 
+                    name: inputAccountName.value.trim(), 
+                    email: inputAccountEmail.value.trim(), 
+                    phone: inputAccountPhone.value.trim()
+                }; 
+                try { 
+                    let forceLocal = false;
+                    if (useCloud()){ 
+                        const email = getCurrentUserEmail(); 
+                        if (!isAdminEmail(email)) {
+                            // If we are not admin, we cannot create auth users.
+                            console.warn("Non-admin user creating account. Skipping Auth creation.");
+                        } else {
+                           // Admin creating cloud account
+                           // Use a secondary app to avoid logging out the current admin
+                           try {
+                               const secondaryApp = firebase.initializeApp(firebaseConfig, "SecondaryApp");
+                               const secondaryAuth = secondaryApp.auth();
+                               await secondaryAuth.createUserWithEmailAndPassword(acc.email, acc.phone);
+                               await secondaryApp.delete(); // Cleanup
+                               console.log("Cloud user created successfully via secondary app");
+                           } catch(err) {
+                               console.warn("Create cloud user warning:", err);
+                               // Continue to save doc even if auth creation fails (e.g. user exists)
+                           }
+                        }
+                    } 
+                    await saveAccount(acc, forceLocal); 
+                    modalAddAccount.classList.add('hidden'); 
+                    
+                    // Force refresh to ensure UI is up-to-date and ID cache is populated
+                    // This handles both local mode and cloud mode (especially if listener is in fallback)
+                    const newArr = await fetchAccounts();
+                    renderAccountsTable(newArr);
+                } catch(e){ 
+                    alert('新增帳號失敗：'+(e && e.message ? e.message : e)); 
+                } 
+            }; 
+            cancelAddAccount.onclick = ()=> modalAddAccount.classList.add('hidden'); 
+        }); }
+        if (btnAddCommunity){ btnAddCommunity.addEventListener('click', async ()=>{ 
+            await ensureAuthForSettings(); 
+            inputCommunityCode.value=''; 
+            inputCommunityName.value=''; 
+            
+            // Switch to Add Mode
+            const title = modalAddCommunity.querySelector('h4');
+            if (title) title.textContent = '新增社區';
+            confirmAddCommunity.textContent = '新增';
+            inputCommunityCode.disabled = false;
+            inputCommunityCode.classList.remove('bg-gray-100');
+
+            modalAddCommunity.classList.remove('hidden'); 
+            confirmAddCommunity.onclick = async ()=>{ 
+                try { 
+                    let forceLocal = false;
+                    if (useCloud()){ 
+                        const email = getCurrentUserEmail(); 
+                        if (!isAdminEmail(email)) {
+                        if (confirm('新增社區失敗：非系統管理員不可新增雲端社區。\n是否要建立「本機僅有」的社區？(僅供本機測試用，不會同步到雲端)')) {
+                                forceLocal = true;
+                            } else {
+                                return;
+                            }
+                        } 
+                    } 
+                    await saveCommunity(inputCommunityCode.value, inputCommunityName.value, forceLocal); 
+                    modalAddCommunity.classList.add('hidden'); 
+                    renderCommunityOptions(); 
+                    if (!useCloud()) {
+                        const newArr = await fetchCommunities();
+                        renderCommunitiesTable(newArr);
+                    }
+                } catch(e){ 
+                    alert('新增社區失敗：'+(e && e.message ? e.message : e)); 
+                } 
+            }; 
+            cancelAddCommunity.onclick = ()=> modalAddCommunity.classList.add('hidden'); 
+        }); }
+
+        function getCurrentCommunityCode(){ return localStorage.getItem('currentCommunityCode') || 'NW001'; }
+        function lsGet(key){ try { return JSON.parse(localStorage.getItem(key)||'[]'); } catch(e){ return []; } }
+        function lsSet(key, arr){ localStorage.setItem(key, JSON.stringify(arr)); }
+        function incomeKey(kind){ return kind+'_'+getCurrentCommunityCode(); }
+        function expenseKey(kind){ return kind+'_'+getCurrentCommunityCode(); }
+        function bankKey(){ return 'bank_accounts_'+getCurrentCommunityCode(); }
+        function buildingKey(){ return 'buildings_'+getCurrentCommunityCode(); }
+        function residentsKey(){ return 'residents_'+getCurrentCommunityCode(); }
+        function getIncomeFixed(){ return lsGet(incomeKey('income_fixed')); }
+        function setIncomeFixed(arr){ lsSet(incomeKey('income_fixed'), arr); }
+        function getIncomeOther(){ return lsGet(incomeKey('income_other')); }
+        function setIncomeOther(arr){ lsSet(incomeKey('income_other'), arr); }
+        function getExpenseFixed(){ return lsGet(expenseKey('expense_fixed')); }
+        function setExpenseFixed(arr){ lsSet(expenseKey('expense_fixed'), arr); }
+        function getExpenseOther(){ return lsGet(expenseKey('expense_other')); }
+        function setExpenseOther(arr){ lsSet(expenseKey('expense_other'), arr); }
+        function getBankAccounts(){ return lsGet(bankKey()); }
+        function setBankAccounts(arr){ lsSet(bankKey(), arr); }
+        function getTransactions(){ return lsGet('transactions_'+getCurrentCommunityCode()); }
+        function setTransactions(arr){ lsSet('transactions_'+getCurrentCommunityCode(), arr); }
+        function getBuildings(){ return lsGet(buildingKey()); }
+        function setBuildings(arr){ lsSet(buildingKey(), arr); }
+        function getResidents(){ return lsGet(residentsKey()); }
+        function setResidents(arr){ lsSet(residentsKey(), arr); }
+
+        const incomeFixedTbody = document.getElementById('income-fixed-tbody');
+        const incomeOtherTbody = document.getElementById('income-other-tbody');
+        const expenseFixedTbody = document.getElementById('expense-fixed-tbody');
+        const expenseOtherTbody = document.getElementById('expense-other-tbody');
+        const btnAddIncomeFixed = document.getElementById('btn-add-income-fixed');
+        const btnAddIncomeOther = document.getElementById('btn-add-income-other');
+        const btnAddExpenseFixed = document.getElementById('btn-add-expense-fixed');
+        const btnAddExpenseOther = document.getElementById('btn-add-expense-other');
+        const bankTbody = document.getElementById('bank-tbody');
+        const btnAddBank = document.getElementById('btn-add-bank');
+        const residentsBuildingsTbody = document.getElementById('residents-buildings-tbody');
+        const btnAddBuilding = document.getElementById('btn-add-building');
+        const residentsDetailTbody = document.getElementById('residents-detail-tbody');
+        const btnAddResident = document.getElementById('btn-add-resident');
+
+        let editCtx = null;
+        const modalEditItem = document.getElementById('modal-edit-item');
+        const inputItemName = document.getElementById('input-item-name');
+        const confirmEditItem = document.getElementById('confirm-edit-item');
+        const cancelEditItem = document.getElementById('cancel-edit-item');
+        const modalEditBank = document.getElementById('modal-edit-bank');
+        const inputBankType = document.getElementById('input-bank-type');
+        const inputBankPettyName = document.getElementById('input-bank-petty-name');
+        const inputBankName = document.getElementById('input-bank-name');
+        const inputBankBranch = document.getElementById('input-bank-branch');
+        const inputBankHolder = document.getElementById('input-bank-holder');
+        const inputBankAccount = document.getElementById('input-bank-account');
+        
+        const fieldPettyName = document.getElementById('field-petty-name');
+        const fieldBankName = document.getElementById('field-bank-name');
+        const fieldBankBranch = document.getElementById('field-bank-branch');
+        const fieldBankHolder = document.getElementById('field-bank-holder');
+        const fieldBankAccount = document.getElementById('field-bank-account');
+
+        const confirmEditBank = document.getElementById('confirm-edit-bank');
+        const cancelEditBank = document.getElementById('cancel-edit-bank');
+        const modalEditBuilding = document.getElementById('modal-edit-building');
+        const inputBuildingName = document.getElementById('input-building-name');
+        const confirmEditBuilding = document.getElementById('confirm-edit-building');
+        const cancelEditBuilding = document.getElementById('cancel-edit-building');
+
+        const modalEditResident = document.getElementById('modal-edit-resident');
+        const inputResUnit = document.getElementById('input-res-unit');
+        const inputResName = document.getElementById('input-res-name');
+        const inputResAddr = document.getElementById('input-res-addr');
+        const inputResBuilding = document.getElementById('input-res-building');
+        const inputResArrears = document.getElementById('input-res-arrears');
+        const inputResFeeMgmt = document.getElementById('input-res-fee-mgmt');
+        const inputResFeePark = document.getElementById('input-res-fee-park');
+        const inputResFeeOther = document.getElementById('input-res-fee-other');
+        const inputResNote = document.getElementById('input-res-note');
+        const confirmEditResident = document.getElementById('confirm-edit-resident');
+        const cancelEditResident = document.getElementById('cancel-edit-resident');
+
+
+        function updateBankModalVisibility() {
+            const type = inputBankType.value;
+            const labelAccount = document.getElementById('label-bank-account');
+            
+            // Default hidden
+            fieldPettyName.classList.add('hidden');
+            fieldBankName.classList.add('hidden');
+            fieldBankBranch.classList.add('hidden');
+            fieldBankHolder.classList.add('hidden');
+            fieldBankAccount.classList.add('hidden');
+            fieldBankAmount.classList.add('hidden');
+            fieldBankStartDate.classList.add('hidden');
+            fieldBankEndDate.classList.add('hidden');
+            fieldBankNote.classList.add('hidden');
+            
+            if (type === '零用金') {
+                fieldPettyName.classList.remove('hidden');
+                if(labelAccount) labelAccount.textContent = '帳號';
+            } else if (type === '定存') {
+                fieldBankName.classList.remove('hidden');
+                fieldBankBranch.classList.remove('hidden');
+                fieldBankHolder.classList.remove('hidden');
+                fieldBankAccount.classList.remove('hidden');
+                fieldBankAmount.classList.remove('hidden');
+                fieldBankStartDate.classList.remove('hidden');
+                fieldBankEndDate.classList.remove('hidden');
+                fieldBankNote.classList.remove('hidden');
+                if(labelAccount) labelAccount.textContent = '定存帳號';
+            } else {
+                // 活存
+                fieldBankName.classList.remove('hidden');
+                fieldBankBranch.classList.remove('hidden');
+                fieldBankHolder.classList.remove('hidden');
+                fieldBankAccount.classList.remove('hidden');
+                if(labelAccount) labelAccount.textContent = '帳號';
+            }
+        }
+        if (inputBankType) {
+            inputBankType.addEventListener('change', updateBankModalVisibility);
+        }
+
+        function openEditItem(ctx){ editCtx = ctx; inputItemName.value = ctx.value || ''; if (modalEditItem) modalEditItem.classList.remove('hidden'); }
+        function closeEditItem(){ editCtx = null; if (modalEditItem) modalEditItem.classList.add('hidden'); }
+        function openEditBank(ctx){ 
+            editCtx = ctx; 
+            if (modalEditBank){ 
+                inputBankType.value = ctx.item?.type || '活存';
+                inputBankPettyName.value = ctx.item?.pettyName || '';
+                inputBankName.value = ctx.item?.bankName || ''; 
+                inputBankBranch.value = ctx.item?.branchName || ''; 
+                inputBankHolder.value = ctx.item?.holderName || ''; 
+                inputBankAccount.value = ctx.item?.accountNumber || ''; 
+                
+                inputBankAmount.value = ctx.item?.amount || '';
+                inputBankStartDate.value = ctx.item?.startDate || '';
+                inputBankEndDate.value = ctx.item?.endDate || '';
+                inputBankNote.value = ctx.item?.note || '';
+                
+                updateBankModalVisibility();
+                modalEditBank.classList.remove('hidden'); 
+            } 
+        }
+        function closeEditBank(){ editCtx = null; if (modalEditBank) modalEditBank.classList.add('hidden'); }
+        function openEditBuilding(ctx){ editCtx = ctx; if (modalEditBuilding){ inputBuildingName.value = ctx.value || ''; modalEditBuilding.classList.remove('hidden'); } }
+        function closeEditBuilding(){ editCtx = null; if (modalEditBuilding) modalEditBuilding.classList.add('hidden'); }
+
+        function openEditResident(ctx){
+            editCtx = ctx;
+            if (modalEditResident){
+                // Populate buildings
+                const buildings = getBuildings();
+                inputResBuilding.innerHTML = buildings.map(b => `<option value="${b}">${b}</option>`).join('');
+                
+                if (ctx.item) {
+                    inputResUnit.value = ctx.item.unit || '';
+                    inputResName.value = ctx.item.name || '';
+                    inputResAddr.value = ctx.item.addr || '';
+                    inputResBuilding.value = ctx.item.building || (buildings[0]||'');
+                    inputResArrears.value = ctx.item.arrears || '正常';
+                    inputResFeeMgmt.value = ctx.item.feeMgmt || '';
+                    inputResFeePark.value = ctx.item.feePark || '';
+                    inputResFeeOther.value = ctx.item.feeOther || '';
+                    inputResNote.value = ctx.item.note || '';
+                } else {
+                    inputResUnit.value = '';
+                    inputResName.value = '';
+                    inputResAddr.value = '';
+                    inputResBuilding.value = (buildings[0]||'');
+                    inputResArrears.value = '正常';
+                    inputResFeeMgmt.value = '';
+                    inputResFeePark.value = '';
+                    inputResFeeOther.value = '';
+                    inputResNote.value = '';
+                }
+                modalEditResident.classList.remove('hidden');
+            }
+        }
+        function closeEditResident(){ editCtx = null; if (modalEditResident) modalEditResident.classList.add('hidden'); }
+
+        function renderResidentsDetail(){
+            if (residentsDetailTbody){
+                const arr = getResidents();
+                residentsDetailTbody.innerHTML = arr.map((x,i)=> `
+                    <tr>
+                        <td class="px-6 py-3">${i+1}</td>
+                        <td class="px-6 py-3">${x.unit||''}</td>
+                        <td class="px-6 py-3">${x.name||''}</td>
+                        <td class="px-6 py-3">${x.addr||''}</td>
+                        <td class="px-6 py-3">${x.building||''}</td>
+                        <td class="px-6 py-3 text-right">${x.feeMgmt ? '$'+parseInt(x.feeMgmt).toLocaleString() : '-'}</td>
+                        <td class="px-6 py-3 text-right">${x.feePark ? '$'+parseInt(x.feePark).toLocaleString() : '-'}</td>
+                        <td class="px-6 py-3 text-right">${x.feeOther ? '$'+parseInt(x.feeOther).toLocaleString() : '-'}</td>
+                        <td class="px-6 py-3">${x.arrears==='欠繳' ? '<span class="text-red-600 font-bold">欠繳</span>' : '<span class="text-green-600">正常</span>'}</td>
+                        <td class="px-6 py-3">${x.note||''}</td>
+                        <td class="px-6 py-3">
+                            <button data-i="${i}" class="edit-resident text-blue-600 mr-2">編輯</button>
+                            <button data-i="${i}" class="del-resident text-red-600">刪除</button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                Array.from(residentsDetailTbody.querySelectorAll('.del-resident')).forEach(btn=>{ 
+                    btn.addEventListener('click', ()=>{ 
+                        if(confirm('確定要刪除此住戶嗎？')) {
+                            const i = parseInt(btn.getAttribute('data-i')); 
+                            const arr2 = getResidents(); 
+                            arr2.splice(i,1); 
+                            setResidents(arr2); 
+                            renderResidentsDetail(); 
+                        }
+                    }); 
+                });
+                Array.from(residentsDetailTbody.querySelectorAll('.edit-resident')).forEach(btn=>{ 
+                    btn.addEventListener('click', ()=>{ 
+                        const i = parseInt(btn.getAttribute('data-i')); 
+                        const arr2 = getResidents(); 
+                        openEditResident({kind:'resident', index:i, item:arr2[i]}); 
+                    }); 
+                });
+            }
+        }
+
+        function renderIncomeSettings(){
+            if (incomeFixedTbody){ const arr = getIncomeFixed(); incomeFixedTbody.innerHTML = arr.map((x,i)=> '<tr><td class="px-6 py-3">'+x+'</td><td class="px-6 py-3"><button data-i="'+i+'" class="edit-if text-blue-600 mr-2">編輯</button><button data-i="'+i+'" class="del-if text-red-600">刪除</button></td></tr>').join('');
+                Array.from(incomeFixedTbody.querySelectorAll('.del-if')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getIncomeFixed(); arr2.splice(i,1); setIncomeFixed(arr2); renderIncomeSettings(); }); });
+                Array.from(incomeFixedTbody.querySelectorAll('.edit-if')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getIncomeFixed(); openEditItem({kind:'income_fixed', index:i, value:arr2[i]}); }); });
+            }
+            if (incomeOtherTbody){ const arr = getIncomeOther(); incomeOtherTbody.innerHTML = arr.map((x,i)=> '<tr><td class="px-6 py-3">'+x+'</td><td class="px-6 py-3"><button data-i="'+i+'" class="edit-io text-blue-600 mr-2">編輯</button><button data-i="'+i+'" class="del-io text-red-600">刪除</button></td></tr>').join('');
+                Array.from(incomeOtherTbody.querySelectorAll('.del-io')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getIncomeOther(); arr2.splice(i,1); setIncomeOther(arr2); renderIncomeSettings(); }); });
+                Array.from(incomeOtherTbody.querySelectorAll('.edit-io')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getIncomeOther(); openEditItem({kind:'income_other', index:i, value:arr2[i]}); }); });
+            }
+        }
+        function renderExpenseSettings(){
+            if (expenseFixedTbody){ const arr = getExpenseFixed(); expenseFixedTbody.innerHTML = arr.map((x,i)=> '<tr><td class="px-6 py-3">'+x+'</td><td class="px-6 py-3"><button data-i="'+i+'" class="edit-ef text-blue-600 mr-2">編輯</button><button data-i="'+i+'" class="del-ef text-red-600">刪除</button></td></tr>').join('');
+                Array.from(expenseFixedTbody.querySelectorAll('.del-ef')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getExpenseFixed(); arr2.splice(i,1); setExpenseFixed(arr2); renderExpenseSettings(); }); });
+                Array.from(expenseFixedTbody.querySelectorAll('.edit-ef')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getExpenseFixed(); openEditItem({kind:'expense_fixed', index:i, value:arr2[i]}); }); });
+            }
+            if (expenseOtherTbody){ const arr = getExpenseOther(); expenseOtherTbody.innerHTML = arr.map((x,i)=> '<tr><td class="px-6 py-3">'+x+'</td><td class="px-6 py-3"><button data-i="'+i+'" class="edit-eo text-blue-600 mr-2">編輯</button><button data-i="'+i+'" class="del-eo text-red-600">刪除</button></td></tr>').join('');
+                Array.from(expenseOtherTbody.querySelectorAll('.del-eo')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getExpenseOther(); arr2.splice(i,1); setExpenseOther(arr2); renderExpenseSettings(); }); });
+                Array.from(expenseOtherTbody.querySelectorAll('.edit-eo')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getExpenseOther(); openEditItem({kind:'expense_other', index:i, value:arr2[i]}); }); });
+            }
+        }
+        function renderBankSettings(){
+            if (bankTbody){ const arr = getBankAccounts(); 
+                
+                bankTbody.innerHTML = arr.map((x,i)=> {
+                    const type = x.type || '活存';
+                    const isPetty = (type === '零用金');
+                    const bankNameDisplay = isPetty ? '-' : x.bankName;
+                    const branchDisplay = isPetty ? '-' : x.branchName;
+                    const pettyNameDisplay = isPetty ? x.pettyName : '-';
+                    const holderDisplay = isPetty ? '-' : x.holderName;
+                    const accountDisplay = isPetty ? '-' : x.accountNumber;
+                    
+                    return '<tr><td class="px-6 py-3">'+type+'</td><td class="px-6 py-3">'+(bankNameDisplay||'')+'</td><td class="px-6 py-3">'+(branchDisplay||'')+'</td><td class="px-6 py-3">'+(pettyNameDisplay||'')+'</td><td class="px-6 py-3">'+(holderDisplay||'')+'</td><td class="px-6 py-3">'+(accountDisplay||'')+'</td><td class="px-6 py-3"><button data-i="'+i+'" class="edit-bank text-blue-600 mr-2">編輯</button><button data-i="'+i+'" class="del-bank text-red-600">刪除</button></td></tr>';
+                }).join('');
+                Array.from(bankTbody.querySelectorAll('.del-bank')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getBankAccounts(); arr2.splice(i,1); setBankAccounts(arr2); updateBankSubtabs(); renderBankSettings(); }); });
+                Array.from(bankTbody.querySelectorAll('.edit-bank')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getBankAccounts(); openEditBank({kind:'bank', index:i, item:arr2[i]}); }); });
+            }
+        }
+        
+        function updateBankSubtabs(){
+             const arr = getBankAccounts();
+             const newTabs = arr.map(x => {
+                 if(x.type === '零用金') return '零用金-'+(x.pettyName||'');
+                 return (x.type||'活存')+'-'+(x.bankName||'');
+             });
+             // Keep "銀行設定" at the end.
+             // Replace static tabs with dynamic ones + Settings
+             SUBTAB_CONFIG['bank'] = [...newTabs, '銀行設定'];
+             
+             // If currently on bank tab, re-render subtabs
+             if (document.getElementById('nav-bank').classList.contains('bg-red-800')) {
+                 renderSubtabs('bank');
+             }
+        }
+        function renderResidentsSettings(){
+            if (residentsBuildingsTbody){ const arr = getBuildings(); residentsBuildingsTbody.innerHTML = arr.map((x,i)=> '<tr><td class="px-6 py-3">'+x+'</td><td class="px-6 py-3"><button data-i="'+i+'" class="edit-building text-blue-600 mr-2">編輯</button><button data-i="'+i+'" class="del-building text-red-600">刪除</button></td></tr>').join('');
+                Array.from(residentsBuildingsTbody.querySelectorAll('.del-building')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getBuildings(); arr2.splice(i,1); setBuildings(arr2); renderResidentsSettings(); }); });
+                Array.from(residentsBuildingsTbody.querySelectorAll('.edit-building')).forEach(btn=>{ btn.addEventListener('click', ()=>{ const i = parseInt(btn.getAttribute('data-i')); const arr2 = getBuildings(); openEditBuilding({kind:'building', index:i, value:arr2[i]}); }); });
+            }
+        }
+        function ensureDefaultsIncomeExpense(){
+            if (getIncomeFixed().length===0) setIncomeFixed(['管理費']);
+            if (getIncomeOther().length===0) setIncomeOther(['停車費']);
+            if (getExpenseFixed().length===0) setExpenseFixed(['清潔費']);
+            if (getExpenseOther().length===0) setExpenseOther(['維修費']);
+        }
+        function ensureDefaultsBankResidents(){
+            if (getBankAccounts().length===0) setBankAccounts([{type:'活存', bankName:'台新銀行', branchName:'松德分行', holderName:'社區管理委員會', accountNumber:'123-456-7890'}]);
+            updateBankSubtabs(); // Ensure tabs are rendered on load
+            if (getBuildings().length===0) setBuildings(['A棟','B棟']);
+            if (getResidents().length===0) setResidents([{unit:'8-1', name:'陳大明', addr:'台北市信義區松德路100號8樓之1', building:'A棟', arrears:'正常', feeMgmt:'2000', feePark:'0', feeOther:'0', note:''}]);
+        }
+        ensureDefaultsBankResidents();
+        ensureDefaultsIncomeExpense();
+        if (btnAddIncomeFixed){ btnAddIncomeFixed.addEventListener('click', ()=> openEditItem({kind:'income_fixed', index:-1, value:''})); }
+        if (btnAddIncomeOther){ btnAddIncomeOther.addEventListener('click', ()=> openEditItem({kind:'income_other', index:-1, value:''})); }
+        if (btnAddExpenseFixed){ btnAddExpenseFixed.addEventListener('click', ()=> openEditItem({kind:'expense_fixed', index:-1, value:''})); }
+        if (btnAddExpenseOther){ btnAddExpenseOther.addEventListener('click', ()=> openEditItem({kind:'expense_other', index:-1, value:''})); }
+        if (confirmEditItem){ confirmEditItem.addEventListener('click', ()=>{ if(!editCtx) return; const name = (inputItemName.value||'').trim(); if(!name){ closeEditItem(); return; } if (editCtx.kind==='income_fixed'){ const arr = getIncomeFixed(); if (editCtx.index>=0) arr[editCtx.index]=name; else arr.push(name); setIncomeFixed(arr); renderIncomeSettings(); }
+            else if (editCtx.kind==='income_other'){ const arr = getIncomeOther(); if (editCtx.index>=0) arr[editCtx.index]=name; else arr.push(name); setIncomeOther(arr); renderIncomeSettings(); }
+            else if (editCtx.kind==='expense_fixed'){ const arr = getExpenseFixed(); if (editCtx.index>=0) arr[editCtx.index]=name; else arr.push(name); setExpenseFixed(arr); renderExpenseSettings(); }
+            else if (editCtx.kind==='expense_other'){ const arr = getExpenseOther(); if (editCtx.index>=0) arr[editCtx.index]=name; else arr.push(name); setExpenseOther(arr); renderExpenseSettings(); }
+            closeEditItem(); }); }
+        if (cancelEditItem){ cancelEditItem.addEventListener('click', closeEditItem); }
+        if (btnAddBank){ btnAddBank.addEventListener('click', ()=> openEditBank({kind:'bank', index:-1, item:{type:'活存'}})); }
+        if (confirmEditBank){ confirmEditBank.addEventListener('click', ()=>{ 
+            if(!editCtx) return; 
+            const type = inputBankType.value;
+            let item = { type: type };
+            
+            if (type === '零用金') {
+                item.pettyName = (inputBankPettyName.value||'').trim();
+            } else {
+                item.bankName = (inputBankName.value||'').trim();
+                item.branchName = (inputBankBranch.value||'').trim();
+                item.holderName = (inputBankHolder.value||'').trim();
+                item.accountNumber = (inputBankAccount.value||'').trim();
+                
+                if (type === '定存') {
+                    item.amount = (inputBankAmount.value||'').trim();
+                    item.startDate = (inputBankStartDate.value||'').trim();
+                    item.endDate = (inputBankEndDate.value||'').trim();
+                    item.note = (inputBankNote.value||'').trim();
+                } else {
+                    delete item.amount;
+                    delete item.startDate;
+                    delete item.endDate;
+                    delete item.note;
+                }
+            }
+            
+            const arr = getBankAccounts(); 
+            if (editCtx.index>=0) arr[editCtx.index]=item; else arr.push(item); 
+            setBankAccounts(arr); 
+            updateBankSubtabs();
+            closeEditBank(); 
+            renderBankSettings(); 
+        }); }
+        if (cancelEditBank){ cancelEditBank.addEventListener('click', closeEditBank); }
+        if (btnAddBuilding){ btnAddBuilding.addEventListener('click', ()=> openEditBuilding({kind:'building', index:-1, value:''})); }
+        if (confirmEditBuilding){ confirmEditBuilding.addEventListener('click', ()=>{ if(!editCtx) return; const name = (inputBuildingName.value||'').trim(); const arr = getBuildings(); if (editCtx.index>=0) arr[editCtx.index]=name; else arr.push(name); setBuildings(arr); closeEditBuilding(); renderResidentsSettings(); }); }
+        if (cancelEditBuilding){ cancelEditBuilding.addEventListener('click', closeEditBuilding); }
+
+        if (btnAddResident){ btnAddResident.addEventListener('click', ()=> openEditResident({kind:'resident', index:-1, item:null})); }
+        if (confirmEditResident){ confirmEditResident.addEventListener('click', ()=>{ 
+            if(!editCtx) return; 
+            const item = {
+                unit: (inputResUnit.value||'').trim(),
+                name: (inputResName.value||'').trim(),
+                addr: (inputResAddr.value||'').trim(),
+                building: (inputResBuilding.value||'').trim(),
+                arrears: (inputResArrears.value||'正常'),
+                feeMgmt: (inputResFeeMgmt.value||'').trim(),
+                feePark: (inputResFeePark.value||'').trim(),
+                feeOther: (inputResFeeOther.value||'').trim(),
+                note: (inputResNote.value||'').trim()
+            };
+            const arr = getResidents(); 
+            if (editCtx.index>=0) arr[editCtx.index]=item; else arr.push(item); 
+            setResidents(arr); 
+            closeEditResident(); 
+            renderResidentsDetail(); 
+        }); }
+        if (cancelEditResident){ cancelEditResident.addEventListener('click', closeEditResident); }
+
+        // ==========================================
+        // 住戶 Excel 匯入/匯出功能
+        // ==========================================
+        const btnExportResident = document.getElementById('btn-export-resident');
+        const btnImportResident = document.getElementById('btn-import-resident');
+        const fileImportResident = document.getElementById('file-import-resident');
+
+        if (btnExportResident) {
+            btnExportResident.addEventListener('click', () => {
+                if (typeof XLSX === 'undefined') {
+                    alert('Excel 元件尚未載入，請稍後再試或檢查網路連線。');
+                    return;
+                }
+                const residents = getResidents();
+                if (residents.length === 0) {
+                    alert('無資料可匯出');
+                    return;
+                }
+                
+                // 轉換資料為顯示格式
+                const data = residents.map((r, i) => ({
+                    '編號': i + 1,
+                    '戶號': r.unit,
+                    '姓名': r.name,
+                    '地址': r.addr,
+                    '棟別': r.building,
+                    '每月管理費': r.feeMgmt,
+                    '每月停車費': r.feePark,
+                    '每月其他費用': r.feeOther,
+                    '欠繳狀況': r.arrears,
+                    '備註': r.note
+                }));
+
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "住戶資料");
+                XLSX.writeFile(wb, "住戶名冊_" + getCurrentCommunityCode() + ".xlsx");
+            });
+        }
+
+        if (btnImportResident && fileImportResident) {
+            btnImportResident.addEventListener('click', () => {
+                if (typeof XLSX === 'undefined') {
+                    alert('Excel 元件尚未載入，請稍後再試或檢查網路連線。');
+                    return;
+                }
+                fileImportResident.click();
+            });
+
+            fileImportResident.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet);
+
+                        if (json.length === 0) {
+                            alert('Excel 檔案無資料');
+                            return;
+                        }
+
+                        // 映射回資料模型
+                        const newResidents = json.map(row => ({
+                            unit: row['戶號'] ? String(row['戶號']).trim() : '',
+                            name: row['姓名'] ? String(row['姓名']).trim() : '',
+                            addr: row['地址'] ? String(row['地址']).trim() : '',
+                            building: row['棟別'] ? String(row['棟別']).trim() : '',
+                            feeMgmt: row['每月管理費'] ? String(row['每月管理費']).trim() : '0',
+                            feePark: row['每月停車費'] ? String(row['每月停車費']).trim() : '0',
+                            feeOther: row['每月其他費用'] ? String(row['每月其他費用']).trim() : '0',
+                            arrears: row['欠繳狀況'] ? String(row['欠繳狀況']).trim() : '正常',
+                            note: row['備註'] ? String(row['備註']).trim() : ''
+                        }));
+
+                        if (confirm(`匯入 ${newResidents.length} 筆資料。\n點擊「確定」將【清空並覆蓋】現有資料。\n點擊「取消」將【追加】到現有資料後。`)) {
+                            setResidents(newResidents);
+                        } else {
+                            const current = getResidents();
+                            setResidents([...current, ...newResidents]);
+                        }
+
+                        renderResidentsDetail();
+                        alert('匯入完成');
+                        fileImportResident.value = ''; 
+                    } catch (err) {
+                        console.error(err);
+                        alert('匯入失敗，請檢查檔案格式');
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // ==========================================
+        // 交易明細功能 (收入/支出)
+        // ==========================================
+        const modalEditTransaction = document.getElementById('modal-edit-transaction');
+        const modalTransTitle = document.getElementById('modal-trans-title');
+        const inputTransId = document.getElementById('input-trans-id');
+        const inputTransDate = document.getElementById('input-trans-date');
+        const inputTransTarget = document.getElementById('input-trans-target');
+        const inputTransMonth = document.getElementById('input-trans-month');
+        const inputTransType = document.getElementById('input-trans-type');
+        const inputTransCategory = document.getElementById('input-trans-category');
+        const inputTransAmount = document.getElementById('input-trans-amount');
+        const inputTransMethod = document.getElementById('input-trans-method');
+        const inputTransNote = document.getElementById('input-trans-note');
+        const confirmEditTransaction = document.getElementById('confirm-edit-transaction');
+        const cancelEditTransaction = document.getElementById('cancel-edit-transaction');
+        const btnAddIncomeRecord = document.getElementById('btn-add-income-record');
+        const btnAddExpenseRecord = document.getElementById('btn-add-expense-record');
+        const incomeDetailTbody = document.getElementById('income-detail-tbody');
+        const expenseDetailTbody = document.getElementById('expense-detail-tbody');
+
+        function generateTransactionId(mode, dateStr) {
+            if (!dateStr) return '';
+            const prefix = (mode === 'income') ? 'I' : 'O';
+            const datePart = dateStr.replace(/-/g, '');
+            const baseId = prefix + datePart;
+            
+            const allTrans = getTransactions();
+            const existing = allTrans.filter(t => t.id && t.id.startsWith(baseId));
+            
+            let maxSeq = 0;
+            existing.forEach(t => {
+                const seqStr = t.id.substring(baseId.length);
+                const seq = parseInt(seqStr);
+                if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+            });
+            
+            return baseId + String(maxSeq + 1).padStart(3, '0');
+        }
+
+        function updateTransactionModalDropdowns(mode) {
+            const type = inputTransType.value;
+            let categories = [];
+            if (mode === 'income') {
+                categories = (type === '固定') ? getIncomeFixed() : getIncomeOther();
+            } else {
+                categories = (type === '固定') ? getExpenseFixed() : getExpenseOther();
+            }
+            inputTransCategory.innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            
+            const accounts = getBankAccounts();
+            const methods = accounts.map(acc => {
+                if (acc.type === '零用金') return `零用金-${acc.pettyName}`;
+                return `${acc.type}-${acc.bankName}`;
+            });
+            inputTransMethod.innerHTML = methods.map(m => `<option value="${m}">${m}</option>`).join('');
+        }
+
+        if (inputTransType) {
+            inputTransType.addEventListener('change', () => {
+                if (editCtx && editCtx.mode) {
+                    updateTransactionModalDropdowns(editCtx.mode);
+                }
+            });
+        }
+        
+        if (inputTransDate) {
+            inputTransDate.addEventListener('change', () => {
+                if (editCtx && editCtx.index === -1) { 
+                    inputTransId.value = generateTransactionId(editCtx.mode, inputTransDate.value);
+                }
+            });
+        }
+
+        function openEditTransaction(ctx) {
+            editCtx = ctx; 
+            if (!modalEditTransaction) return;
+
+            const modeText = (ctx.mode === 'income') ? '收入' : '支出';
+            modalTransTitle.textContent = (ctx.index === -1 ? '新增' : '編輯') + modeText + '資料';
+            
+            if (ctx.item) {
+                inputTransType.value = ctx.item.type || '固定';
+            } else {
+                inputTransType.value = '固定';
+            }
+            updateTransactionModalDropdowns(ctx.mode);
+
+            if (ctx.item) {
+                inputTransId.value = ctx.item.id;
+                inputTransDate.value = ctx.item.date;
+                inputTransTarget.value = ctx.item.target;
+                inputTransMonth.value = ctx.item.month;
+                inputTransCategory.value = ctx.item.category;
+                inputTransAmount.value = ctx.item.amount;
+                inputTransMethod.value = ctx.item.method;
+                inputTransNote.value = ctx.item.note;
+            } else {
+                const today = new Date().toISOString().split('T')[0];
+                inputTransDate.value = today;
+                inputTransId.value = generateTransactionId(ctx.mode, today);
+                inputTransTarget.value = '';
+                inputTransMonth.value = today.substring(0, 7);
+                inputTransAmount.value = '';
+                inputTransNote.value = '';
+                if (inputTransCategory.options.length > 0) inputTransCategory.selectedIndex = 0;
+                if (inputTransMethod.options.length > 0) inputTransMethod.selectedIndex = 0;
+            }
+            
+            modalEditTransaction.classList.remove('hidden');
+        }
+
+        function closeEditTransaction() {
+            editCtx = null;
+            if (modalEditTransaction) modalEditTransaction.classList.add('hidden');
+        }
+
+        if (btnAddIncomeRecord) btnAddIncomeRecord.addEventListener('click', () => openEditTransaction({mode:'income', index:-1}));
+        if (btnAddExpenseRecord) btnAddExpenseRecord.addEventListener('click', () => openEditTransaction({mode:'expense', index:-1}));
+        if (cancelEditTransaction) cancelEditTransaction.addEventListener('click', closeEditTransaction);
+        
+        if (confirmEditTransaction) confirmEditTransaction.addEventListener('click', () => {
+            if (!editCtx) return;
+            
+            const item = {
+                id: inputTransId.value,
+                date: inputTransDate.value,
+                target: inputTransTarget.value,
+                month: inputTransMonth.value,
+                type: inputTransType.value,
+                category: inputTransCategory.value,
+                amount: inputTransAmount.value,
+                method: inputTransMethod.value,
+                note: inputTransNote.value,
+                mode: editCtx.mode
+            };
+            
+            const allTrans = getTransactions();
+            
+            if (editCtx.index >= 0) {
+                const realIndex = allTrans.findIndex(t => t.id === item.id);
+                if (realIndex >= 0) {
+                    allTrans[realIndex] = item;
+                } else {
+                    allTrans.push(item);
+                }
+            } else {
+                allTrans.push(item);
+            }
+            
+            setTransactions(allTrans);
+            closeEditTransaction();
+            if (editCtx.mode === 'income') renderIncomeDetail();
+            else renderExpenseDetail();
+        });
+
+        function renderIncomeDetail() {
+            renderTransactionDetail('income');
+        }
+        
+        function renderExpenseDetail() {
+            renderTransactionDetail('expense');
+        }
+
+        function renderTransactionDetail(mode) {
+            const tbody = (mode === 'income') ? incomeDetailTbody : expenseDetailTbody;
+            if (!tbody) return;
+            
+            const allTrans = getTransactions();
+            const prefix = (mode === 'income') ? 'I' : 'O';
+            const filtered = allTrans.filter(t => t.id && t.id.startsWith(prefix));
+            
+            filtered.sort((a,b) => new Date(b.date) - new Date(a.date));
+            
+            tbody.innerHTML = filtered.map(t => `
+                <tr>
+                    <td class="px-6 py-3">${t.id}</td>
+                    <td class="px-6 py-3">${t.date}</td>
+                    <td class="px-6 py-3">${t.target}</td>
+                    <td class="px-6 py-3">${t.type}</td>
+                    <td class="px-6 py-3">${t.category}</td>
+                    <td class="px-6 py-3">${t.month}</td>
+                    <td class="px-6 py-3 text-right">$${parseInt(t.amount||0).toLocaleString()}</td>
+                    <td class="px-6 py-3">${t.method}</td>
+                    <td class="px-6 py-3">${t.note||''}</td>
+                    <td class="px-6 py-3">
+                        <button class="btn-edit-trans text-blue-600 mr-2" data-id="${t.id}">編輯</button>
+                        <button class="btn-del-trans text-red-600" data-id="${t.id}">刪除</button>
+                    </td>
+                </tr>
+            `).join('');
+            
+            tbody.querySelectorAll('.btn-edit-trans').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.getAttribute('data-id');
+                    const item = allTrans.find(t => t.id === id);
+                    if (item) {
+                        openEditTransaction({mode: mode, index: 1, item: item});
+                    }
+                });
+            });
+            
+            tbody.querySelectorAll('.btn-del-trans').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (confirm('確定要刪除此紀錄嗎？')) {
+                        const id = btn.getAttribute('data-id');
+                        const newTrans = getTransactions().filter(t => t.id !== id);
+                        setTransactions(newTrans);
+                        renderTransactionDetail(mode);
+                    }
+                });
+            });
+        }
+
+
+
+    </script>
+</body>
+</html>
