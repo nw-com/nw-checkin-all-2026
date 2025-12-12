@@ -1303,7 +1303,7 @@
         };
 
         // 3. Admin Dashboard (System Config)
-        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab }) => {
+        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId }) => {
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
@@ -1318,6 +1318,9 @@
             const [companyError, setCompanyError] = useState('');
             const [showAreaModal, setShowAreaModal] = useState(false);
             const [areaForm, setAreaForm] = useState({ id: '', name: '' });
+            
+
+
 
             const handleExportUsers = () => {
                 if (!users || users.length === 0) {
@@ -2050,7 +2053,15 @@
                                             <div className="font-bold text-gray-700">
                                                 {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
                                             </div>
-                                            <div className="flex items-center">
+                                            <div 
+                                                className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
+                                                onClick={() => {
+                                                    setCadreMapSelectedUserId(u.id);
+                                                    setActiveTab('cadre');
+                                                    setCadreSubtab('schedule');
+                                                }}
+                                                title="點擊查看班表"
+                                            >
                                                 {u.avatarUrl ? (
                                                     <img src={u.avatarUrl} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
                                                 ) : (
@@ -3788,6 +3799,7 @@
                 return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             });
             const [cadreMapSelectedUserId, setCadreMapSelectedUserId] = useState(null);
+            const [cadreScheduleDate, setCadreScheduleDate] = useState(new Date());
             const [checkInLocation, setCheckInLocation] = useState(null);
             const [showCompanyMenu, setShowCompanyMenu] = useState(false);
             const [roles, setRoles] = useState([]);
@@ -3820,6 +3832,82 @@
             const [adminEditLoading, setAdminEditLoading] = useState(false);
             const [showAdminDeleteModal, setShowAdminDeleteModal] = useState(false);
             const [adminDeleteTarget, setAdminDeleteTarget] = useState(null);
+            const [toast, setToast] = useState('');
+            
+            // Schedule Modal State
+            const [showScheduleModal, setShowScheduleModal] = useState(false);
+            const [scheduleModalDate, setScheduleModalDate] = useState(null);
+            const [scheduleForm, setScheduleForm] = useState({
+                type: 'work', // work, duty, off
+                startTime: '08:00',
+                endTime: '17:00'
+            });
+            const [scheduleSaving, setScheduleSaving] = useState(false);
+            const [userSchedules, setUserSchedules] = useState({});
+
+            useEffect(() => {
+                if (!cadreMapSelectedUserId) {
+                    setUserSchedules({});
+                    return;
+                }
+
+                const year = cadreScheduleDate.getFullYear();
+                const month = String(cadreScheduleDate.getMonth() + 1).padStart(2, '0');
+                const startStr = `${year}-${month}-01`;
+                const endStr = `${year}-${month}-31`;
+
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                    where('userId', '==', cadreMapSelectedUserId)
+                );
+
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const newSchedules = {};
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        newSchedules[data.date] = data;
+                    });
+                    setUserSchedules(newSchedules);
+                }, (error) => {
+                    console.error("Error fetching schedules:", error);
+                });
+
+                return () => unsubscribe();
+            }, [cadreMapSelectedUserId, cadreScheduleDate]);
+
+            const handleSaveSchedule = async () => {
+                if (!cadreMapSelectedUserId) {
+                    alert('請先選擇帳號');
+                    return;
+                }
+                setScheduleSaving(true);
+                try {
+                    const dateStr = scheduleModalDate;
+                    const scheduleData = {
+                        userId: cadreMapSelectedUserId,
+                        date: dateStr,
+                        type: scheduleForm.type,
+                        updatedByName: (dbUser && dbUser.name) || '系統管理員',
+                        updatedAt: serverTimestamp()
+                    };
+
+                    if (scheduleForm.type !== 'off') {
+                        scheduleData.startTime = scheduleForm.startTime;
+                        scheduleData.endTime = scheduleForm.endTime;
+                    }
+
+                    const docId = `schedule_${cadreMapSelectedUserId}_${dateStr}`;
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId), scheduleData);
+                    
+                    setToast('排班已儲存');
+                    setShowScheduleModal(false);
+                } catch (error) {
+                    console.error('Error saving schedule:', error);
+                    alert('儲存失敗: ' + error.message);
+                } finally {
+                    setScheduleSaving(false);
+                }
+            };
 
             const handleAdminDeleteRecord = (record) => {
                 setAdminDeleteTarget(record);
@@ -5737,6 +5825,137 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Calendar className="w-5 h-5 mr-2 text-red-600" /> 班表
                                             </h3>
+                                            
+                                            {cadreMapSelectedUserId && (
+                                                <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Users className="w-4 h-4" />
+                                                        <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setCadreMapSelectedUserId(null)}
+                                                        className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                    >
+                                                        清除
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <button 
+                                                        onClick={() => setCadreScheduleDate(new Date(cadreScheduleDate.getFullYear(), cadreScheduleDate.getMonth() - 1, 1))}
+                                                        className="p-1 rounded-full hover:bg-gray-100"
+                                                    >
+                                                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                                    </button>
+                                                    <span className="font-bold text-gray-800 text-lg">
+                                                        {cadreScheduleDate.getFullYear()}年 {cadreScheduleDate.getMonth() + 1}月
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => setCadreScheduleDate(new Date(cadreScheduleDate.getFullYear(), cadreScheduleDate.getMonth() + 1, 1))}
+                                                        className="p-1 rounded-full hover:bg-gray-100"
+                                                    >
+                                                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                                    {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                                        <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                                    ))}
+                                                </div>
+                                                <div className="grid grid-cols-7 gap-1">
+                                                    {(() => {
+                                                        const year = cadreScheduleDate.getFullYear();
+                                                        const month = cadreScheduleDate.getMonth();
+                                                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                                        const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                                        const days = [];
+                                                        
+                                                        // Taiwan National Holidays (2025-2026)
+                                                        const holidays = [
+                                                            // 2025
+                                                            '2025-01-01', // New Year
+                                                            '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', // LNY
+                                                            '2025-02-28', // Peace Memorial
+                                                            '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', // Tomb Sweeping / Childrens
+                                                            '2025-05-01', // Labor Day
+                                                            '2025-05-30', '2025-05-31', '2025-06-01', // Dragon Boat
+                                                            '2025-10-04', '2025-10-05', '2025-10-06', // Mid-Autumn
+                                                            '2025-10-10', '2025-10-11', '2025-10-12', // National Day
+                                                            '2025-12-25', // Constitution Day
+
+                                                            // 2026
+                                                            '2026-01-01', // New Year
+                                                            '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', // LNY
+                                                            '2026-02-27', '2026-02-28', '2026-03-01', // Peace Memorial
+                                                            '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', // Tomb Sweeping / Childrens
+                                                            '2026-05-01', // Labor Day
+                                                            '2026-06-19', '2026-06-20', '2026-06-21', // Dragon Boat
+                                                            '2026-09-25', '2026-09-26', '2026-09-27', // Mid-Autumn
+                                                            '2026-10-09', '2026-10-10', '2026-10-11', // National Day
+                                                            '2026-12-25', // Constitution Day
+                                                        ];
+
+                                                        // Empty cells
+                                                        for (let i = 0; i < firstDayOfWeek; i++) {
+                                                            days.push(<div key={`empty-${i}`} className="h-10"></div>);
+                                                        }
+
+                                                        // Days
+                                                        for (let d = 1; d <= daysInMonth; d++) {
+                                                            const currentDate = new Date(year, month, d);
+                                                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                                            const isToday = new Date().toDateString() === currentDate.toDateString();
+                                                            const isHoliday = holidays.includes(dateStr);
+                                                            const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                                            const schedule = userSchedules[dateStr];
+
+                                                            let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                                            if (schedule) {
+                                                                if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
+                                                                else if (schedule.type === 'duty') cellClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+                                                                else if (schedule.type === 'off') cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
+                                                            }
+                                                            
+                                                            if (isToday) {
+                                                                if (schedule) {
+                                                                    cellClass += ' ring-2 ring-red-600';
+                                                                } else {
+                                                                    cellClass = 'bg-red-600 text-white shadow-md';
+                                                                }
+                                                            }
+                                                            
+                                                            days.push(
+                                                                <div 
+                                                                    key={d} 
+                                                                    onClick={() => {
+                                                                        if (!cadreMapSelectedUserId) {
+                                                                            alert('請先選擇要排班的帳號');
+                                                                            return;
+                                                                        }
+                                                                        setScheduleModalDate(dateStr);
+                                                                        if (schedule) {
+                                                                            setScheduleForm({
+                                                                                type: schedule.type,
+                                                                                startTime: schedule.startTime || '08:00',
+                                                                                endTime: schedule.endTime || '17:00'
+                                                                            });
+                                                                        } else {
+                                                                            setScheduleForm({ type: 'work', startTime: '08:00', endTime: '17:00' });
+                                                                        }
+                                                                        setShowScheduleModal(true);
+                                                                    }}
+                                                                    className={`h-10 flex items-center justify-center rounded-lg text-sm font-bold cursor-pointer transition-colors ${cellClass}`}
+                                                                >
+                                                                    {d}
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return days;
+                                                    })()}
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                     {cadreSubtab === 'approval' && (
@@ -5859,6 +6078,9 @@
                                     onAddUser={handleAddUser}
                                     onAddCommunity={handleAddCommunity}
                                     subtab={settingsSubtab}
+                                    setActiveTab={setActiveTab}
+                                    setCadreSubtab={setCadreSubtab}
+                                    setCadreMapSelectedUserId={setCadreMapSelectedUserId}
                                 />
                             </div>
                         )}
@@ -6064,6 +6286,76 @@
                         onSubmit={handleAdminEditRecord}
                         loading={adminEditLoading}
                     />
+
+                    {showScheduleModal && (
+                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowScheduleModal(false)}>
+                            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">
+                                    {scheduleModalDate} 排班
+                                </h3>
+                                
+                                <div className="grid grid-cols-3 gap-3 mb-6">
+                                    <button
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'work' }))}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'work' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    >
+                                        上班
+                                    </button>
+                                    <button
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'duty' }))}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'duty' ? 'bg-yellow-400 text-white shadow-lg shadow-yellow-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    >
+                                        值班
+                                    </button>
+                                    <button
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'off' }))}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'off' ? 'bg-orange-500 text-white shadow-lg shadow-orange-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    >
+                                        公休
+                                    </button>
+                                </div>
+
+                                {scheduleForm.type !== 'off' && (
+                                    <div className="space-y-4 mb-6">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">上班時間</label>
+                                            <input
+                                                type="time"
+                                                value={scheduleForm.startTime}
+                                                onChange={e => setScheduleForm(prev => ({ ...prev, startTime: e.target.value }))}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-lg font-bold text-gray-800 focus:ring-2 focus:ring-blue-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">下班時間 (可跨日)</label>
+                                            <input
+                                                type="time"
+                                                value={scheduleForm.endTime}
+                                                onChange={e => setScheduleForm(prev => ({ ...prev, endTime: e.target.value }))}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-lg font-bold text-gray-800 focus:ring-2 focus:ring-blue-100"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowScheduleModal(false)}
+                                        className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={handleSaveSchedule}
+                                        disabled={scheduleSaving}
+                                        className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-200 disabled:opacity-50"
+                                    >
+                                        {scheduleSaving ? '儲存中...' : '確認儲存'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {showAdminDeleteModal && (
                         <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowAdminDeleteModal(false)}>
