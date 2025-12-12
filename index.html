@@ -3319,9 +3319,10 @@
                                                                                     setEditData(r);
                                                                                     setShowEditModal(true);
                                                                                 }}
-                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity text-[10px] font-bold"
+                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                                title="申請修改"
                                                                             >
-                                                                                申請修改
+                                                                                <Edit className="w-5 h-5" />
                                                                             </button>
                                                                         </div>
                                                                         <div className="flex flex-col gap-2">
@@ -4226,31 +4227,38 @@
 
             const handleProfileAvatarUpload = async (file) => {
                 if (!file || !dbUser) return;
-                const reader = new FileReader();
-                reader.onloadend = async () => {
-                    const base64String = reader.result;
-                    try {
-                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', dbUser.id), {
-                            avatarUrl: base64String,
-                            updatedAt: serverTimestamp()
-                         });
-                         const newUser = { ...dbUser, avatarUrl: base64String };
-                         setDbUser(newUser);
-                         
-                         // 如果有使用"記住我"，也要同步更新 localStorage
-                         try {
-                             if (localStorage.getItem('remember_user')) {
-                                 localStorage.setItem('remember_user', JSON.stringify(newUser));
-                             }
-                         } catch (e) {}
-                         
-                         alert('大頭照更新成功');
-                    } catch (e) {
-                        console.error(e);
-                        alert('更新大頭照失敗');
-                    }
-                };
-                reader.readAsDataURL(file);
+                
+                try {
+                    // Create a reference to the file in Firebase Storage
+                    const fileRef = storageRef(storage, `avatars/${dbUser.id}/${Date.now()}_${file.name}`);
+                    
+                    // Upload the file
+                    await uploadBytes(fileRef, file);
+                    
+                    // Get the download URL
+                    const downloadURL = await getDownloadURL(fileRef);
+                    
+                    // Update Firestore with the new URL
+                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', dbUser.id), {
+                        avatarUrl: downloadURL,
+                        updatedAt: serverTimestamp()
+                     });
+                     
+                     const newUser = { ...dbUser, avatarUrl: downloadURL };
+                     setDbUser(newUser);
+                     
+                     // 如果有使用"記住我"，也要同步更新 localStorage
+                     try {
+                         if (localStorage.getItem('remember_user')) {
+                             localStorage.setItem('remember_user', JSON.stringify(newUser));
+                         }
+                     } catch (e) {}
+                     
+                     alert('大頭照更新成功');
+                } catch (e) {
+                    console.error(e);
+                    alert('更新大頭照失敗: ' + e.message);
+                }
             };
 
             const handleResetPassword = async () => {
@@ -4565,7 +4573,7 @@
                                 <div className="bg-red-600 w-[30px] h-[30px] rounded-lg flex items-center justify-center shadow-md shadow-red-200 transform rotate-3">
                                     <Clock className="text-white w-4 h-4" />
                                 </div>
-                                <span className="font-bold text-gray-800 tracking-tight">西北打卡系統</span>
+                                <span className="font-bold text-gray-800 tracking-tight text-xl">西北打卡系統</span>
                             </div>
                             
                             <div className="flex items-center gap-3">
