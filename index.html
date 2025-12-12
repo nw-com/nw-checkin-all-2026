@@ -1304,7 +1304,7 @@
         };
 
         // 3. Admin Dashboard (System Config)
-        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId, subPagesMap }) => {
+        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId, subPagesMap, hasSubPermission }) => {
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
@@ -1696,7 +1696,7 @@
             return (
                 <div className="space-y-4 pb-20">
                     <div className="grid grid-cols-1 gap-4">
-                        {subtab === 'general' && (
+                        {subtab === 'general' && hasSubPermission('settings', 'general') && (
                         <div className="space-y-6">
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -2048,7 +2048,7 @@
                             </div>
                         </div>
                         )}
-                        {subtab === 'account' && (
+                        {subtab === 'account' && hasSubPermission('settings', 'account') && (
                         <>
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -2370,7 +2370,7 @@
                         </>
                         )}
 
-                        {subtab === 'community' && (
+                        {subtab === 'community' && hasSubPermission('settings', 'community') && (
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                 <Building2 className="w-5 h-5 mr-2 text-red-600" />
@@ -5490,7 +5490,7 @@
 
                         {activeTab === 'clock' && hasPermission('clock') && (
                             <div className="space-y-6 mb-6">
-                                {clockSubtab === 'work' && (
+                                {clockSubtab === 'work' && hasSubPermission('clock', 'work') && (
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
@@ -5508,7 +5508,7 @@
                                         mode="work"
                                     />
                                 )}
-                                {clockSubtab === 'out' && (
+                                {clockSubtab === 'out' && hasSubPermission('clock', 'out') && (
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
@@ -5526,7 +5526,7 @@
                                         mode="outing"
                                     />
                                 )}
-                                {clockSubtab === 'card' && (
+                                {clockSubtab === 'card' && hasSubPermission('clock', 'card') && (
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
@@ -5544,7 +5544,7 @@
                                         mode="card"
                                     />
                                 )}
-                                {clockSubtab === 'leave' && (
+                                {clockSubtab === 'leave' && hasSubPermission('clock', 'leave') && (
                                     <StaffDashboard 
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn}
@@ -5563,7 +5563,13 @@
                                         mode="leave"
                                     />
                                 )}
-
+                                {clockSubtab === 'points' && hasSubPermission('clock', 'points') && (
+                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                         <div className="text-center py-8 text-gray-400">
+                                             尚無計點功能
+                                         </div>
+                                     </div>
+                                )}
                             </div>
                         )}
 
@@ -5610,7 +5616,7 @@
                         {activeTab === 'function' && hasPermission('function') && (
                             <div className="space-y-6">
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                                    {functionSubtab === 'patrol' && (
+                                    {functionSubtab === 'patrol' && hasSubPermission('function', 'patrol') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 巡邏管理
@@ -5620,7 +5626,7 @@
                                             </div>
                                         </div>
                                     )}
-                                    {functionSubtab === 'training' && (
+                                    {functionSubtab === 'training' && hasSubPermission('function', 'training') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 教育訓練
@@ -5630,7 +5636,7 @@
                                             </div>
                                         </div>
                                     )}
-                                    {functionSubtab === 'download' && (
+                                    {functionSubtab === 'download' && hasSubPermission('function', 'download') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 文件下載
@@ -5652,7 +5658,7 @@
                                         <span className="text-red-600 font-bold">{cadreCompany}</span>
                                     </div>
 
-                                    {cadreSubtab === 'map' && (
+                                    {cadreSubtab === 'map' && hasSubPermission('cadre', 'map') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <MapPin className="w-5 h-5 mr-2 text-red-600" /> 地圖
@@ -5732,7 +5738,7 @@
                                             })()}
                                         </div>
                                     )}
-                                    {cadreSubtab === 'record' && (function() {
+                                    {cadreSubtab === 'record' && hasSubPermission('cadre', 'record') && (function() {
                                         const targetCompany = companies.find(c => c.name === cadreCompany);
                                         const companyUserIds = targetCompany ? usersList
                                             .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
@@ -5974,7 +5980,7 @@
                                         </div>
                                         );
                                     })()}
-                                    {cadreSubtab === 'leave' && (function() {
+                                    {cadreSubtab === 'leave' && hasSubPermission('cadre', 'leave') && (function() {
                                         const targetCompany = companies.find(c => c.name === cadreCompany);
                                         const companyUserIds = targetCompany ? usersList
                                             .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
@@ -6152,7 +6158,7 @@
                                         </div>
                                         );
                                     })()}
-                                    {cadreSubtab === 'schedule' && (
+                                    {cadreSubtab === 'schedule' && hasSubPermission('cadre', 'schedule') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Calendar className="w-5 h-5 mr-2 text-red-600" /> 班表
@@ -6332,14 +6338,14 @@
                                             </div>
                                         </div>
                                     )}
-                                    {cadreSubtab === 'approval' && (
+                                    {cadreSubtab === 'approval' && hasSubPermission('cadre', 'approval') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈
                                             </h3>
                                         </div>
                                     )}
-                                    {cadreSubtab === 'account' && (
+                                    {cadreSubtab === 'account' && hasSubPermission('cadre', 'account') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Users className="w-5 h-5 mr-2 text-red-600" /> 帳號資料
@@ -6411,7 +6417,7 @@
                                             </div>
                                         </div>
                                     )}
-                                    {cadreSubtab === 'notification' && (
+                                    {cadreSubtab === 'notification' && hasSubPermission('cadre', 'notification') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <AlertCircle className="w-5 h-5 mr-2 text-red-600" /> 通知
@@ -6425,7 +6431,7 @@
                         {activeTab === 'application' && hasPermission('application') && (
                             <div className="space-y-6">
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                                    {applicationSubtab === 'signature' && (
+                                    {applicationSubtab === 'signature' && hasSubPermission('application', 'signature') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <FileText className="w-5 h-5 mr-2 text-red-600" /> 電子簽呈
@@ -6435,7 +6441,7 @@
                                             </div>
                                         </div>
                                     )}
-                                    {applicationSubtab === 'equipment' && (
+                                    {applicationSubtab === 'equipment' && hasSubPermission('application', 'equipment') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <FileText className="w-5 h-5 mr-2 text-red-600" /> 設備申請
@@ -6467,6 +6473,7 @@
                                     setCadreSubtab={setCadreSubtab}
                                     setCadreMapSelectedUserId={setCadreMapSelectedUserId}
                                     subPagesMap={subPagesMap}
+                                    hasSubPermission={hasSubPermission}
                                 />
                             </div>
                         )}
