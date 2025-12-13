@@ -4273,6 +4273,7 @@
                 }
             });
             const [checkInLocation, setCheckInLocation] = useState(null);
+            const [isNightShift, setIsNightShift] = useState(false);
             const [showCompanyMenu, setShowCompanyMenu] = useState(false);
             const [roles, setRoles] = useState([]);
             const [companies, setCompanies] = useState([]);
@@ -4571,9 +4572,15 @@
                             };
                             
                             if (scheduleType === 'work') {
-                                scheduleData.startTime = '09:00';
-                                scheduleData.endTime = '17:30';
-                                scheduleData.crossDay = false;
+                                if (isNightShift) {
+                                    scheduleData.startTime = '12:00';
+                                    scheduleData.endTime = '12:00';
+                                    scheduleData.crossDay = true;
+                                } else {
+                                    scheduleData.startTime = '09:00';
+                                    scheduleData.endTime = '17:30';
+                                    scheduleData.crossDay = false;
+                                }
                             }
 
                             promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId), scheduleData));
@@ -6684,7 +6691,16 @@
                                                     })()}
                                                 </div>
                                                 
-                                                <div className="mt-4 flex justify-end">
+                                                <div className="mt-4 flex justify-end items-center gap-4">
+                                                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={isNightShift} 
+                                                            onChange={(e) => setIsNightShift(e.target.checked)}
+                                                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                                                        />
+                                                        <span className="text-gray-700 font-bold text-sm">夜班人員</span>
+                                                    </label>
                                                     <button
                                                         onClick={handleAutoSchedule}
                                                         disabled={scheduleSaving}
