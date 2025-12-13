@@ -3395,7 +3395,41 @@
             }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup, mode]);
 
             const lastRecord = attendanceHistory[0];
-            const isWorking = lastRecord && lastRecord.type === 'in';
+            // Auto-Reset Logic: Determine if still "Working" based on Shift Type
+            const isWorking = useMemo(() => {
+                if (!lastRecord || lastRecord.type !== 'in') return false;
+
+                // 1. Get Record Time
+                const seconds = lastRecord.timestamp?.seconds || (lastRecord.createdAt?.seconds) || (Date.now() / 1000);
+                const recordTime = new Date(seconds * 1000);
+                
+                // 2. Get Schedule for Record Date (to determine shift type)
+                const y = recordTime.getFullYear();
+                const m = String(recordTime.getMonth() + 1).padStart(2, '0');
+                const d = String(recordTime.getDate()).padStart(2, '0');
+                const recordDateStr = `${y}-${m}-${d}`;
+                
+                const schedule = mySchedules[recordDateStr];
+                // Night Shift: startTime 12:00 or crossDay=true
+                const isNightShiftRecord = schedule && (schedule.startTime === '12:00' || schedule.crossDay === true);
+
+                // 3. Calculate Reset Deadline
+                const resetTime = new Date(recordTime);
+                resetTime.setHours(0, 0, 0, 0); // Start of the record day
+                
+                if (isNightShiftRecord) {
+                    // Night Shift: Reset at 12:00 PM (Noon) on the NEXT day
+                    resetTime.setDate(resetTime.getDate() + 1);
+                    resetTime.setHours(12, 0, 0, 0);
+                } else {
+                    // General: Reset at 00:00 AM (Midnight) on the NEXT day
+                    resetTime.setDate(resetTime.getDate() + 1);
+                    resetTime.setHours(0, 0, 0, 0);
+                }
+
+                // 4. Compare with Current Time
+                return currentTime < resetTime;
+            }, [lastRecord, mySchedules, currentTime]);
 
             const getButtonConfig = () => {
                 if (mode === 'card') {
