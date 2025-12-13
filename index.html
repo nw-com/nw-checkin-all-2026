@@ -3152,47 +3152,114 @@
 
                  // Special handling for Outing/Card modes: Service Community + Custom
                  if (['outing', 'card'].includes(mode)) {
-                     // For Outing/Card, we show communities regardless of role
-                     // If user is staff, filter by assigned communities. If Admin/Cadre, maybe show all?
-                     // Assuming 'Service Community' means all available communities for Admin/Cadre, or assigned for Staff.
-                     // But Admin/Cadre usually don't have assigned communities in communityIds.
-                     // Let's assume for Admin/Cadre we show ALL communities, for Staff we show assigned.
-                     
-                     let targetCommunities = [];
-                     if (isCompanyGroup) {
-                         // Admin/Cadre/Manager -> Show all communities (filtered by company maybe? but user said "Service Community")
-                         // Let's show all for flexibility, or maybe filter by company if possible.
-                         // For now, let's use all communities to ensure they can find the one they are visiting.
-                         targetCommunities = communities || [];
-                     } else {
-                         // Staff -> Assigned communities
-                         const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
-                         targetCommunities = (communities || []).filter(c => userCommIds.includes(c.id));
-                     }
-
-                     const userComms = targetCommunities.map(c => ({ 
-                         ...c, 
-                         type: 'community',
-                         lat: c.coordLat, 
-                         lng: c.coordLng 
-                     }));
-                     
-                     let sortedComms = userComms;
-                     if (currentLocation && userComms.length > 1) {
-                         sortedComms = userComms.sort((a, b) => {
-                             const latA = parseFloat(a.coordLat);
-                             const lngA = parseFloat(a.coordLng);
-                             const latB = parseFloat(b.coordLat);
-                             const lngB = parseFloat(b.coordLng);
-                             if (isNaN(latA) || isNaN(lngA)) return 1;
-                             if (isNaN(latB) || isNaN(lngB)) return -1;
-                             return calculateDistance(currentLocation.lat, currentLocation.lng, latA, lngA) - calculateDistance(currentLocation.lat, currentLocation.lng, latB, lngB);
-                         });
-                     } else {
-                        sortedComms = userComms.sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
-                     }
-
-                     return [...sortedComms, { id: 'custom', name: '自定義地點', type: 'custom' }];
+                    const available = [];
+                    
+                    // 1. Companies (所屬公司 - All Options for Admin, User Company for Staff)
+                    const allComps = (companies || []).map(c => ({ 
+                        ...c, 
+                        type: 'company',
+                        lat: c.coordLat,
+                        lng: c.coordLng
+                    }));
+                    
+                    if (isCompanyGroup) {
+                        // Admin/Cadre: Use Work Mode sorting logic for Companies
+                        const userCompany = allComps.find(c => c.id === currentUser.companyId);
+                        let sortedComps = allComps;
+                        
+                        if (userCompany) {
+                             const isTaipei = userCompany.name.includes('台北');
+                             const isTaoyuan = userCompany.name.includes('桃園');
+                             
+                             if (isTaipei) {
+                                sortedComps = allComps
+                                    .filter(c => c.name.includes('台北') || c.name.includes('桃園'))
+                                    .sort((a, b) => {
+                                        if (a.name.includes('台北')) return -1;
+                                        if (b.name.includes('台北')) return 1;
+                                        return 0;
+                                    });
+                            } else if (isTaoyuan) {
+                                sortedComps = allComps
+                                    .filter(c => c.name.includes('台北') || c.name.includes('桃園'))
+                                    .sort((a, b) => {
+                                        if (a.name.includes('桃園')) return -1;
+                                        if (b.name.includes('桃園')) return 1;
+                                        return 0;
+                                    });
+                            } else {
+                                 sortedComps = allComps.sort((a, b) => {
+                                     if (a.id === userCompany.id) return -1;
+                                     if (b.id === userCompany.id) return 1;
+                                     return 0;
+                                 });
+                             }
+                        }
+                        available.push(...sortedComps);
+                    } else {
+                        // Staff: Only My Company
+                        const userCompany = allComps.find(c => c.id === currentUser.companyId);
+                        if (userCompany) available.push(userCompany);
+                    }
+                    
+                    // 2. Service Communities (服務地點)
+                    let targetCommunities = [];
+                    if (isCompanyGroup) {
+                        targetCommunities = communities || [];
+                    } else {
+                        const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
+                        targetCommunities = (communities || []).filter(c => userCommIds.includes(c.id));
+                    }
+                    
+                    const communityLocs = targetCommunities.map(c => ({ 
+                        ...c, 
+                        type: 'community',
+                        lat: c.coordLat, 
+                        lng: c.coordLng 
+                    }));
+                    
+                    // 3. Sorting and Mixing
+                    if (isCompanyGroup) {
+                        // Admin: Companies (already sorted by Logic) + Communities (sorted by Distance)
+                         if (currentLocation) {
+                            communityLocs.sort((a, b) => {
+                                 const latA = parseFloat(a.lat || a.coordLat);
+                                 const lngA = parseFloat(a.lng || a.coordLng);
+                                 const latB = parseFloat(b.lat || b.coordLat);
+                                 const lngB = parseFloat(b.lng || b.coordLng);
+                                 if (!isNaN(latA) && !isNaN(lngA) && !isNaN(latB) && !isNaN(lngB)) {
+                                     const distA = calculateDistance(currentLocation.lat, currentLocation.lng, latA, lngA);
+                                     const distB = calculateDistance(currentLocation.lat, currentLocation.lng, latB, lngB);
+                                     return distA - distB;
+                                 }
+                                 return 0;
+                            });
+                        }
+                        available.push(...communityLocs);
+                    } else {
+                        // Staff: Mix Company + Communities, Sort ALL by Distance
+                        available.push(...communityLocs);
+                        
+                        if (currentLocation) {
+                            available.sort((a, b) => {
+                                 const latA = parseFloat(a.lat || a.coordLat);
+                                 const lngA = parseFloat(a.lng || a.coordLng);
+                                 const latB = parseFloat(b.lat || b.coordLat);
+                                 const lngB = parseFloat(b.lng || b.coordLng);
+                                 if (!isNaN(latA) && !isNaN(lngA) && !isNaN(latB) && !isNaN(lngB)) {
+                                     const distA = calculateDistance(currentLocation.lat, currentLocation.lng, latA, lngA);
+                                     const distB = calculateDistance(currentLocation.lat, currentLocation.lng, latB, lngB);
+                                     return distA - distB;
+                                 }
+                                 return 0;
+                            });
+                        }
+                    }
+                    
+                    // 4. Custom (Always last)
+                    available.push({ id: 'custom', name: '自定義地點', type: 'custom' });
+                    
+                    return available;
                  }
                  
                  if (isCompanyGroup) {
