@@ -3429,9 +3429,32 @@
                      const m = String(currentTime.getMonth() + 1).padStart(2, '0');
                      const d = String(currentTime.getDate()).padStart(2, '0');
                      const todayStr = `${y}-${m}-${d}`;
+                     
+                     // Check Schedule & Holiday Logic
+                     const schedule = mySchedules[todayStr];
+                     const dayOfWeek = currentTime.getDay();
+                     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                     const isNationalHoliday = holidays.includes(todayStr);
+                     const isCalendarHoliday = isWeekend || isNationalHoliday;
 
-                     if (holidays.includes(todayStr)) {
-                         return { type: 'in', text: '非上班日', sub: '', icon: MapPin, colorClass: 'bg-gray-200 text-gray-500 border-2 border-gray-100 cursor-not-allowed', iconBg: 'bg-gray-100', iconColor: 'text-gray-500', disabled: true };
+                     // 1. If Schedule Exists
+                     if (schedule) {
+                         // 'work' or 'duty' -> Allow Clock In (Button Active)
+                         if (schedule.type === 'work' || schedule.type === 'duty') {
+                             return { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
+                         }
+                         // 'off' -> Allow Clock In but will trigger Confirmation (Button Active)
+                         // User requirement: "如果當日是'公休' 則於打卡時顯示...確認..." (Implies button is clickable)
+                         if (schedule.type === 'off') {
+                             return { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
+                         }
+                     } 
+                     
+                     // 2. If No Schedule -> Check Calendar
+                     if (!schedule) {
+                         if (isCalendarHoliday) {
+                             return { type: 'in', text: '非上班日', sub: '', icon: MapPin, colorClass: 'bg-gray-200 text-gray-500 border-2 border-gray-100 cursor-not-allowed', iconBg: 'bg-gray-100', iconColor: 'text-gray-500', disabled: true };
+                         }
                      }
                 }
 
