@@ -48,6 +48,15 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+
+        /* Custom Background Pulse Animation for Abnormal Status */
+        @keyframes bg-red-pulse {
+            0%, 100% { background-color: #fecaca; } /* bg-red-200 */
+            50% { background-color: #fee2e2; } /* bg-red-100 */
+        }
+        .animate-bg-red-pulse {
+            animation: bg-red-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
     </style>
     <script src="./firebase-config.js"></script>
     <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&loading=async"></script>
@@ -153,7 +162,8 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = initializeFirestore(app, {
-            ignoreUndefinedProperties: true
+            ignoreUndefinedProperties: true,
+            experimentalForceLongPolling: true,
         });
         const storage = getStorage(app);
         
@@ -189,8 +199,8 @@
                              mapInstanceRef.current.panTo(uLoc);
                              mapInstanceRef.current.setZoom(19);
                              setShowResetBtn(true);
-                             setSelectedUser(target);
                         }
+                        setSelectedUser(target);
                     }
                 }
             }, [externalSelectedUserId, users]);
@@ -440,13 +450,26 @@
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="font-bold text-gray-800 text-sm truncate">{selectedUser.name}</div>
-                                    <div className="text-xs text-gray-500 truncate flex items-center gap-1">
-                                        <MapPin className="w-3 h-3" />
-                                        {selectedUser.locationName || '座標定位'}
-                                    </div>
-                                    <div className="text-[10px] text-gray-400 mt-0.5">
-                                        {selectedUser.time ? new Date(selectedUser.time).toLocaleString('zh-TW') : '剛剛'}
-                                    </div>
+                                    {(function(){
+                                        const hasTime = !!selectedUser.time;
+                                        const rDate = hasTime ? new Date(selectedUser.time) : null;
+                                        const now = new Date();
+                                        const isToday = rDate && rDate.toDateString() === now.toDateString();
+                                        
+                                        return (
+                                            <>
+                                                {isToday && (
+                                                    <div className="text-xs text-gray-500 truncate flex items-center gap-1">
+                                                        <MapPin className="w-3 h-3" />
+                                                        {selectedUser.locationName || '座標定位'}
+                                                    </div>
+                                                )}
+                                                <div className={`mt-0.5 ${isToday ? 'text-[10px] text-gray-400' : 'text-sm font-bold text-red-600'}`}>
+                                                    {isToday ? rDate.toLocaleString('zh-TW') : '今日未打卡'}
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                                 <button 
                             onClick={() => {
@@ -1556,6 +1579,19 @@
             const [userError, setUserError] = useState('');
             const [confirmDelete, setConfirmDelete] = useState(null);
             const [toast, setToast] = useState('');
+
+            useEffect(() => {
+                if (!toast) return;
+                const timer = setTimeout(() => {
+                    setToast('');
+                }, 1000);
+                return () => clearTimeout(timer);
+            }, [toast]);
+
+
+
+
+
             const [editingUserId, setEditingUserId] = useState(null);
             const [showCommunityModal, setShowCommunityModal] = useState(false);
             const [communityForm, setCommunityForm] = useState({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 });
@@ -2384,9 +2420,6 @@
                                 </div>
                             </div>
                         )}
-                        {toast && (
-                            <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-2xl">{toast}</div>
-                        )}
                         </>
                         )}
 
@@ -3018,6 +3051,7 @@
         // 4. Staff Dashboard
         const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
+            const [toast, setToast] = useState(''); // Add toast state to StaffDashboard
             const [showLeaveModal, setShowLeaveModal] = useState(false);
             const [leaveLoading, setLeaveLoading] = useState(false);
             const [showLocationSelector, setShowLocationSelector] = useState(false);
@@ -3042,6 +3076,15 @@
                 '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', '2025-02-28', '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', '2025-05-01', '2025-05-30', '2025-05-31', '2025-06-01', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-10', '2025-10-11', '2025-10-12', '2025-12-25',
                 '2026-01-01', '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', '2026-02-27', '2026-02-28', '2026-03-01', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', '2026-05-01', '2026-06-19', '2026-06-20', '2026-06-21', '2026-09-25', '2026-09-26', '2026-09-27', '2026-10-09', '2026-10-10', '2026-10-11', '2026-12-25'
             ];
+
+            // 5. Toast Auto-Close Logic (Added to StaffDashboard)
+            useEffect(() => {
+                if (!toast) return;
+                const timer = setTimeout(() => {
+                    setToast('');
+                }, 1000);
+                return () => clearTimeout(timer);
+            }, [toast]);
 
             // Fetch My Schedules & Leaves
             useEffect(() => {
@@ -3661,7 +3704,8 @@
                                     </p>
                                 </div>
                                 {(function(){
-                                    const lastType = lastRecord?.type;
+                                    // Use isWorking to control status display (reset logic)
+                                    const lastType = isWorking ? lastRecord?.type : null;
                                     // Default (No Record)
                                     let statusText = '未打卡';
                                     let statusClass = 'bg-gray-200 text-gray-500';
@@ -4064,6 +4108,12 @@
                             </div>
                         </div>
                     )}
+
+                    {toast && (
+                        <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-2xl">
+                            {toast}
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -4306,6 +4356,7 @@
                     return new Date();
                 }
             });
+            const [todaySchedules, setTodaySchedules] = useState({});
             const [checkInLocation, setCheckInLocation] = useState(null);
             const [isNightShift, setIsNightShift] = useState(false);
             const [showCompanyMenu, setShowCompanyMenu] = useState(false);
@@ -4340,6 +4391,44 @@
             const [showAdminDeleteModal, setShowAdminDeleteModal] = useState(false);
             const [adminDeleteTarget, setAdminDeleteTarget] = useState(null);
             const [toast, setToast] = useState('');
+
+            useEffect(() => {
+                if (!toast) return;
+                const timer = setTimeout(() => {
+                    setToast('');
+                }, 1000);
+                return () => clearTimeout(timer);
+            }, [toast]);
+
+            // Fetch Today's Schedules for Cadre Map Status
+            useEffect(() => {
+                if (activeTab !== 'cadre' || cadreSubtab !== 'map') return;
+                
+                // Get today's date string YYYY-MM-DD (Local Time)
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, '0');
+                const d = String(now.getDate()).padStart(2, '0');
+                const todayDateStr = `${y}-${m}-${d}`;
+
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                    where('date', '==', todayDateStr)
+                );
+
+                const unsub = onSnapshot(q, (snap) => {
+                    const scheds = {};
+                    snap.forEach(doc => {
+                        const data = doc.data();
+                        if (data.userId) {
+                            scheds[data.userId] = data;
+                        }
+                    });
+                    setTodaySchedules(scheds);
+                });
+
+                return () => unsub();
+            }, [activeTab, cadreSubtab]);
 
             const hasSubPermission = (pageKey, subKey) => {
                 if (!dbUser) return false;
@@ -5394,7 +5483,7 @@
                     );
                     
                     setShowCameraModal(false);
-                    alert('打卡成功！');
+                    setToast('打卡成功！');
                 } catch (e) {
                     console.error("Database Error", e);
                     let msg = e.message;
@@ -5815,15 +5904,76 @@
 
                                         return companyUsers.map(u => {
                                             const isSelected = cadreMapSelectedUserId === u.id;
+                                            
+                                            // Get Today's Schedule and Records
+                                            const schedule = todaySchedules[u.id];
+                                            const userRecords = (attendanceList || []).filter(r => {
+                                                if (r.userId !== u.id) return false;
+                                                const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
+                                                const rDate = new Date(seconds * 1000);
+                                                return rDate.toDateString() === new Date().toDateString();
+                                            });
+                                            
+                                            const hasClockedInToday = userRecords.length > 0;
+                                            
+                                            // Determine Status
+                                            let status = 'none';
+                                            if (hasClockedInToday) {
+                                                status = 'normal'; // Default to normal if clocked in
+                                                if (schedule) {
+                                                    // 1. Late In
+                                                    const earliestIn = [...userRecords].reverse().find(r => r.type === 'in');
+                                                    if (earliestIn && schedule.startTime) {
+                                                        const [sh, sm] = schedule.startTime.split(':').map(Number);
+                                                        const schedMins = sh * 60 + sm;
+                                                        const seconds = earliestIn.timestamp?.seconds || earliestIn.createdAt?.seconds || Date.now()/1000;
+                                                        const inDate = new Date(seconds * 1000);
+                                                        const inMins = inDate.getHours() * 60 + inDate.getMinutes();
+                                                        if (inMins > schedMins) status = 'abnormal';
+                                                    }
+                                                    // 2. Early Out
+                                                    const latestOut = userRecords.find(r => r.type === 'out');
+                                                    if (latestOut && schedule.endTime) {
+                                                        if (schedule.crossDay) {
+                                                            status = 'abnormal'; // Out today for cross-day shift is early
+                                                        } else {
+                                                            const [eh, em] = schedule.endTime.split(':').map(Number);
+                                                            const schedEndMins = eh * 60 + em;
+                                                            const seconds = latestOut.timestamp?.seconds || latestOut.createdAt?.seconds || Date.now()/1000;
+                                                            const outDate = new Date(seconds * 1000);
+                                                            const outMins = outDate.getHours() * 60 + outDate.getMinutes();
+                                                            if (outMins < schedEndMins) status = 'abnormal';
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // Not clocked in check: Absent/Late (> 30 mins past start time)
+                                                if (schedule && schedule.startTime) {
+                                                    const [sh, sm] = schedule.startTime.split(':').map(Number);
+                                                    const schedMins = sh * 60 + sm;
+                                                    const now = new Date();
+                                                    const nowMins = now.getHours() * 60 + now.getMinutes();
+                                                    if (nowMins > schedMins + 30) {
+                                                        status = 'abnormal';
+                                                    }
+                                                }
+                                            }
+
                                             return (
                                                 <div 
                                                     key={u.id}
-                                                    className="flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group"
+                                                    className={`flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group rounded-lg p-1 transition-colors ${
+                                                        isSelected ? 'bg-red-100' : 
+                                                        (status === 'none' ? 'bg-gray-100' : 
+                                                         (status === 'abnormal' ? 'bg-red-200 animate-bg-red-pulse' : 'bg-green-50'))
+                                                    }`}
                                                     onClick={() => setCadreMapSelectedUserId(u.id)}
                                                 >
                                                     <div 
-                                                        className={`w-10 h-10 rounded-full overflow-hidden border-2 shadow-sm relative group-hover:scale-105 transition-transform ${isSelected ? 'bg-red-100 border-red-500' : 'bg-gray-200 border-white'}`} 
-                                                        title={u.name}
+                                                        className={`w-10 h-10 rounded-full overflow-hidden border-2 shadow-sm relative group-hover:scale-105 transition-transform ${
+                                                            isSelected ? 'bg-white border-red-500' : 'bg-gray-200 border-white'
+                                                        }`} 
+                                                        title={hasClockedInToday ? u.name : `${u.name} (今日未打卡)`}
                                                     >
                                                         {u.avatarUrl ? (
                                                             <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
@@ -6060,9 +6210,6 @@
 
                                     {cadreSubtab === 'map' && hasSubPermission('cadre', 'map') && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <MapPin className="w-5 h-5 mr-2 text-red-600" /> 地圖
-                                            </h3>
                                             {(function() {
                                                 const targetCompany = companies.find(c => c.name === cadreCompany);
                                                 
@@ -6094,26 +6241,28 @@
                                                             // attendanceList is sorted by desc timestamp
                                                             const record = attendanceList.find(r => r.userId === u.id && r.location && r.location.includes(','));
                                                             
+                                                            const userData = {
+                                                                id: u.id,
+                                                                avatarUrl: u.avatarUrl,
+                                                                name: u.name
+                                                            };
+
                                                             if (record) {
                                                                 const parts = record.location.split(',');
-                                                                return {
-                                                                    id: u.id,
-                                                                    lat: parseFloat(parts[0]),
-                                                                    lng: parseFloat(parts[1]),
-                                                                    avatarUrl: u.avatarUrl,
-                                                                    name: u.name,
-                                                                    time: (record.timestamp?.seconds || Date.now() / 1000) * 1000,
-                                                                    locationName: record.checkInLocationName || targetCompany.name
-                                                                };
+                                                                userData.lat = parseFloat(parts[0]);
+                                                                userData.lng = parseFloat(parts[1]);
+                                                                userData.time = (record.timestamp?.seconds || record.createdAt?.seconds || Date.now() / 1000) * 1000;
+                                                                userData.locationName = record.checkInLocationName || targetCompany.name;
                                                             }
-                                                            return null;
-                                                        }).filter(u => u !== null);
+                                                            
+                                                            return userData;
+                                                        });
                                                     }
                                                 }
 
                                                 return (
                                                     <div className="space-y-4">
-                                                        <div className="w-full h-64 bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
+                                                        <div className="w-full aspect-square bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
                                                             {displayLocation ? (
                                                                 <CompanyMapPreview 
                                                                     lat={displayLocation.lat} 
@@ -6560,9 +6709,6 @@
                                     })()}
                                     {cadreSubtab === 'schedule' && hasSubPermission('cadre', 'schedule') && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <Calendar className="w-5 h-5 mr-2 text-red-600" /> 班表
-                                            </h3>
                                             
                                             {cadreMapSelectedUserId && (
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
@@ -6749,16 +6895,12 @@
                                     )}
                                     {cadreSubtab === 'approval' && hasSubPermission('cadre', 'approval') && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈
-                                            </h3>
+                                            
                                         </div>
                                     )}
                                     {cadreSubtab === 'account' && hasSubPermission('cadre', 'account') && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <Users className="w-5 h-5 mr-2 text-red-600" /> 帳號資料
-                                            </h3>
+                                            
                                             
                                             {cadreMapSelectedUserId && (
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
@@ -6828,9 +6970,7 @@
                                     )}
                                     {cadreSubtab === 'notification' && hasSubPermission('cadre', 'notification') && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <AlertCircle className="w-5 h-5 mr-2 text-red-600" /> 通知
-                                            </h3>
+                                            
                                         </div>
                                     )}
                                 </div>
@@ -7212,6 +7352,12 @@
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {toast && (
+                        <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-2xl">
+                            {toast}
                         </div>
                     )}
                 </div>
