@@ -1584,7 +1584,7 @@
                 if (!toast) return;
                 const timer = setTimeout(() => {
                     setToast('');
-                }, 1000);
+                }, 3000);
                 return () => clearTimeout(timer);
             }, [toast]);
 
@@ -3082,7 +3082,7 @@
                 if (!toast) return;
                 const timer = setTimeout(() => {
                     setToast('');
-                }, 1000);
+                }, 3000);
                 return () => clearTimeout(timer);
             }, [toast]);
 
@@ -3637,8 +3637,24 @@
 
             // Calculate Header Background
             let headerBgClass = 'bg-gradient-to-br from-gray-600 to-gray-700 shadow-gray-200';
-            if (lastRecord?.type) {
-                const t = lastRecord.type;
+            
+            // Get Today's Records for Background Logic
+            const todayRecordsForBg = attendanceHistory.filter(r => {
+                const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
+                const rDate = new Date(seconds * 1000);
+                // Use currentTime from state for consistent date comparison
+                return rDate.getFullYear() === currentTime.getFullYear() && 
+                       rDate.getMonth() === currentTime.getMonth() && 
+                       rDate.getDate() === currentTime.getDate();
+            }).sort((a, b) => {
+                 const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                 const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                 return ta - tb;
+            });
+            const lastRecordForBg = todayRecordsForBg[todayRecordsForBg.length - 1];
+
+            if (lastRecordForBg?.type) {
+                const t = lastRecordForBg.type;
                 if (['in', 'late_in'].includes(t)) {
                     headerBgClass = 'bg-gradient-to-br from-green-600 to-green-700 shadow-green-200';
                 } else if (['out', 'late_out'].includes(t)) {
@@ -3648,6 +3664,9 @@
                 } else if (t === 'leave') {
                     headerBgClass = 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-200';
                 }
+            } else {
+                // No records today -> Grey
+                headerBgClass = 'bg-gradient-to-br from-gray-600 to-gray-700 shadow-gray-200';
             }
 
             return (
@@ -3704,26 +3723,60 @@
                                     </p>
                                 </div>
                                 {(function(){
-                                    // Use isWorking to control status display (reset logic)
-                                    const lastType = isWorking ? lastRecord?.type : null;
-                                    // Default (No Record)
+                                    // 1. Get Today's Schedule
+                                    const y = currentTime.getFullYear();
+                                    const m = String(currentTime.getMonth() + 1).padStart(2, '0');
+                                    const d = String(currentTime.getDate()).padStart(2, '0');
+                                    const todayStr = `${y}-${m}-${d}`;
+                                    const schedule = mySchedules[todayStr];
+
+                                    // 2. Get Today's Records
+                                    // Filter strictly for today based on currentTime
+                                    const todayRecords = attendanceHistory.filter(r => {
+                                        const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
+                                        const rDate = new Date(seconds * 1000);
+                                        return rDate.getFullYear() === y && 
+                                               rDate.getMonth() === currentTime.getMonth() && 
+                                               rDate.getDate() === currentTime.getDate();
+                                    }).sort((a, b) => {
+                                         const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                                         const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                                         return ta - tb;
+                                    });
+                                    
+                                    const lastRec = todayRecords[todayRecords.length - 1];
+
+                                    // 3. Determine Status Text & Color
                                     let statusText = '未打卡';
                                     let statusClass = 'bg-gray-200 text-gray-500';
 
-                                    if (lastType) {
-                                        const config = getTypeLabel(lastType);
-                                        statusText = config.text;
-                                        // Override colors based on user request
-                                        if (['in', 'late_in'].includes(lastType)) {
-                                            statusClass = 'bg-green-100 text-green-700';
-                                        } else if (['out', 'late_out'].includes(lastType)) {
-                                            statusClass = 'bg-red-100 text-red-700';
-                                        } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastType)) {
-                                            statusClass = 'bg-blue-100 text-blue-700';
-                                        } else if (lastType === 'leave') {
-                                            statusClass = 'bg-orange-100 text-orange-700';
+                                    // Priority: Schedule (Off/Leave) -> Records -> Default
+                                    if (schedule?.type === 'off') {
+                                        statusText = '公休';
+                                        statusClass = 'bg-stone-200 text-stone-600';
+                                    } else if (schedule?.type === 'leave') {
+                                        statusText = '請假';
+                                        statusClass = 'bg-orange-100 text-orange-700';
+                                    } else {
+                                        // Work or Duty or No Schedule
+                                        if (lastRec) {
+                                            const config = getTypeLabel(lastRec.type);
+                                            statusText = config.text;
+                                            // Apply colors based on type
+                                            if (['in', 'late_in'].includes(lastRec.type)) {
+                                                statusClass = 'bg-green-100 text-green-700';
+                                            } else if (['out', 'late_out'].includes(lastRec.type)) {
+                                                statusClass = 'bg-red-100 text-red-700';
+                                            } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastRec.type)) {
+                                                statusClass = 'bg-blue-100 text-blue-700';
+                                            } else if (lastRec.type === 'leave') {
+                                                statusClass = 'bg-orange-100 text-orange-700';
+                                            } else {
+                                                statusClass = config.color;
+                                            }
                                         } else {
-                                            statusClass = config.color;
+                                            statusText = '未打卡';
+                                            statusClass = 'bg-gray-200 text-gray-500';
                                         }
                                     }
 
@@ -4110,8 +4163,9 @@
                     )}
 
                     {toast && (
-                        <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-2xl">
-                            {toast}
+                        <div className={`fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 transition-all transform duration-300 ${toast === '打卡完成' ? 'bg-green-600 scale-110 top-1/2 -translate-y-1/2' : 'bg-gray-800'}`}>
+                           {toast === '打卡完成' && <CheckCircle className="w-8 h-8 text-white" />}
+                           <span className={`${toast === '打卡完成' ? 'text-xl font-bold' : 'text-sm'} text-white`}>{toast}</span>
                         </div>
                     )}
                 </div>
@@ -4396,7 +4450,7 @@
                 if (!toast) return;
                 const timer = setTimeout(() => {
                     setToast('');
-                }, 1000);
+                }, 3000);
                 return () => clearTimeout(timer);
             }, [toast]);
 
@@ -5483,7 +5537,7 @@
                     );
                     
                     setShowCameraModal(false);
-                    setToast('打卡成功！');
+                    setToast('打卡完成');
                 } catch (e) {
                     console.error("Database Error", e);
                     let msg = e.message;
@@ -5914,47 +5968,81 @@
                                                 return rDate.toDateString() === new Date().toDateString();
                                             });
                                             
-                                            const hasClockedInToday = userRecords.length > 0;
+                                            // Sort records by time
+                                            const sortedRecords = [...userRecords].sort((a, b) => {
+                                                const tA = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                                                const tB = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                                                return tA - tB;
+                                            });
+                                            const lastRecord = sortedRecords[sortedRecords.length - 1];
+                                            const hasClockedInToday = userRecords.some(r => r.type === 'in' || r.type === 'late_in');
                                             
-                                            // Determine Status
-                                            let status = 'none';
-                                            if (hasClockedInToday) {
-                                                status = 'normal'; // Default to normal if clocked in
-                                                if (schedule) {
-                                                    // 1. Late In
-                                                    const earliestIn = [...userRecords].reverse().find(r => r.type === 'in');
-                                                    if (earliestIn && schedule.startTime) {
-                                                        const [sh, sm] = schedule.startTime.split(':').map(Number);
-                                                        const schedMins = sh * 60 + sm;
-                                                        const seconds = earliestIn.timestamp?.seconds || earliestIn.createdAt?.seconds || Date.now()/1000;
-                                                        const inDate = new Date(seconds * 1000);
-                                                        const inMins = inDate.getHours() * 60 + inDate.getMinutes();
-                                                        if (inMins > schedMins) status = 'abnormal';
+                                            // Determine Status & Color
+                                            let bgColorClass = 'bg-gray-100'; // Default fallback
+                                            let animateClass = '';
+                                            let isAbnormal = false;
+
+                                            // 1. Abnormal Checks (Highest Priority)
+                                            if (schedule) {
+                                                const now = new Date();
+                                                const nowMins = now.getHours() * 60 + now.getMinutes();
+
+                                                // Check Late In (>30m)
+                                                if ((schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.startTime) {
+                                                    const [sh, sm] = schedule.startTime.split(':').map(Number);
+                                                    const schedStartMins = sh * 60 + sm;
+                                                    // Check if any IN record exists (work or duty)
+                                                    const hasIn = userRecords.some(r => r.type === 'in' || r.type === 'late_in');
+                                                    
+                                                    if (!hasIn && nowMins > schedStartMins + 30) {
+                                                        isAbnormal = true;
                                                     }
-                                                    // 2. Early Out
-                                                    const latestOut = userRecords.find(r => r.type === 'out');
-                                                    if (latestOut && schedule.endTime) {
-                                                        if (schedule.crossDay) {
-                                                            status = 'abnormal'; // Out today for cross-day shift is early
-                                                        } else {
-                                                            const [eh, em] = schedule.endTime.split(':').map(Number);
-                                                            const schedEndMins = eh * 60 + em;
-                                                            const seconds = latestOut.timestamp?.seconds || latestOut.createdAt?.seconds || Date.now()/1000;
-                                                            const outDate = new Date(seconds * 1000);
-                                                            const outMins = outDate.getHours() * 60 + outDate.getMinutes();
-                                                            if (outMins < schedEndMins) status = 'abnormal';
+                                                }
+
+                                                // Check Early Out
+                                                if ((schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.endTime) {
+                                                    // Check if any OUT record exists
+                                                    const outRecord = userRecords.find(r => r.type === 'out' || r.type === 'late_out');
+                                                    if (outRecord) {
+                                                        const [eh, em] = schedule.endTime.split(':').map(Number);
+                                                        const schedEndMins = eh * 60 + em;
+                                                        
+                                                        const seconds = outRecord.timestamp?.seconds || outRecord.createdAt?.seconds || 0;
+                                                        const outDate = new Date(seconds * 1000);
+                                                        const outMins = outDate.getHours() * 60 + outDate.getMinutes();
+                                                        
+                                                        // Check if early (and not crossDay)
+                                                        if (!schedule.crossDay && outMins < schedEndMins) {
+                                                            isAbnormal = true;
                                                         }
                                                     }
                                                 }
+                                            }
+
+                                            if (isAbnormal) {
+                                                bgColorClass = 'bg-red-200';
+                                                animateClass = 'animate-bg-red-pulse';
                                             } else {
-                                                // Not clocked in check: Absent/Late (> 30 mins past start time)
-                                                if (schedule && schedule.startTime) {
-                                                    const [sh, sm] = schedule.startTime.split(':').map(Number);
-                                                    const schedMins = sh * 60 + sm;
-                                                    const now = new Date();
-                                                    const nowMins = now.getHours() * 60 + now.getMinutes();
-                                                    if (nowMins > schedMins + 30) {
-                                                        status = 'abnormal';
+                                                // 2. Normal Status (Priority: Last Action > Schedule Type)
+                                                if (lastRecord) {
+                                                    const type = lastRecord.type;
+                                                    if (type === 'in' || type === 'late_in') {
+                                                        bgColorClass = 'bg-green-50'; // 上班/卡上 -> 淺綠色
+                                                    } else if (type === 'out' || type === 'late_out') {
+                                                        bgColorClass = 'bg-gray-100'; // 下班/卡下 -> 灰色
+                                                    } else if (type === 'outing_start' || type === 'outing_arrive' || type === 'outing_end') {
+                                                        bgColorClass = 'bg-blue-50'; // 外出/抵達/離開 -> 淺藍色
+                                                    } else {
+                                                        // Fallback for other types
+                                                        bgColorClass = 'bg-green-50';
+                                                    }
+                                                } else {
+                                                    // No records - Check Schedule Type
+                                                    if (schedule) {
+                                                        if (schedule.type === 'work') bgColorClass = 'bg-blue-50'; // 上班日 -> 淺藍色
+                                                        else if (schedule.type === 'duty' || schedule.type === 'card') bgColorClass = 'bg-yellow-50'; // 值班日 -> 淺黃色
+                                                        else if (schedule.type === 'off') bgColorClass = 'bg-stone-200'; // 公休日 -> 淺棕色
+                                                        else if (schedule.type === 'leave') bgColorClass = 'bg-orange-50'; // 請假日 -> 淺橘色
                                                     }
                                                 }
                                             }
@@ -5963,9 +6051,7 @@
                                                 <div 
                                                     key={u.id}
                                                     className={`flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group rounded-lg p-1 transition-colors ${
-                                                        isSelected ? 'bg-red-100' : 
-                                                        (status === 'none' ? 'bg-gray-100' : 
-                                                         (status === 'abnormal' ? 'bg-red-200 animate-bg-red-pulse' : 'bg-green-50'))
+                                                        isSelected ? 'bg-red-100' : `${bgColorClass} ${animateClass}`
                                                     }`}
                                                     onClick={() => setCadreMapSelectedUserId(u.id)}
                                                 >
@@ -7356,8 +7442,9 @@
                     )}
 
                     {toast && (
-                        <div className="fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] bg-black/70 text-white text-xs px-3 py-2 rounded-2xl">
-                            {toast}
+                        <div className={`fixed top-[10vh] left-1/2 -translate-x-1/2 z-[75] px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 transition-all transform duration-300 ${toast === '打卡完成' ? 'bg-green-600 scale-110 top-1/2 -translate-y-1/2' : 'bg-gray-800'}`}>
+                           {toast === '打卡完成' && <CheckCircle className="w-8 h-8 text-white" />}
+                           <span className={`${toast === '打卡完成' ? 'text-xl font-bold' : 'text-sm'} text-white`}>{toast}</span>
                         </div>
                     )}
                 </div>
