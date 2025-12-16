@@ -59,7 +59,7 @@
         }
     </style>
     <script src="./firebase-config.js"></script>
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&loading=async"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&loading=async&language=zh-TW"></script>
 </head>
 <body class="bg-gray-100 text-gray-900 font-sans antialiased">
     <div id="root"></div>
@@ -437,7 +437,7 @@
                     
 
                     {selectedUser && (
-                        <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm p-3 rounded-2xl shadow-lg border border-gray-100 z-10 animate-fade-in-up">
+                        <div className={`absolute bottom-4 left-4 right-4 ${selectedUser.statusBgClass || 'bg-white/95'} backdrop-blur-sm p-3 rounded-2xl shadow-lg border border-gray-100 z-10 animate-fade-in-up`}>
                             <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 border border-gray-100">
                                     {selectedUser.avatarUrl ? (
@@ -451,23 +451,13 @@
                                 <div className="flex-1 min-w-0">
                                     <div className="font-bold text-gray-800 text-sm truncate">{selectedUser.name}</div>
                                     {(function(){
-                                        const hasTime = !!selectedUser.time;
-                                        const rDate = hasTime ? new Date(selectedUser.time) : null;
-                                        const now = new Date();
-                                        const isToday = rDate && rDate.toDateString() === now.toDateString();
+                                        const statusText = selectedUser.statusText || '今日尚未打卡';
+                                        const statusClass = selectedUser.statusClass || 'text-red-600';
                                         
                                         return (
-                                            <>
-                                                {isToday && (
-                                                    <div className="text-xs text-gray-500 truncate flex items-center gap-1">
-                                                        <MapPin className="w-3 h-3" />
-                                                        {selectedUser.locationName || '座標定位'}
-                                                    </div>
-                                                )}
-                                                <div className={`mt-0.5 ${isToday ? 'text-[10px] text-gray-400' : 'text-sm font-bold text-red-600'}`}>
-                                                    {isToday ? rDate.toLocaleString('zh-TW') : '今日未打卡'}
-                                                </div>
-                                            </>
+                                            <div className={`mt-0.5 text-xs font-bold ${statusClass}`}>
+                                                {statusText}
+                                            </div>
                                         );
                                     })()}
                                 </div>
@@ -1221,6 +1211,69 @@
             );
         };
 
+        const SignatureModal = ({ isOpen, onClose, onConfirm, loading, error, form, setForm, signatureTypes }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+                    <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800">新增電子簽呈</h3>
+                            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"><X className="w-5 h-5 text-gray-500" /></button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">類型</label>
+                                <select 
+                                    value={form.type} 
+                                    onChange={e => setForm({...form, type: e.target.value})}
+                                    className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-red-500 transition-shadow"
+                                >
+                                    <option value="" disabled>請選擇類型</option>
+                                    {signatureTypes && signatureTypes.length > 0 ? (
+                                        signatureTypes.map(type => (
+                                            <option key={type.id} value={type.name}>{type.name}</option>
+                                        ))
+                                    ) : (
+                                        <>
+                                            <option value="請假">請假申請</option>
+                                            <option value="加班">加班申請</option>
+                                            <option value="費用">費用報銷</option>
+                                            <option value="採購">採購申請</option>
+                                            <option value="其他">其他事項</option>
+                                        </>
+                                    )}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">內容說明</label>
+                                <textarea 
+                                    value={form.content}
+                                    onChange={e => setForm({...form, content: e.target.value})}
+                                    className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm min-h-[120px] outline-none focus:ring-2 focus:ring-red-500 resize-none transition-shadow"
+                                    placeholder="請輸入詳細內容..."
+                                />
+                            </div>
+
+                            {error && <div className="text-red-500 text-xs font-bold bg-red-50 p-2 rounded-lg">{error}</div>}
+
+                            <div className="flex gap-2 justify-end mt-4">
+                                <button onClick={onClose} className="px-5 py-2.5 bg-gray-100 rounded-xl text-gray-600 font-bold text-sm hover:bg-gray-200 transition-colors">取消</button>
+                                <button 
+                                    onClick={onConfirm} 
+                                    disabled={loading}
+                                    className="px-5 py-2.5 bg-red-600 rounded-xl text-white font-bold text-sm flex items-center shadow-md shadow-red-200 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {loading ? '送出中...' : '送出申請'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // 2. Login Component (Mobile Optimized, Red Theme)
         const Login = ({ onLogin, onLoginSuccess, isOnline }) => {
             const [identifier, setIdentifier] = useState('');
@@ -1284,7 +1337,7 @@
                                     value={identifier}
                                     onChange={(e) => setIdentifier(e.target.value)}
                                     className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition text-gray-700 font-medium"
-                                    placeholder="Email 或 手機號碼"
+                                    placeholder="電子信箱 或 手機號碼"
                                     disabled={isLoading}
                                 />
                             </div>
@@ -1341,7 +1394,7 @@
         };
 
         // 3. Admin Dashboard (System Config)
-        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId, subPagesMap, hasSubPermission }) => {
+        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, signatureTypes, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId, subPagesMap, hasSubPermission }) => {
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
@@ -1356,6 +1409,10 @@
             const [companyError, setCompanyError] = useState('');
             const [showAreaModal, setShowAreaModal] = useState(false);
             const [areaForm, setAreaForm] = useState({ id: '', name: '' });
+            const [showSignatureTypeModal, setShowSignatureTypeModal] = useState(false);
+            const [signatureTypeForm, setSignatureTypeForm] = useState({ id: '', name: '' });
+            const [signatureTypeLoading, setSignatureTypeLoading] = useState(false);
+            const [signatureTypeError, setSignatureTypeError] = useState('');
             
 
 
@@ -1587,6 +1644,7 @@
                 }, 3000);
                 return () => clearTimeout(timer);
             }, [toast]);
+
 
 
 
@@ -1855,6 +1913,88 @@
                                 )}
                             </div>
 
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mt-6">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                    <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈類型列表
+                                </h3>
+                                <div className="mb-4">
+                                    <button onClick={() => { setSignatureTypeForm({ id: '', name: '' }); setShowSignatureTypeModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                </div>
+                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
+                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] text-left">
+                                        <div>類型名稱</div>
+                                        <div>操作</div>
+                                        <div>紀錄</div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {signatureTypes.length === 0 ? (
+                                            <div className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[600px]">
+                                                <div className="font-bold text-gray-300">—</div>
+                                                <div className="flex gap-2 justify-start">
+                                                    <button disabled className="px-2 py-1 rounded-2xl bg-gray-200 text-gray-400">編輯</button>
+                                                    <button disabled className="px-2 py-1 rounded-2xl bg-gray-200 text-gray-400">刪除</button>
+                                                </div>
+                                                <div className="text-gray-300">—</div>
+                                            </div>
+                                        ) : signatureTypes.map(st => (
+                                            <div key={st.id} className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[600px]">
+                                                <div className="font-bold text-gray-700">{st.name}</div>
+                                                <div className="flex gap-2 justify-start">
+                                                    <button onClick={()=>{ setSignatureTypeForm({ id: st.id, name: st.name }); setShowSignatureTypeModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={()=>{ setConfirmDelete({ type:'signatureType', id:st.id, label:st.name }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
+                                                </div>
+                                                <div className="text-gray-700">{st.updatedByName ? `${st.updatedByName} ${formatDateTime(st.updatedAt)}` : '-'}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {showSignatureTypeModal && (
+                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                            <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯簽呈類型</h4>
+                                            <div className="space-y-3">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">類型名稱</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={signatureTypeForm.name} onChange={e=>setSignatureTypeForm(prev=>({...prev, name: e.target.value}))} />
+                                                {signatureTypeError && <div className="text-xs text-red-600">{signatureTypeError}</div>}
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-4">
+                                                <button onClick={()=>setShowSignatureTypeModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
+                                                <button disabled={signatureTypeLoading} onClick={async()=>{ 
+                                                    try { 
+                                                        setSignatureTypeError(''); 
+                                                        setSignatureTypeLoading(true); 
+                                                        if (!user) { setSignatureTypeError('沒有登入權限，請先登入'); return; } 
+                                                        if (!signatureTypeForm.name.trim()) { setSignatureTypeError('請輸入類型名稱'); return; } 
+                                                        
+                                                        if (signatureTypeForm.id) {
+                                                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', signatureTypeForm.id), { 
+                                                                name: signatureTypeForm.name.trim(), 
+                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
+                                                                updatedAt: serverTimestamp() 
+                                                            }); 
+                                                            setToast('儲存成功'); 
+                                                        } else { 
+                                                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'signature_types'), { 
+                                                                name: signatureTypeForm.name.trim(), 
+                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
+                                                                updatedAt: serverTimestamp() 
+                                                            }); 
+                                                            setToast('新增成功'); 
+                                                        } 
+                                                        setShowSignatureTypeModal(false); 
+                                                    } catch (e) { 
+                                                        console.error(e); 
+                                                        setSignatureTypeError(`儲存失敗：${e.code || e.message}`); 
+                                                    } finally { 
+                                                        setSignatureTypeLoading(false);
+                                                    } 
+                                                }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                     <Building2 className="w-5 h-5 mr-2 text-red-600" /> 公司列表
@@ -2018,7 +2158,7 @@
                                                                 radius={companyForm.radius} 
                                                             />
                                                             <div className="absolute bottom-0 left-0 bg-white/80 px-2 py-1 text-[10px] font-bold text-gray-600 z-10 pointer-events-none">
-                                                                範圍: {companyForm.radius}m
+                                                                範圍: {companyForm.radius}公尺
                                                             </div>
                                                         </>
                                                     ) : (
@@ -2412,10 +2552,10 @@
                         {confirmDelete && (
                             <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
                                 <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
-                                    <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
+                                    <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
                                     <div className="flex justify-end gap-2">
                                         <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                        <button onClick={async()=>{ try { if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } setConfirmDelete(null); setToast('刪除成功'); } catch(e) { console.error(e); setConfirmDelete(null);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">刪除</button>
+                                        <button onClick={async()=>{ try { if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } else if (confirmDelete.type==='signatureType') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', confirmDelete.id)); } else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } setConfirmDelete(null); setToast('刪除成功'); } catch(e) { console.error(e); setConfirmDelete(null);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">刪除</button>
                                     </div>
                                 </div>
                             </div>
@@ -3747,27 +3887,36 @@
                                     const lastRec = todayRecords[todayRecords.length - 1];
 
                                     // 3. Determine Status Text & Color
-                                    let statusText = '未打卡';
-                                    let statusClass = 'bg-gray-200 text-gray-500';
+                                    let statusText = '今日尚未打卡';
+                                    let statusClass = 'bg-gray-100 text-red-600';
 
                                     // Priority: Schedule (Off/Leave) -> Records -> Default
                                     if (schedule?.type === 'off') {
-                                        statusText = '公休';
-                                        statusClass = 'bg-stone-200 text-stone-600';
+                                        statusText = '今日公休';
+                                        statusClass = 'bg-stone-200 text-stone-700';
                                     } else if (schedule?.type === 'leave') {
-                                        statusText = '請假';
-                                        statusClass = 'bg-orange-100 text-orange-700';
+                                        statusText = '今日請假';
+                                        statusClass = 'bg-orange-100 text-orange-600';
                                     } else {
                                         // Work or Duty or No Schedule
                                         if (lastRec) {
                                             const config = getTypeLabel(lastRec.type);
                                             statusText = config.text;
+                                            
+                                            // Append location if available
+                                            if (lastRec.checkInLocationName || lastRec.address) {
+                                                statusText += ` ${lastRec.checkInLocationName || lastRec.address}`;
+                                            }
+
                                             // Apply colors based on type
                                             if (['in', 'late_in'].includes(lastRec.type)) {
+                                                // 上班/卡上: Green Text, Light Green BG
                                                 statusClass = 'bg-green-100 text-green-700';
                                             } else if (['out', 'late_out'].includes(lastRec.type)) {
-                                                statusClass = 'bg-red-100 text-red-700';
+                                                // 下班/卡下: Red Text, Dark Gray BG
+                                                statusClass = 'bg-gray-800 text-red-500';
                                             } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastRec.type)) {
+                                                // 外出/抵達/離開: Blue Text, Light Blue BG
                                                 statusClass = 'bg-blue-100 text-blue-700';
                                             } else if (lastRec.type === 'leave') {
                                                 statusClass = 'bg-orange-100 text-orange-700';
@@ -3775,8 +3924,8 @@
                                                 statusClass = config.color;
                                             }
                                         } else {
-                                            statusText = '未打卡';
-                                            statusClass = 'bg-gray-200 text-gray-500';
+                                            statusText = '今日尚未打卡';
+                                            statusClass = 'bg-gray-100 text-red-600';
                                         }
                                     }
 
@@ -3906,6 +4055,7 @@
                                                             {currentUser.name}
                                                             <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${typeConfig.color}`}>
                                                                 {typeConfig.text}
+                                                                {['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address) ? ` ${r.checkInLocationName || r.address}` : ''}
                                                             </span>
                                                             {isLeave && (
                                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ml-1 ${
@@ -4445,6 +4595,13 @@
             const [showAdminDeleteModal, setShowAdminDeleteModal] = useState(false);
             const [adminDeleteTarget, setAdminDeleteTarget] = useState(null);
             const [toast, setToast] = useState('');
+            const [signatures, setSignatures] = useState([]);
+            const [showSignatureModal, setShowSignatureModal] = useState(false);
+            const [signatureForm, setSignatureForm] = useState({ type: '請假', content: '' });
+            const [signatureLoading, setSignatureLoading] = useState(false);
+            const [signatureError, setSignatureError] = useState('');
+            
+            const [signatureTypes, setSignatureTypes] = useState([]);
 
             useEffect(() => {
                 if (!toast) return;
@@ -4453,6 +4610,87 @@
                 }, 3000);
                 return () => clearTimeout(timer);
             }, [toast]);
+
+            // Fetch Signatures
+            useEffect(() => {
+                if (!dbUser || !dbUser.id) return;
+                
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'signatures'),
+                    where('userId', '==', dbUser.id)
+                );
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                    list.sort((a, b) => {
+                        const t1 = a.createdAt?.seconds || 0;
+                        const t2 = b.createdAt?.seconds || 0;
+                        return t2 - t1;
+                    });
+                    setSignatures(list);
+                });
+                return () => unsubscribe();
+            }, [dbUser]);
+
+            const handleAddSignature = async () => {
+                if (!signatureForm.content.trim()) {
+                    setSignatureError('請輸入內容');
+                    return;
+                }
+                setSignatureLoading(true);
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'signatures'), {
+                        userId: dbUser.id,
+                        userName: dbUser.name,
+                        userAvatar: dbUser.avatarUrl || '',
+                        type: signatureForm.type,
+                        content: signatureForm.content,
+                        status: 'pending',
+                        createdAt: serverTimestamp(),
+                        responses: []
+                    });
+                    setToast('簽呈已送出');
+                    setShowSignatureModal(false);
+                    setSignatureForm({ type: '請假', content: '' });
+                } catch (e) {
+                    console.error(e);
+                    setSignatureError(e.message);
+                } finally {
+                    setSignatureLoading(false);
+                }
+            };
+
+            const [cadreSignatures, setCadreSignatures] = useState([]);
+
+            // Fetch Cadre Signatures (All)
+            useEffect(() => {
+                if (activeTab !== 'cadre' || cadreSubtab !== 'approval') return;
+                
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'signatures'),
+                    orderBy('createdAt', 'desc')
+                );
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                    setCadreSignatures(list);
+                });
+                return () => unsubscribe();
+            }, [activeTab, cadreSubtab]);
+
+            const handleUpdateSignatureStatus = async (signatureId, newStatus) => {
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signatures', signatureId), {
+                        status: newStatus,
+                        reviewedBy: dbUser.id,
+                        reviewedAt: serverTimestamp()
+                    });
+                    setToast(newStatus === 'approved' ? '已核准' : '已駁回');
+                } catch (e) {
+                    console.error(e);
+                    setToast('更新失敗: ' + e.message);
+                }
+            };
 
             // Fetch Today's Schedules for Cadre Map Status
             useEffect(() => {
@@ -5176,6 +5414,7 @@
                 // Always fetch reference data to prevent connection cycling
                 const refCompanies = collection(db, 'artifacts', appId, 'public', 'data', 'companies');
                 const refAreas = collection(db, 'artifacts', appId, 'public', 'data', 'areas');
+                const refSignatureTypes = collection(db, 'artifacts', appId, 'public', 'data', 'signature_types');
                 const refUsers = collection(db, 'artifacts', appId, 'public', 'data', 'users');
 
                 unsubscribes.push(onSnapshot(refCompanies, 
@@ -5186,7 +5425,11 @@
                     (snap) => setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
                     (e) => handleFetchError(e, 'areas_snap')
                 ));
-                unsubscribes.push(onSnapshot(refUsers, 
+                unsubscribes.push(onSnapshot(refSignatureTypes,
+                    (snap) => setSignatureTypes(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    (e) => console.log('signature_types fetch error', e)
+                ));
+                unsubscribes.push(onSnapshot(refUsers,  
                     (snap) => setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
                     (e) => handleFetchError(e, 'users_snap')
                 ));
@@ -6026,12 +6269,18 @@
                                                 // 2. Normal Status (Priority: Last Action > Schedule Type)
                                                 if (lastRecord) {
                                                     const type = lastRecord.type;
-                                                    if (type === 'in' || type === 'late_in') {
-                                                        bgColorClass = 'bg-green-50'; // 上班/卡上 -> 淺綠色
-                                                    } else if (type === 'out' || type === 'late_out') {
-                                                        bgColorClass = 'bg-gray-100'; // 下班/卡下 -> 灰色
+                                                    if (type === 'in') {
+                                                        bgColorClass = 'bg-green-100'; // 上班 -> 淺綠色
+                                                    } else if (type === 'late_in') {
+                                                        bgColorClass = 'bg-green-100'; // 卡上 -> 淺綠色
+                                                    } else if (type === 'out') {
+                                                        bgColorClass = 'bg-gray-800 text-white'; // 下班 -> 深灰色 (Add text-white for contrast)
+                                                    } else if (type === 'late_out') {
+                                                        bgColorClass = 'bg-gray-800 text-white'; // 卡下 -> 深灰色 (Add text-white for contrast)
                                                     } else if (type === 'outing_start' || type === 'outing_arrive' || type === 'outing_end') {
-                                                        bgColorClass = 'bg-blue-50'; // 外出/抵達/離開 -> 淺藍色
+                                                        bgColorClass = 'bg-blue-100'; // 外出/抵達/離開 -> 淺藍色
+                                                    } else if (type === 'leave') {
+                                                        bgColorClass = 'bg-orange-100'; // 請假 -> 淺橘色
                                                     } else {
                                                         // Fallback for other types
                                                         bgColorClass = 'bg-green-50';
@@ -6039,10 +6288,10 @@
                                                 } else {
                                                     // No records - Check Schedule Type
                                                     if (schedule) {
-                                                        if (schedule.type === 'work') bgColorClass = 'bg-blue-50'; // 上班日 -> 淺藍色
+                                                        if (schedule.type === 'work') bgColorClass = 'bg-blue-50'; // 上班日 -> 淺藍色 (Default)
                                                         else if (schedule.type === 'duty' || schedule.type === 'card') bgColorClass = 'bg-yellow-50'; // 值班日 -> 淺黃色
-                                                        else if (schedule.type === 'off') bgColorClass = 'bg-stone-200'; // 公休日 -> 淺棕色
-                                                        else if (schedule.type === 'leave') bgColorClass = 'bg-orange-50'; // 請假日 -> 淺橘色
+                                                        else if (schedule.type === 'off') bgColorClass = 'bg-stone-200'; // 公休日 -> 棕色
+                                                        else if (schedule.type === 'leave') bgColorClass = 'bg-orange-100'; // 請假日 -> 淺橘色
                                                     }
                                                 }
                                             }
@@ -6050,8 +6299,8 @@
                                             return (
                                                 <div 
                                                     key={u.id}
-                                                    className={`flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group rounded-lg p-1 transition-colors ${
-                                                        isSelected ? 'bg-red-100' : `${bgColorClass} ${animateClass}`
+                                                    className={`flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group rounded-lg p-1 transition-colors ${bgColorClass} ${animateClass} ${
+                                                        isSelected ? 'ring-2 ring-red-500' : ''
                                                     }`}
                                                     onClick={() => setCadreMapSelectedUserId(u.id)}
                                                 >
@@ -6069,7 +6318,7 @@
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <span className={`text-[10px] font-medium max-w-[48px] truncate ${isSelected ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                                                    <span className={`text-[10px] font-medium max-w-[48px] truncate ${bgColorClass.includes('bg-gray-800') ? 'text-white' : (isSelected ? 'text-red-600 font-bold' : 'text-gray-600')}`}>
                                                         {u.name}
                                                     </span>
                                                 </div>
@@ -6327,10 +6576,79 @@
                                                             // attendanceList is sorted by desc timestamp
                                                             const record = attendanceList.find(r => r.userId === u.id && r.location && r.location.includes(','));
                                                             
+                                                            // Determine Status
+                                                            const now = new Date();
+                                                            const schedule = todaySchedules[u.id];
+                                                            
+                                                            const isRecordToday = (ts) => {
+                                                                if (!ts) return false;
+                                                                const d = new Date(ts * 1000);
+                                                                return d.getFullYear() === now.getFullYear() && 
+                                                                       d.getMonth() === now.getMonth() && 
+                                                                       d.getDate() === now.getDate();
+                                                            };
+
+                                                            const lastRec = attendanceList.find(r => r.userId === u.id && isRecordToday(r.timestamp?.seconds || r.createdAt?.seconds));
+                                                            
+                                                            let statusText = '今日尚未打卡';
+                                                            let statusClass = 'text-red-600';
+                                                            let statusBgClass = 'bg-white/95';
+
+                                                            if (schedule?.type === 'off') {
+                                                                statusText = '今日公休';
+                                                                statusClass = 'text-amber-700';
+                                                                statusBgClass = 'bg-stone-200/95';
+                                                            } else if (schedule?.type === 'leave') {
+                                                                statusText = '今日請假';
+                                                                statusClass = 'text-orange-500';
+                                                                statusBgClass = 'bg-orange-100/95';
+                                                            } else {
+                                                                if (lastRec) {
+                                                                    const typeMap = {
+                                                                        'in': '上班',
+                                                                        'out': '下班',
+                                                                        'outing_start': '外出',
+                                                                        'outing_arrive': '抵達',
+                                                                        'outing_end': '離開',
+                                                                        'leave': '請假',
+                                                                        'late_in': '卡上',
+                                                                        'late_out': '卡下'
+                                                                    };
+                                                                    const typeText = typeMap[lastRec.type] || lastRec.type;
+                                                                    const locName = lastRec.checkInLocationName || lastRec.address || '';
+                                                                    
+                                                                    statusText = `${typeText} ${locName}`.trim();
+                                                                    
+                                                                    if (['in', 'late_in'].includes(lastRec.type)) {
+                                                                        statusClass = 'text-green-600';
+                                                                        statusBgClass = 'bg-green-100/95';
+                                                                    } else if (['out', 'late_out'].includes(lastRec.type)) {
+                                                                        statusClass = 'text-red-600';
+                                                                        statusBgClass = 'bg-gray-800/95';
+                                                                    } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastRec.type)) {
+                                                                        statusClass = 'text-blue-600';
+                                                                        statusBgClass = 'bg-blue-100/95';
+                                                                    } else if (lastRec.type === 'leave') {
+                                                                        statusClass = 'text-orange-500';
+                                                                        statusBgClass = 'bg-orange-100/95';
+                                                                    } else {
+                                                                        statusClass = 'text-gray-600';
+                                                                        statusBgClass = 'bg-white/95';
+                                                                    }
+                                                                } else {
+                                                                    // No record, check schedule for bg
+                                                                    if (schedule?.type === 'work') statusBgClass = 'bg-blue-50/95';
+                                                                    else if (schedule?.type === 'duty' || schedule?.type === 'card') statusBgClass = 'bg-yellow-50/95';
+                                                                }
+                                                            }
+
                                                             const userData = {
                                                                 id: u.id,
                                                                 avatarUrl: u.avatarUrl,
-                                                                name: u.name
+                                                                name: u.name,
+                                                                statusText,
+                                                                statusClass,
+                                                                statusBgClass
                                                             };
 
                                                             if (record) {
@@ -6506,9 +6824,15 @@
                                                         'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' }
                                                     };
                                                     const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
+                                                    
+                                                    let finalText = config.text;
+                                                    if (['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address)) {
+                                                        finalText += ` ${r.checkInLocationName || r.address}`;
+                                                    }
+
                                                     return (
                                                         <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${config.class}`}>
-                                                            {config.text}
+                                                            {finalText}
                                                         </span>
                                                     );
                                                 })()}
@@ -6981,7 +7305,85 @@
                                     )}
                                     {cadreSubtab === 'approval' && hasSubPermission('cadre', 'approval') && (
                                         <div>
-                                            
+                                            <div className="space-y-3 pb-24">
+                                                {(function() {
+                                                    const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                    if (!targetCompany) return <div className="text-center text-gray-400 py-8">請選擇公司</div>;
+
+                                                    // Filter signatures by company users
+                                                    const companyUserIds = usersList
+                                                        .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
+                                                        .map(u => u.id);
+
+                                                    const displaySignatures = cadreSignatures.filter(s => companyUserIds.includes(s.userId));
+                                                    
+                                                    if (displaySignatures.length === 0) {
+                                                        return (
+                                                            <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                                尚無簽呈申請
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    return displaySignatures.map(sig => {
+                                                        const user = usersList.find(u => u.id === sig.userId) || {};
+                                                        return (
+                                                            <div key={sig.id} className="p-4 bg-white border border-gray-100 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                                                <div className="flex justify-between items-start mb-3">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden">
+                                                                            {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">{user.name?.[0]}</div>}
+                                                                        </div>
+                                                                        <div>
+                                                                            <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                                                {user.name}
+                                                                                <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{sig.type}</span>
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-400">
+                                                                                {sig.createdAt?.seconds ? new Date(sig.createdAt.seconds * 1000).toLocaleString('zh-TW') : ''}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <span className={`text-xs px-2 py-1 rounded-lg font-bold ${
+                                                                        sig.status === 'approved' ? 'bg-green-100 text-green-700' :
+                                                                        sig.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                                        'bg-yellow-100 text-yellow-700'
+                                                                    }`}>
+                                                                        {sig.status === 'approved' ? '已核准' : sig.status === 'rejected' ? '已駁回' : '待簽核'}
+                                                                    </span>
+                                                                </div>
+                                                                
+                                                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 mb-4 whitespace-pre-wrap">
+                                                                    {sig.content}
+                                                                </div>
+
+                                                                {sig.status === 'pending' && (
+                                                                    <div className="flex gap-3 border-t border-gray-100 pt-3">
+                                                                        <button 
+                                                                            onClick={() => handleUpdateSignatureStatus(sig.id, 'rejected')}
+                                                                            className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                        >
+                                                                            駁回
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => handleUpdateSignatureStatus(sig.id, 'approved')}
+                                                                            className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                                                                        >
+                                                                            核准
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                {sig.status !== 'pending' && sig.reviewedBy && (
+                                                                    <div className="text-right text-xs text-gray-400 mt-2">
+                                                                        審核人: {usersList.find(u => u.id === sig.reviewedBy)?.name || '未知'}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
                                         </div>
                                     )}
                                     {cadreSubtab === 'account' && hasSubPermission('cadre', 'account') && (
@@ -7068,11 +7470,54 @@
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                     {applicationSubtab === 'signature' && hasSubPermission('application', 'signature') && (
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <FileText className="w-5 h-5 mr-2 text-red-600" /> 電子簽呈
-                                            </h3>
-                                            <div className="text-center py-8 text-gray-400">
-                                                尚無簽呈紀錄
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h3 className="text-lg font-bold text-gray-800 flex items-center">
+                                                    <FileText className="w-5 h-5 mr-2 text-red-600" /> 電子簽呈
+                                                </h3>
+                                                <button 
+                                                    onClick={() => {
+                                                        setSignatureError('');
+                                                        setShowSignatureModal(true);
+                                                    }}
+                                                    className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors"
+                                                >
+                                                    + 新增
+                                                </button>
+                                            </div>
+                                            
+                                            <div className="space-y-3">
+                                                {signatures.length === 0 ? (
+                                                    <div className="text-center py-8 text-gray-400">尚無簽呈紀錄</div>
+                                                ) : (
+                                                    signatures.map(sig => (
+                                                        <div key={sig.id} className="p-4 bg-gray-50 rounded-xl border border-gray-100 hover:shadow-sm transition-shadow">
+                                                            <div className="flex justify-between items-start mb-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                                                        sig.status === 'approved' ? 'bg-green-100 text-green-700' :
+                                                                        sig.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                                        'bg-yellow-100 text-yellow-700'
+                                                                    }`}>
+                                                                        {sig.status === 'approved' ? '已核准' : sig.status === 'rejected' ? '已駁回' : '待簽核'}
+                                                                    </span>
+                                                                    <span className="text-xs font-bold text-gray-700">{sig.type}</span>
+                                                                </div>
+                                                                <span className="text-[10px] text-gray-400">
+                                                                    {sig.createdAt?.seconds ? new Date(sig.createdAt.seconds * 1000).toLocaleDateString('zh-TW') : ''}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-sm text-gray-600 mb-3 whitespace-pre-wrap line-clamp-3">{sig.content}</p>
+                                                            <div className="flex items-center justify-between border-t border-gray-100 pt-2 mt-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-5 h-5 rounded-full bg-gray-200 overflow-hidden">
+                                                                        {sig.userAvatar ? <img src={sig.userAvatar} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[8px] font-bold text-gray-500">{sig.userName?.[0]}</div>}
+                                                                    </div>
+                                                                    <span className="text-xs text-gray-500">{sig.userName}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -7100,6 +7545,7 @@
                                     roles={roles}
                                     companies={companies}
                                     areas={areas}
+                                    signatureTypes={signatureTypes}
                                     pages={availablePages}
                                     onAddUser={handleAddUser}
                                     onAddCommunity={handleAddCommunity}
@@ -7232,7 +7678,7 @@
                                     />
                                     <div className="absolute bottom-4 left-4 bg-white/90 px-3 py-2 rounded-xl shadow-lg text-xs font-bold text-gray-700 pointer-events-none">
                                         <div className="text-sm mb-1">{mapPreviewTarget.name}</div>
-                                        <div>打卡範圍: {mapPreviewTarget.radius || 100}m</div>
+                                        <div>打卡範圍: {mapPreviewTarget.radius || 100}公尺</div>
                                     </div>
                                 </div>
                             </div>
@@ -7321,6 +7767,17 @@
                         mode="edit"
                         onSubmit={handleAdminEditRecord}
                         loading={adminEditLoading}
+                    />
+
+                    <SignatureModal 
+                        isOpen={showSignatureModal}
+                        onClose={() => setShowSignatureModal(false)}
+                        onConfirm={handleAddSignature}
+                        loading={signatureLoading}
+                        error={signatureError}
+                        form={signatureForm}
+                        setForm={setSignatureForm}
+                        signatureTypes={signatureTypes}
                     />
 
                     {showScheduleModal && (
