@@ -158,6 +158,12 @@
         };
 
         const firebaseConfig = getFirebaseConfig();
+        const __DEBUG__ = false;
+        if (!__DEBUG__) {
+            try { console.log = function(){}; } catch(e){}
+            try { console.info = function(){}; } catch(e){}
+            try { console.warn = function(){}; } catch(e){}
+        }
         setLogLevel('silent');
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -1211,13 +1217,13 @@
             );
         };
 
-        const SignatureModal = ({ isOpen, onClose, onConfirm, loading, error, form, setForm, signatureTypes }) => {
+        const SignatureModal = ({ isOpen, onClose, onConfirm, loading, error, form, setForm, signatureTypes, title, confirmText }) => {
             if (!isOpen) return null;
             return (
                 <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
                     <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-gray-800">新增電子簽呈</h3>
+                            <h3 className="text-lg font-bold text-gray-800">{title || '新增電子簽呈'}</h3>
                             <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"><X className="w-5 h-5 text-gray-500" /></button>
                         </div>
                         
@@ -1265,7 +1271,7 @@
                                     disabled={loading}
                                     className="px-5 py-2.5 bg-red-600 rounded-xl text-white font-bold text-sm flex items-center shadow-md shadow-red-200 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {loading ? '送出中...' : '送出申請'}
+                                    {loading ? '送出中...' : (confirmText || '送出申請')}
                                 </button>
                             </div>
                         </div>
@@ -1399,10 +1405,237 @@
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
             const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '' });
+
+            // Sorting State
+            const [roleSort, setRoleSort] = useState({ key: null, direction: 'asc' });
+            const [companySort, setCompanySort] = useState({ key: null, direction: 'asc' });
+            const [areaSort, setAreaSort] = useState({ key: null, direction: 'asc' });
+            const [signatureTypeSort, setSignatureTypeSort] = useState({ key: null, direction: 'asc' });
+
+            const handleSort = (key, currentSort, setSort) => {
+                let direction = 'asc';
+                if (currentSort.key === key && currentSort.direction === 'asc') {
+                    direction = 'desc';
+                }
+                setSort({ key, direction });
+            };
+
+            const getSortedData = (data, sortConfig, defaultSortFunc) => {
+                if (!sortConfig.key) {
+                    return defaultSortFunc ? defaultSortFunc([...data]) : data;
+                }
+
+                return [...data].sort((a, b) => {
+                    let aValue = a[sortConfig.key];
+                    let bValue = b[sortConfig.key];
+
+                    // Handle nulls
+                    if (aValue == null) aValue = '';
+                    if (bValue == null) bValue = '';
+                    
+                    // Handle Firestore Timestamps
+                    if (aValue && typeof aValue.toDate === 'function') aValue = aValue.toDate().getTime();
+                    else if (aValue && aValue.seconds) aValue = aValue.seconds * 1000;
+                    
+                    if (bValue && typeof bValue.toDate === 'function') bValue = bValue.toDate().getTime();
+                    else if (bValue && bValue.seconds) bValue = bValue.seconds * 1000;
+
+                    // Check for numeric strings
+                    const aNum = parseFloat(aValue);
+                    const bNum = parseFloat(bValue);
+                    if (!isNaN(aNum) && !isNaN(bNum) && String(aNum) === String(aValue) && String(bNum) === String(bValue)) {
+                        return sortConfig.direction === 'asc' ? aNum - bNum : bNum - aNum;
+                    }
+
+                    if (aValue < bValue) {
+                        return sortConfig.direction === 'asc' ? -1 : 1;
+                    }
+                    if (aValue > bValue) {
+                        return sortConfig.direction === 'asc' ? 1 : -1;
+                    }
+                    return 0;
+                });
+            };
+
+            const SortHeader = ({ label, sortKey, currentSort, setSort, className }) => (
+                <div 
+                    className={`cursor-pointer hover:bg-gray-100 p-1 rounded transition-colors flex items-center gap-1 ${className || ''}`}
+                    onClick={() => handleSort(sortKey, currentSort, setSort)}
+                >
+                    {label}
+                    {currentSort.key === sortKey ? (
+                        currentSort.direction === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    ) : <div className="w-3 h-3" />}
+                </div>
+            );
+
             const [showRoleModal, setShowRoleModal] = useState(false);
             const [roleForm, setRoleForm] = useState({ name: '', permissions: [], subPermissions: {} });
             const [roleSaving, setRoleSaving] = useState(false);
             const [roleError, setRoleError] = useState('');
+
+            // Role Reordering Logic
+            const [draggedRole, setDraggedRole] = useState(null);
+
+            const handleReorderRoles = async (newItems) => {
+                setRoleSaving(true);
+                try {
+                    const batch = writeBatch(db);
+                    newItems.forEach((item, idx) => {
+                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'roles', item.id);
+                        batch.update(ref, { order: idx });
+                    });
+                    await batch.commit();
+                    setToast('角色排序已更新');
+                } catch (e) {
+                    console.error(e);
+                    setToast('角色排序更新失敗');
+                } finally {
+                    setRoleSaving(false);
+                }
+            };
+
+            const handleMoveRole = (index, direction) => {
+                const newItems = [...roles];
+                const targetIndex = index + direction;
+                [newItems[index], newItems[targetIndex]] = [newItems[targetIndex], newItems[index]];
+                handleReorderRoles(newItems);
+            };
+
+            const onRoleDragStart = (e, index) => {
+                setDraggedRole(roles[index]);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", index);
+            };
+
+            const onRoleDragOver = (e, index) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            };
+
+            const onRoleDrop = (e, index) => {
+                e.preventDefault();
+                if (!draggedRole) return;
+                
+                const newItems = [...roles];
+                const draggedIdx = newItems.findIndex(i => i.id === draggedRole.id);
+                if (draggedIdx === index) return;
+
+                newItems.splice(draggedIdx, 1);
+                newItems.splice(index, 0, draggedRole);
+                
+                handleReorderRoles(newItems);
+                setDraggedRole(null);
+            };
+
+            // Area Reordering Logic
+            const [draggedArea, setDraggedArea] = useState(null);
+
+            const handleReorderAreas = async (newItems) => {
+                setAreaSaving(true);
+                try {
+                    const batch = writeBatch(db);
+                    newItems.forEach((item, idx) => {
+                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'areas', item.id);
+                        batch.update(ref, { order: idx });
+                    });
+                    await batch.commit();
+                    setToast('區域排序已更新');
+                } catch (e) {
+                    console.error(e);
+                    setToast('區域排序更新失敗');
+                } finally {
+                    setAreaSaving(false);
+                }
+            };
+
+            const handleMoveArea = (index, direction) => {
+                const newItems = [...areas];
+                const targetIndex = index + direction;
+                [newItems[index], newItems[targetIndex]] = [newItems[targetIndex], newItems[index]];
+                handleReorderAreas(newItems);
+            };
+
+            const onAreaDragStart = (e, index) => {
+                setDraggedArea(areas[index]);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", index);
+            };
+
+            const onAreaDragOver = (e, index) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            };
+
+            const onAreaDrop = (e, index) => {
+                e.preventDefault();
+                if (!draggedArea) return;
+                
+                const newItems = [...areas];
+                const draggedIdx = newItems.findIndex(i => i.id === draggedArea.id);
+                if (draggedIdx === index) return;
+
+                newItems.splice(draggedIdx, 1);
+                newItems.splice(index, 0, draggedArea);
+                
+                handleReorderAreas(newItems);
+                setDraggedArea(null);
+            };
+
+            // Company Reordering Logic
+            const [draggedCompany, setDraggedCompany] = useState(null);
+
+            const handleReorderCompanies = async (newItems) => {
+                setCompanySaving(true);
+                try {
+                    const batch = writeBatch(db);
+                    newItems.forEach((item, idx) => {
+                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'companies', item.id);
+                        batch.update(ref, { order: idx });
+                    });
+                    await batch.commit();
+                    setToast('公司排序已更新');
+                } catch (e) {
+                    console.error(e);
+                    setToast('公司排序更新失敗');
+                } finally {
+                    setCompanySaving(false);
+                }
+            };
+
+            const handleMoveCompany = (index, direction) => {
+                const newItems = [...companies];
+                const targetIndex = index + direction;
+                [newItems[index], newItems[targetIndex]] = [newItems[targetIndex], newItems[index]];
+                handleReorderCompanies(newItems);
+            };
+
+            const onCompanyDragStart = (e, index) => {
+                setDraggedCompany(companies[index]);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", index);
+            };
+
+            const onCompanyDragOver = (e, index) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            };
+
+            const onCompanyDrop = (e, index) => {
+                e.preventDefault();
+                if (!draggedCompany) return;
+                
+                const newItems = [...companies];
+                const draggedIdx = newItems.findIndex(i => i.id === draggedCompany.id);
+                if (draggedIdx === index) return;
+
+                newItems.splice(draggedIdx, 1);
+                newItems.splice(index, 0, draggedCompany);
+                
+                handleReorderCompanies(newItems);
+                setDraggedCompany(null);
+            };
+
             const [showCompanyModal, setShowCompanyModal] = useState(false);
             const [companyForm, setCompanyForm] = useState({ id: '', name: '', address: '', lat: '', lng: '', radius: 100 });
             const [companySaving, setCompanySaving] = useState(false);
@@ -1413,6 +1646,64 @@
             const [signatureTypeForm, setSignatureTypeForm] = useState({ id: '', name: '' });
             const [signatureTypeLoading, setSignatureTypeLoading] = useState(false);
             const [signatureTypeError, setSignatureTypeError] = useState('');
+
+            // Reordering Logic
+            const [draggedSignatureType, setDraggedSignatureType] = useState(null);
+
+            const handleReorderSignatureTypes = async (newItems) => {
+                setSignatureTypeLoading(true);
+                try {
+                    const batch = writeBatch(db);
+                    newItems.forEach((item, idx) => {
+                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', item.id);
+                        batch.update(ref, { order: idx });
+                    });
+                    await batch.commit();
+                    setToast('排序已更新');
+                } catch (e) {
+                    console.error(e);
+                    setToast('排序更新失敗');
+                } finally {
+                    setSignatureTypeLoading(false);
+                }
+            };
+
+            const handleMoveSignatureType = (index, direction) => {
+                const newItems = [...signatureTypes];
+                // Swap
+                const targetIndex = index + direction;
+                [newItems[index], newItems[targetIndex]] = [newItems[targetIndex], newItems[index]];
+                handleReorderSignatureTypes(newItems);
+            };
+
+            const onDragStart = (e, index) => {
+                setDraggedSignatureType(signatureTypes[index]);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", index);
+                // Optional: set drag image
+            };
+
+            const onDragOver = (e, index) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            };
+
+            const onDrop = (e, index) => {
+                e.preventDefault();
+                if (!draggedSignatureType) return;
+                
+                const newItems = [...signatureTypes];
+                const draggedIdx = newItems.findIndex(i => i.id === draggedSignatureType.id);
+                if (draggedIdx === index) return;
+
+                // Remove and insert
+                newItems.splice(draggedIdx, 1);
+                newItems.splice(index, 0, draggedSignatureType);
+                
+                handleReorderSignatureTypes(newItems);
+                setDraggedSignatureType(null);
+            };
+
             
 
 
@@ -1815,10 +2106,14 @@
                                 </div>
                                 <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
                                     <div className="flex flex-row gap-4 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1020px] text-left">
-                                        <div className="min-w-[160px]">角色名稱</div>
+                                        <div className="min-w-[160px]">
+                                            <SortHeader label="角色名稱" sortKey="name" currentSort={roleSort} setSort={setRoleSort} />
+                                        </div>
                                         <div className="min-w-[420px]">權限</div>
                                         <div className="min-w-[180px]">操作</div>
-                                        <div className="min-w-[240px]">紀錄</div>
+                                        <div className="min-w-[240px]">
+                                            <SortHeader label="紀錄" sortKey="updatedAt" currentSort={roleSort} setSort={setRoleSort} />
+                                        </div>
                                     </div>
                                     <div className="space-y-2">
                                         {roles.length === 0 ? (
@@ -1831,7 +2126,11 @@
                                                 </div>
                                                 <div className="min-w-[240px] text-gray-300">—</div>
                                             </div>
-                                        ) : [...roles].sort((a, b) => {
+                                        ) : getSortedData(roles, roleSort, (data) => data.sort((a, b) => {
+                                            // Prefer manual order if available, otherwise default list
+                                            if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                return a.order - b.order;
+                                            }
                                             const order = ['系統管理員', '管理層', '人事', '幹部', '員工', '總幹事', '秘書', '清潔', '機電', '保全'];
                                             const indexA = order.indexOf(a.name);
                                             const indexB = order.indexOf(b.name);
@@ -1839,9 +2138,38 @@
                                             if (indexA !== -1) return -1;
                                             if (indexB !== -1) return 1;
                                             return 0;
-                                        }).map(r => (
-                                            <div key={r.id} className="flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1020px]">
-                                                <div className="font-bold text-gray-700 min-w-[160px]">{r.name}</div>
+                                        })).map((r, index) => {
+                                            const isReorderable = !roleSort.key;
+                                            return (
+                                            <div 
+                                                key={r.id} 
+                                                draggable={isReorderable}
+                                                onDragStart={(e) => isReorderable && onRoleDragStart(e, index)}
+                                                onDragOver={(e) => isReorderable && onRoleDragOver(e, index)}
+                                                onDrop={(e) => isReorderable && onRoleDrop(e, index)}
+                                                className={`flex flex-row gap-4 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1020px] ${isReorderable ? 'cursor-move hover:bg-gray-100 transition-colors' : ''} ${draggedRole?.id === r.id ? 'opacity-30 border-2 border-dashed border-gray-400' : ''}`}
+                                            >
+                                                <div className="font-bold text-gray-700 min-w-[160px] flex items-center gap-2">
+                                                    {isReorderable && (
+                                                        <div className="flex flex-col text-gray-400">
+                                                            <button 
+                                                                disabled={index === 0} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveRole(index, -1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronUp className="w-3 h-3" />
+                                                            </button>
+                                                            <button 
+                                                                disabled={index === roles.length - 1} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveRole(index, 1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronDown className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {r.name}
+                                                </div>
                                                 <div className="text-gray-700 min-w-[420px]">{(r.permissions || []).map(p => pages.find(x=>x.key===p)?.label || p).join('、') || '-'}</div>
                                                 <div className="flex gap-2 justify-start min-w-[180px]">
                                                 <button onClick={()=>{ setRoleForm({ name: r.name, permissions: r.permissions || [], subPermissions: r.subPermissions || {} }); setShowRoleModal(true); setRoleForm(prev=>({ ...prev, id: r.id })); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
@@ -1849,7 +2177,8 @@
                                                 </div>
                                                 <div className="min-w-[240px] text-gray-700">{r.updatedByName ? `${r.updatedByName} ${formatDateTime(r.updatedAt)}` : '-'}</div>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                                 {showRoleModal && (
@@ -1913,87 +2242,7 @@
                                 )}
                             </div>
 
-                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mt-6">
-                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                    <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈類型列表
-                                </h3>
-                                <div className="mb-4">
-                                    <button onClick={() => { setSignatureTypeForm({ id: '', name: '' }); setShowSignatureTypeModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
-                                </div>
-                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
-                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] text-left">
-                                        <div>類型名稱</div>
-                                        <div>操作</div>
-                                        <div>紀錄</div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {signatureTypes.length === 0 ? (
-                                            <div className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[600px]">
-                                                <div className="font-bold text-gray-300">—</div>
-                                                <div className="flex gap-2 justify-start">
-                                                    <button disabled className="px-2 py-1 rounded-2xl bg-gray-200 text-gray-400">編輯</button>
-                                                    <button disabled className="px-2 py-1 rounded-2xl bg-gray-200 text-gray-400">刪除</button>
-                                                </div>
-                                                <div className="text-gray-300">—</div>
-                                            </div>
-                                        ) : signatureTypes.map(st => (
-                                            <div key={st.id} className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[600px]">
-                                                <div className="font-bold text-gray-700">{st.name}</div>
-                                                <div className="flex gap-2 justify-start">
-                                                    <button onClick={()=>{ setSignatureTypeForm({ id: st.id, name: st.name }); setShowSignatureTypeModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
-                                                    <button onClick={()=>{ setConfirmDelete({ type:'signatureType', id:st.id, label:st.name }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
-                                                </div>
-                                                <div className="text-gray-700">{st.updatedByName ? `${st.updatedByName} ${formatDateTime(st.updatedAt)}` : '-'}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                                {showSignatureTypeModal && (
-                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
-                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
-                                            <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯簽呈類型</h4>
-                                            <div className="space-y-3">
-                                                <label className="block text-xs font-bold text-gray-500 uppercase">類型名稱</label>
-                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={signatureTypeForm.name} onChange={e=>setSignatureTypeForm(prev=>({...prev, name: e.target.value}))} />
-                                                {signatureTypeError && <div className="text-xs text-red-600">{signatureTypeError}</div>}
-                                            </div>
-                                            <div className="flex justify-end gap-2 mt-4">
-                                                <button onClick={()=>setShowSignatureTypeModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={signatureTypeLoading} onClick={async()=>{ 
-                                                    try { 
-                                                        setSignatureTypeError(''); 
-                                                        setSignatureTypeLoading(true); 
-                                                        if (!user) { setSignatureTypeError('沒有登入權限，請先登入'); return; } 
-                                                        if (!signatureTypeForm.name.trim()) { setSignatureTypeError('請輸入類型名稱'); return; } 
-                                                        
-                                                        if (signatureTypeForm.id) {
-                                                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', signatureTypeForm.id), { 
-                                                                name: signatureTypeForm.name.trim(), 
-                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
-                                                                updatedAt: serverTimestamp() 
-                                                            }); 
-                                                            setToast('儲存成功'); 
-                                                        } else { 
-                                                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'signature_types'), { 
-                                                                name: signatureTypeForm.name.trim(), 
-                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
-                                                                updatedAt: serverTimestamp() 
-                                                            }); 
-                                                            setToast('新增成功'); 
-                                                        } 
-                                                        setShowSignatureTypeModal(false); 
-                                                    } catch (e) { 
-                                                        console.error(e); 
-                                                        setSignatureTypeError(`儲存失敗：${e.code || e.message}`); 
-                                                    } finally { 
-                                                        setSignatureTypeLoading(false);
-                                                    } 
-                                                }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+
 
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -2004,16 +2253,16 @@
                                 </div>
                                 <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
                                     <div className="grid grid-cols-11 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1300px] text-left">
-                                        <div>公司編號</div>
-                                        <div>公司名稱</div>
-                                        <div className="col-span-2">公司地址</div>
+                                        <div><SortHeader label="公司編號" sortKey="id" currentSort={companySort} setSort={setCompanySort} /></div>
+                                        <div><SortHeader label="公司名稱" sortKey="name" currentSort={companySort} setSort={setCompanySort} /></div>
+                                        <div className="col-span-2"><SortHeader label="公司地址" sortKey="address" currentSort={companySort} setSort={setCompanySort} /></div>
                                         <div>公司座標</div>
                                         <div>公司地圖</div>
-                                        <div>設定打卡範圍(公尺)</div>
+                                        <div><SortHeader label="設定打卡範圍(公尺)" sortKey="radius" currentSort={companySort} setSort={setCompanySort} /></div>
                                         <div>幹部數</div>
                                         <div>員工數</div>
                                         <div>操作</div>
-                                        <div>紀錄</div>
+                                        <div><SortHeader label="紀錄" sortKey="updatedAt" currentSort={companySort} setSort={setCompanySort} /></div>
                                     </div>
                                     <div className="space-y-2">
                                         {companies.length === 0 ? (
@@ -2032,7 +2281,12 @@
                                                 </div>
                                                 <div className="text-gray-300">—</div>
                                             </div>
-                                        ) : companies.map(c => {
+                                        ) : getSortedData(companies, companySort, (data) => data.sort((a, b) => {
+                                            if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                return a.order - b.order;
+                                            }
+                                            return 0;
+                                        })).map((c, index) => {
                                             const execRoles = ['admin', 'hr', 'cadre', 'staff'];
                                             // DEBUG Logic
                                             const allExecCandidates = users.filter(u => execRoles.includes(u.role));
@@ -2048,9 +2302,39 @@
                                             const staffUsers = users.filter(u => ((u.companyIds && u.companyIds.some(cid => String(cid) === String(c.id))) || String(u.companyId) === String(c.id)) && staffRoles.includes(u.role));
                                             const staffCount = staffUsers.length;
                                             const staffNames = staffUsers.map(u => u.name || u.email).join('\n');
+                                            
+                                            const isReorderable = !companySort.key;
+                                            
                                             return (
-                                            <div key={c.id} className="grid grid-cols-11 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1300px]">
-                                                <div className="font-bold text-gray-700">{c.id}</div>
+                                            <div 
+                                                key={c.id} 
+                                                draggable={isReorderable}
+                                                onDragStart={(e) => isReorderable && onCompanyDragStart(e, index)}
+                                                onDragOver={(e) => isReorderable && onCompanyDragOver(e, index)}
+                                                onDrop={(e) => isReorderable && onCompanyDrop(e, index)}
+                                                className={`grid grid-cols-11 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1300px] ${isReorderable ? 'cursor-move hover:bg-gray-100 transition-colors' : ''} ${draggedCompany?.id === c.id ? 'opacity-30 border-2 border-dashed border-gray-400' : ''}`}
+                                            >
+                                                <div className="font-bold text-gray-700 flex items-center gap-2">
+                                                    {isReorderable && (
+                                                        <div className="flex flex-col text-gray-400">
+                                                            <button 
+                                                                disabled={index === 0} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveCompany(index, -1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronUp className="w-3 h-3" />
+                                                            </button>
+                                                            <button 
+                                                                disabled={index === companies.length - 1} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveCompany(index, 1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronDown className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {c.id}
+                                                </div>
                                                 <div className="text-gray-700">{c.name}</div>
                                                 <div className="col-span-2 text-gray-700 truncate" title={c.address || '-'}>{c.address || '-'}</div>
                                                 <div className="text-gray-700">{c.lat && c.lng ? `${parseFloat(c.lat).toFixed(4)}, ${parseFloat(c.lng).toFixed(4)}` : '-'}</div>
@@ -2188,10 +2472,10 @@
                                 </div>
                                 <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
                                     <div className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[800px] text-left">
-                                        <div>區域編號</div>
-                                        <div>區域名稱</div>
+                                        <div><SortHeader label="區域編號" sortKey="id" currentSort={areaSort} setSort={setAreaSort} /></div>
+                                        <div><SortHeader label="區域名稱" sortKey="name" currentSort={areaSort} setSort={setAreaSort} /></div>
                                         <div>操作</div>
-                                        <div>紀錄</div>
+                                        <div><SortHeader label="紀錄" sortKey="updatedAt" currentSort={areaSort} setSort={setAreaSort} /></div>
                                     </div>
                                     <div className="space-y-2">
                                         {areas.length === 0 ? (
@@ -2204,9 +2488,43 @@
                                                 </div>
                                                 <div className="text-gray-300">—</div>
                                             </div>
-                                        ) : areas.map(a => (
-                                            <div key={a.id} className="grid grid-cols-4 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[800px]">
-                                                <div className="font-bold text-gray-700">{a.id}</div>
+                                        ) : getSortedData(areas, areaSort, (data) => data.sort((a, b) => {
+                                            if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                return a.order - b.order;
+                                            }
+                                            return 0;
+                                        })).map((a, index) => {
+                                            const isReorderable = !areaSort.key;
+                                            return (
+                                            <div 
+                                                key={a.id} 
+                                                draggable={isReorderable}
+                                                onDragStart={(e) => isReorderable && onAreaDragStart(e, index)}
+                                                onDragOver={(e) => isReorderable && onAreaDragOver(e, index)}
+                                                onDrop={(e) => isReorderable && onAreaDrop(e, index)}
+                                                className={`grid grid-cols-4 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[800px] ${isReorderable ? 'cursor-move hover:bg-gray-100 transition-colors' : ''} ${draggedArea?.id === a.id ? 'opacity-30 border-2 border-dashed border-gray-400' : ''}`}
+                                            >
+                                                <div className="font-bold text-gray-700 flex items-center gap-2">
+                                                    {isReorderable && (
+                                                        <div className="flex flex-col text-gray-400">
+                                                            <button 
+                                                                disabled={index === 0} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveArea(index, -1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronUp className="w-3 h-3" />
+                                                            </button>
+                                                            <button 
+                                                                disabled={index === areas.length - 1} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveArea(index, 1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronDown className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {a.id}
+                                                </div>
                                                 <div className="text-gray-700">{a.name}</div>
                                                 <div className="flex gap-2 justify-start">
                                                 <button onClick={()=>{ setAreaForm({ id: a.id, name: a.name }); setShowAreaModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
@@ -2214,7 +2532,8 @@
                                                 </div>
                                                 <div className="text-gray-700">{a.updatedByName ? `${a.updatedByName} ${formatDateTime(a.updatedAt)}` : '-'}</div>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                                 {showAreaModal && (
@@ -2231,6 +2550,140 @@
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>setShowAreaModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
                                                 <button disabled={areaSaving} onClick={async()=>{ try { setAreaError(''); setAreaSaving(true); if (!user) { setAreaError('沒有登入權限，請先登入'); return; } if (!areaForm.id.trim() || !areaForm.name.trim()) { setAreaError('請輸入區域編號與區域名稱'); return; } if (areas.find(x=>x.id===areaForm.id.trim())) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', areaForm.id.trim()), { name: areaForm.name.trim(), updatedByName: '新增', updatedAt: serverTimestamp() }); setToast('新增成功'); } setShowAreaModal(false); } catch (e) { console.error(e); setAreaError(`儲存失敗：${e.code || e.message}`); } finally { setAreaSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                    <FileText className="w-5 h-5 mr-2 text-red-600" /> 簽呈類型列表
+                                </h3>
+                                <div className="mb-4">
+                                    <button onClick={() => { setSignatureTypeForm({ id: '', name: '' }); setShowSignatureTypeModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                    {signatureTypes.length === 0 && (
+                                        <button onClick={async () => {
+                                            if (!confirm('確定要匯入預設簽呈類型嗎？')) return;
+                                            setSignatureTypeLoading(true);
+                                            try {
+                                                const defaults = ['請假申請', '加班申請', '費用報銷', '採購申請', '其他事項'];
+                                                const batchPromises = defaults.map(name => 
+                                                    addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'signature_types'), { 
+                                                        name: name, 
+                                                        updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
+                                                        updatedAt: serverTimestamp() 
+                                                    })
+                                                );
+                                                await Promise.all(batchPromises);
+                                                setToast('匯入成功');
+                                            } catch (e) {
+                                                console.error(e);
+                                                setToast('匯入失敗: ' + e.message);
+                                            } finally {
+                                                setSignatureTypeLoading(false);
+                                            }
+                                        }} className="bg-gray-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-gray-700 ml-2">匯入預設</button>
+                                    )}
+                                </div>
+                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto no-scrollbar">
+                                    <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[600px] text-left">
+                                        <div><SortHeader label="類型名稱" sortKey="name" currentSort={signatureTypeSort} setSort={setSignatureTypeSort} /></div>
+                                        <div>操作</div>
+                                        <div><SortHeader label="紀錄" sortKey="updatedAt" currentSort={signatureTypeSort} setSort={setSignatureTypeSort} /></div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {signatureTypes.length === 0 ? (
+                                            <div className="grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[600px]">
+                                                <div className="font-bold text-gray-300">—</div>
+                                                <div className="flex gap-2 justify-start">
+                                                    <button disabled className="px-2 py-1 rounded-2xl bg-gray-200 text-gray-400">編輯</button>
+                                                    <button disabled className="px-2 py-1 rounded-2xl bg-gray-200 text-gray-400">刪除</button>
+                                                </div>
+                                                <div className="text-gray-300">—</div>
+                                            </div>
+                                        ) : getSortedData(signatureTypes, signatureTypeSort).map((st, index) => {
+                                            const isReorderable = !signatureTypeSort.key;
+                                            return (
+                                            <div 
+                                                key={st.id} 
+                                                draggable={isReorderable}
+                                                onDragStart={(e) => isReorderable && onDragStart(e, index)}
+                                                onDragOver={(e) => isReorderable && onDragOver(e, index)}
+                                                onDrop={(e) => isReorderable && onDrop(e, index)}
+                                                className={`grid grid-cols-3 gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[600px] ${isReorderable ? 'cursor-move hover:bg-gray-100 transition-colors' : ''} ${draggedSignatureType?.id === st.id ? 'opacity-30 border-2 border-dashed border-gray-400' : ''}`}
+                                            >
+                                                <div className="font-bold text-gray-700 flex items-center gap-2">
+                                                    {isReorderable && (
+                                                        <div className="flex flex-col text-gray-400">
+                                                            <button 
+                                                                disabled={index === 0} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveSignatureType(index, -1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronUp className="w-3 h-3" />
+                                                            </button>
+                                                            <button 
+                                                                disabled={index === signatureTypes.length - 1} 
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveSignatureType(index, 1); }}
+                                                                className="hover:text-red-600 disabled:opacity-0"
+                                                            >
+                                                                <ChevronDown className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {st.name}
+                                                </div>
+                                                <div className="flex gap-2 justify-start">
+                                                    <button onClick={()=>{ setSignatureTypeForm({ id: st.id, name: st.name }); setShowSignatureTypeModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={()=>{ setConfirmDelete({ type:'signatureType', id:st.id, label:st.name }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
+                                                </div>
+                                                <div className="text-gray-700">{st.updatedByName ? `${st.updatedByName} ${formatDateTime(st.updatedAt)}` : '-'}</div>
+                                            </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                {showSignatureTypeModal && (
+                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                            <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯簽呈類型</h4>
+                                            <div className="space-y-3">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase">類型名稱</label>
+                                                <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={signatureTypeForm.name} onChange={e=>setSignatureTypeForm(prev=>({...prev, name: e.target.value}))} />
+                                                {signatureTypeError && <div className="text-xs text-red-600">{signatureTypeError}</div>}
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-4">
+                                                <button onClick={()=>setShowSignatureTypeModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
+                                                <button disabled={signatureTypeLoading} onClick={async()=>{ 
+                                                    try { 
+                                                        setSignatureTypeError(''); 
+                                                        setSignatureTypeLoading(true); 
+                                                        if (!user) { setSignatureTypeError('沒有登入權限，請先登入'); return; } 
+                                                        if (!signatureTypeForm.name.trim()) { setSignatureTypeError('請輸入類型名稱'); return; } 
+                                                        
+                                                        if (signatureTypeForm.id) {
+                                                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', signatureTypeForm.id), { 
+                                                                name: signatureTypeForm.name.trim(), 
+                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
+                                                                updatedAt: serverTimestamp() 
+                                                            }); 
+                                                            setToast('儲存成功'); 
+                                                        } else { 
+                                                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'signature_types'), { 
+                                                                name: signatureTypeForm.name.trim(), 
+                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', 
+                                                                updatedAt: serverTimestamp() 
+                                                            }); 
+                                                            setToast('新增成功'); 
+                                                        } 
+                                                        setShowSignatureTypeModal(false); 
+                                                    } catch (e) { 
+                                                        console.error(e); 
+                                                        setSignatureTypeError(`儲存失敗：${e.code || e.message}`); 
+                                                    } finally { 
+                                                        setSignatureTypeLoading(false);
+                                                    } 
+                                                }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                         </div>
                                     </div>
@@ -2370,7 +2823,18 @@
                                             <label className="block text-xs font-bold text-gray-500 uppercase">角色</label>
                                             <select className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.role} onChange={e=>setModalUser(prev=>({...prev, role: e.target.value}))}>
                                                 <option value="admin">系統管理員</option>
-                                                {roles.filter(r => r.name !== '系統管理員').map(r => (
+                                                {getSortedData(roles, { key: null }, (data) => data.sort((a, b) => {
+                                                    if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                        return a.order - b.order;
+                                                    }
+                                                    const order = ['系統管理員', '管理層', '人事', '幹部', '員工', '總幹事', '秘書', '清潔', '機電', '保全'];
+                                                    const indexA = order.indexOf(a.name);
+                                                    const indexB = order.indexOf(b.name);
+                                                    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                                                    if (indexA !== -1) return -1;
+                                                    if (indexB !== -1) return 1;
+                                                    return 0;
+                                                })).filter(r => r.name !== '系統管理員').map(r => (
                                                     <option key={r.id} value={r.id}>{r.name}</option>
                                                 ))}
                                             </select>
@@ -2407,7 +2871,12 @@
                                                     </label>
                                                 </div>
                                                 )}
-                                                {companies.map(c => (
+                                                {getSortedData(companies, { key: null }, (data) => data.sort((a, b) => {
+                                                    if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                        return a.order - b.order;
+                                                    }
+                                                    return 0;
+                                                })).map(c => (
                                                     <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer select-none hover:bg-gray-100 p-1 rounded-2xl">
                                                         <input type="checkbox" 
                                                             className="w-4 h-4 text-red-600 rounded-2xl focus:ring-red-500"
@@ -2549,17 +3018,7 @@
                                 </div>
                             )}
                         </div>
-                        {confirmDelete && (
-                            <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
-                                <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
-                                    <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
-                                    <div className="flex justify-end gap-2">
-                                        <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                        <button onClick={async()=>{ try { if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } else if (confirmDelete.type==='signatureType') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', confirmDelete.id)); } else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } setConfirmDelete(null); setToast('刪除成功'); } catch(e) { console.error(e); setConfirmDelete(null);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">刪除</button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+
                         </>
                         )}
 
@@ -2643,12 +3102,22 @@
                                             <label className="block text-xs font-bold text-gray-500 uppercase">所屬公司</label>
                                             <select className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={communityForm.companyId} onChange={e=>setCommunityForm(prev=>({...prev, companyId: e.target.value}))}>
                                                 <option value="">選擇公司</option>
-                                                {companies.map(cm => <option key={cm.id} value={cm.id}>{cm.name}</option>)}
+                                                {getSortedData(companies, { key: null }, (data) => data.sort((a, b) => {
+                                                    if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                        return a.order - b.order;
+                                                    }
+                                                    return 0;
+                                                })).map(cm => <option key={cm.id} value={cm.id}>{cm.name}</option>)}
                                             </select>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">所屬區域</label>
                                             <select className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={communityForm.areaId} onChange={e=>setCommunityForm(prev=>({...prev, areaId: e.target.value}))}>
                                                 <option value="">選擇區域</option>
-                                                {areas.map(ar => <option key={ar.id} value={ar.id}>{ar.name}</option>)}
+                                                {getSortedData(areas, { key: null }, (data) => data.sort((a, b) => {
+                                                    if (typeof a.order === 'number' && typeof b.order === 'number') {
+                                                        return a.order - b.order;
+                                                    }
+                                                    return 0;
+                                                })).map(ar => <option key={ar.id} value={ar.id}>{ar.name}</option>)}
                                             </select>
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div>
@@ -2718,6 +3187,28 @@
                         </div>
                         )}
                     </div>
+                    {confirmDelete && (
+                        <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
+                            <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
+                                <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='signature'?'簽呈':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
+                                    <button onClick={async()=>{ try { 
+                                        if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='signatureType') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='signature') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signatures', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='schedule') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', confirmDelete.id)); } 
+                                        setConfirmDelete(null); 
+                                        setToast('刪除成功'); 
+                                    } catch(e) { console.error(e); setConfirmDelete(null); setToast('刪除失敗'); } }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">刪除</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -4609,8 +5100,10 @@
             const [signatureForm, setSignatureForm] = useState({ type: '請假', content: '' });
             const [signatureLoading, setSignatureLoading] = useState(false);
             const [signatureError, setSignatureError] = useState('');
+            const [signatureEditTarget, setSignatureEditTarget] = useState(null);
             
             const [signatureTypes, setSignatureTypes] = useState([]);
+            const [confirmDelete, setConfirmDelete] = useState(null);
 
             useEffect(() => {
                 if (!toast) return;
@@ -4699,6 +5192,42 @@
                     console.error(e);
                     setToast('更新失敗: ' + e.message);
                 }
+            };
+
+            const openEditSignature = (sig) => {
+                setSignatureForm({ type: sig.type || '請假', content: sig.content || '' });
+                setSignatureError('');
+                setSignatureEditTarget(sig.id);
+                setShowSignatureModal(true);
+            };
+
+            const handleEditSignatureConfirm = async () => {
+                if (!signatureEditTarget) return;
+                if (!signatureForm.content.trim()) {
+                    setSignatureError('請輸入內容');
+                    return;
+                }
+                setSignatureLoading(true);
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signatures', signatureEditTarget), {
+                        type: signatureForm.type,
+                        content: signatureForm.content,
+                        updatedAt: serverTimestamp()
+                    });
+                    setToast('簽呈已更新');
+                    setShowSignatureModal(false);
+                    setSignatureEditTarget(null);
+                    setSignatureForm({ type: '請假', content: '' });
+                } catch (e) {
+                    console.error(e);
+                    setSignatureError(e.message);
+                } finally {
+                    setSignatureLoading(false);
+                }
+            };
+
+            const requestDeleteSignature = (sig) => {
+                setConfirmDelete({ type: 'signature', id: sig.id, label: (sig.type || '簽呈') });
             };
 
             // Fetch Today's Schedules for Cadre Map Status
@@ -4915,33 +5444,11 @@
                 }
             };
 
-            const handleDeleteSchedule = async () => {
+            const handleDeleteSchedule = () => {
                 if (!cadreMapSelectedUserId || !scheduleModalDate) return;
-                
-                if (!confirm('確定要刪除此排班紀錄嗎？')) return;
-
-                setScheduleSaving(true);
-                try {
-                    const docId = `schedule_${cadreMapSelectedUserId}_${scheduleModalDate}`;
-                    
-                    // Update local state immediately
-                    setUserSchedules(prev => {
-                        const next = { ...prev };
-                        delete next[scheduleModalDate];
-                        return next;
-                    });
-
-                    // Delete from Firestore
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId));
-                    
-                    setToast('排班已刪除');
-                    setShowScheduleModal(false);
-                } catch (error) {
-                    console.error('Error deleting schedule:', error);
-                    alert('刪除失敗: ' + error.message);
-                } finally {
-                    setScheduleSaving(false);
-                }
+                const docId = `schedule_${cadreMapSelectedUserId}_${scheduleModalDate}`;
+                setConfirmDelete({ type: 'schedule', id: docId, label: `${scheduleModalDate} 排班` });
+                setShowScheduleModal(false);
             };
 
             const handleAutoSchedule = async () => {
@@ -5022,7 +5529,7 @@
                     }
                 } catch (error) {
                     console.error('Error auto scheduling:', error);
-                    alert('自動排班失敗: ' + (error.message || JSON.stringify(error)));
+                    setToast('自動排班失敗: ' + (error.message || JSON.stringify(error)));
                 } finally {
                     setScheduleSaving(false);
                 }
@@ -5037,12 +5544,12 @@
                 if (!adminDeleteTarget) return;
                 try {
                     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', adminDeleteTarget.id));
-                    // alert('刪除成功'); // User wants immediate deletion and update, alert might be annoying or fine, but user said "按下'確認'即刪除該筆全部資料", implying direct action. I'll keep it simple or use a toast if available, but for now I'll just close modal.
+                    setToast('刪除成功');
                     setShowAdminDeleteModal(false);
                     setAdminDeleteTarget(null);
                 } catch (err) {
                     console.error(err);
-                    alert('刪除失敗: ' + err.message);
+                    setToast('刪除失敗: ' + err.message);
                 }
             };
 
@@ -5406,7 +5913,11 @@
                 // Roles
                 unsubscribes.push(onSnapshot(
                     collection(db, 'artifacts', appId, 'public', 'data', 'roles'),
-                    (snap) => setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    (snap) => {
+                        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+                        setRoles(list);
+                    },
                     (err) => handleFetchError(err, 'roles_snap')
                 ));
 
@@ -5435,7 +5946,11 @@
                     (e) => handleFetchError(e, 'areas_snap')
                 ));
                 unsubscribes.push(onSnapshot(refSignatureTypes,
-                    (snap) => setSignatureTypes(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    (snap) => {
+                        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+                        setSignatureTypes(list);
+                    },
                     (e) => console.log('signature_types fetch error', e)
                 ));
                 unsubscribes.push(onSnapshot(refUsers,  
@@ -7486,6 +8001,8 @@
                                                 <button 
                                                     onClick={() => {
                                                         setSignatureError('');
+                                                        setSignatureForm({ type: '請假', content: '' });
+                                                        setSignatureEditTarget(null);
                                                         setShowSignatureModal(true);
                                                     }}
                                                     className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors"
@@ -7511,9 +8028,29 @@
                                                                     </span>
                                                                     <span className="text-xs font-bold text-gray-700">{sig.type}</span>
                                                                 </div>
-                                                                <span className="text-[10px] text-gray-400">
-                                                                    {sig.createdAt?.seconds ? new Date(sig.createdAt.seconds * 1000).toLocaleDateString('zh-TW') : ''}
-                                                                </span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[10px] text-gray-400">
+                                                                        {sig.createdAt?.seconds ? new Date(sig.createdAt.seconds * 1000).toLocaleDateString('zh-TW') : ''}
+                                                                    </span>
+                                                                    {sig.status === 'pending' && (
+                                                                        <>
+                                                                            <button 
+                                                                                onClick={() => openEditSignature(sig)} 
+                                                                                className="p-1 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
+                                                                                title="編輯"
+                                                                            >
+                                                                                <Edit className="w-3 h-3 text-gray-600" />
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => requestDeleteSignature(sig)} 
+                                                                                className="p-1 rounded-lg bg-red-50 hover:bg-red-100 transition-colors"
+                                                                                title="刪除"
+                                                                            >
+                                                                                <Trash2 className="w-3 h-3 text-red-600" />
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             <p className="text-sm text-gray-600 mb-3 whitespace-pre-wrap line-clamp-3">{sig.content}</p>
                                                             <div className="flex items-center justify-between border-t border-gray-100 pt-2 mt-2">
@@ -7694,6 +8231,29 @@
                         </div>
                     )}
 
+                    {confirmDelete && (
+                        <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
+                            <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
+                                <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='signature'?'簽呈':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
+                                    <button onClick={async()=>{ try { 
+                                        if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='signatureType') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='signature') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signatures', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='schedule') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', confirmDelete.id)); } 
+                                        setConfirmDelete(null); 
+                                        setToast('刪除成功'); 
+                                    } catch(e) { console.error(e); setConfirmDelete(null); setToast('刪除失敗'); } }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">刪除</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {showDescriptionModal && (
                         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDescriptionModal(false)}>
                             <div className="bg-white rounded-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
@@ -7780,13 +8340,15 @@
 
                     <SignatureModal 
                         isOpen={showSignatureModal}
-                        onClose={() => setShowSignatureModal(false)}
-                        onConfirm={handleAddSignature}
+                        onClose={() => { setShowSignatureModal(false); setSignatureEditTarget(null); setSignatureError(''); }}
+                        onConfirm={signatureEditTarget ? handleEditSignatureConfirm : handleAddSignature}
                         loading={signatureLoading}
                         error={signatureError}
                         form={signatureForm}
                         setForm={setSignatureForm}
                         signatureTypes={signatureTypes}
+                        title={signatureEditTarget ? '編輯電子簽呈' : '新增電子簽呈'}
+                        confirmText={signatureEditTarget ? '儲存變更' : '送出申請'}
                     />
 
                     {showScheduleModal && (
