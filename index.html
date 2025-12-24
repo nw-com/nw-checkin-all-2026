@@ -9,6 +9,21 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <script>
+        (function(){
+            var w=console.warn.bind(console);
+            var e=console.error.bind(console);
+            function s(args){
+                try{
+                    var t=Array.prototype.map.call(args,function(a){return String(a)}).join(' ');
+                    return t.indexOf('[BABEL] Note: The code generator has deoptimised the styling')>=0;
+                }catch(_){return false}
+            }
+            console.warn=function(){ if(s(arguments)) return; w.apply(console,arguments); };
+            console.error=function(){ if(s(arguments)) return; e.apply(console,arguments); };
+        })();
+    </script>
+    
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -3891,8 +3906,9 @@
             };
 
             const isToday = isSameDay(viewDate, new Date());
+            const sourceHistory = mode === 'leave' ? myLeaves : attendanceHistory;
             
-            const filteredHistory = attendanceHistory.filter(record => {
+            const filteredHistory = sourceHistory.filter(record => {
                 // Ensure timestamp exists and has seconds, otherwise use current time or skip
                 const seconds = record.timestamp?.seconds || (record.createdAt?.seconds) || (Date.now() / 1000);
                 const recordDate = new Date(seconds * 1000);
@@ -4109,7 +4125,7 @@
                 }
             }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup, mode]);
 
-            const lastRecord = attendanceHistory[0];
+            const lastRecord = sourceHistory[0];
             // Auto-Reset Logic: Determine if still "Working" based on Shift Type
             const isWorking = useMemo(() => {
                 if (!lastRecord || lastRecord.type !== 'in') return false;
@@ -4327,7 +4343,7 @@
                  headerBgClass = 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-200';
             } else {
                 // Get Today's Records for Background Logic
-                const todayRecordsForBg = attendanceHistory.filter(r => {
+                const todayRecordsForBg = sourceHistory.filter(r => {
                     const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
                     const rDate = new Date(seconds * 1000);
                     // Use currentTime from state for consistent date comparison
@@ -4418,7 +4434,7 @@
 
                                     // 2. Get Today's Records
                                     // Filter strictly for today based on currentTime
-                                    const todayRecords = attendanceHistory.filter(r => {
+                                    const todayRecords = sourceHistory.filter(r => {
                                         const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
                                         const rDate = new Date(seconds * 1000);
                                         return rDate.getFullYear() === y && 
@@ -7353,7 +7369,7 @@
                                         onClockIn={handleClockIn}
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         onLeaveSubmit={handleLeaveSubmit}
-                                    attendanceHistory={myLeaves}
+                                    attendanceHistory={[]}
                                     timeOffset={timeOffset}
                                         companies={companies}
                                         communities={communities}
@@ -8920,15 +8936,26 @@
                                         {(function(){
                                             const now = new Date();
                                             const selectedUserId = cadreMapSelectedUserId;
-                                            const source = attendanceList.filter(r => !selectedUserId || r.userId === selectedUserId);
+                                            const source = reportModalType === 'leave' 
+                                                ? leavesList.filter(r => !selectedUserId || r.userId === selectedUserId)
+                                                : attendanceList.filter(r => !selectedUserId || r.userId === selectedUserId);
                                             const monthsSet = new Set();
-                                            source.forEach(r => {
-                                                const d = new Date((r.timestamp?.seconds || 0) * 1000);
-                                                if (!isNaN(d)) {
-                                                    const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-                                                    monthsSet.add(m);
-                                                }
-                                            });
+                                            if (reportModalType === 'leave') {
+                                                source.forEach(r => {
+                                                    const s = r.leaveStartDate ? new Date(r.leaveStartDate) : null;
+                                                    const e = r.leaveEndDate ? new Date(r.leaveEndDate) : null;
+                                                    if (s && !isNaN(s)) monthsSet.add(`${s.getFullYear()}-${String(s.getMonth()+1).padStart(2,'0')}`);
+                                                    if (e && !isNaN(e)) monthsSet.add(`${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}`);
+                                                });
+                                            } else {
+                                                source.forEach(r => {
+                                                    const d = new Date((r.timestamp?.seconds || 0) * 1000);
+                                                    if (!isNaN(d)) {
+                                                        const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+                                                        monthsSet.add(m);
+                                                    }
+                                                });
+                                            }
                                             let months = Array.from(monthsSet).filter(m => {
                                                 const [y, mo] = m.split('-').map(Number);
                                                 const dt = new Date(y, mo-1, 1);
@@ -8980,6 +9007,7 @@
                                         border: none !important;
                                         padding: 0 !important;
                                         border-radius: 0 !important;
+                                        margin-top: -4mm !important;
                                     }
                                     #attendance-report .text-lg { font-size: 10pt !important; }
                                     #attendance-report .text-md { font-size: 9pt !important; }
@@ -8990,9 +9018,9 @@
                                     #attendance-report .px-3 { padding-left: 2mm !important; padding-right: 2mm !important; }
                                     #attendance-report .py-2 { padding-top: 0 !important; padding-bottom: 0 !important; }
                                     #attendance-report .text-center.py-1 { padding-top: 0 !important; padding-bottom: 0 !important; }
-                                    #attendance-report .text-center.pb-3 { padding-bottom: 2mm !important; }
-                                    #attendance-report .grid.grid-cols-7.text-xs.font-bold > div { height: 8mm !important; display: flex; align-items: center; white-space: nowrap; }
-                                    #attendance-report .divide-y > .grid > div { height: 8mm !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; }
+                                    #attendance-report .text-center.pb-3 { padding-bottom: 1mm !important; }
+                                    #attendance-report .grid.grid-cols-7.text-xs.font-bold > div { height: 7mm !important; display: flex; align-items: center; white-space: nowrap; }
+                                    #attendance-report .divide-y > .grid > div { height: 7mm !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; }
                                     #attendance-report .divide-y > .grid > div > div { display: inline !important; margin-right: 2mm !important; }
                                     #attendance-report .divide-y > .grid { page-break-inside: avoid; }
                                     #attendance-report .bg-gray-50 { background: #ffffff !important; }
@@ -9005,6 +9033,205 @@
                                     const targetDate = new Date(cadreRecordDate);
                                     const targetYear = targetDate.getFullYear();
                                     const targetMonth = targetDate.getMonth();
+                                    
+                                    if (reportModalType === 'leave') {
+                                        if (!cadreMapSelectedUserId) {
+                                            return (
+                                                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                                    <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
+                                                    <p>請先在左側列表選取人員</p>
+                                                </div>
+                                            );
+                                        }
+                                        const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                        const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
+                                        const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+                                        const weekMap = ['日','一','二','三','四','五','六'];
+                                        const normalizeDateStr = (v) => {
+                                            if (!v) return null;
+                                            const s = String(v).replace(/\//g, '-');
+                                            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00`);
+                                            const d = new Date(s);
+                                            return isNaN(d) ? null : d;
+                                        };
+                                        const parseLeaveRange = (l) => {
+                                            let s = l.leaveStartDate ? normalizeDateStr(l.leaveStartDate) : null;
+                                            let e = l.leaveEndDate ? normalizeDateStr(l.leaveEndDate) : null;
+                                            if (!s) {
+                                                if (l.leaveDate) {
+                                                    const dstr = String(l.leaveDate).replace(/\//g, '-');
+                                                    const tstr = l.leaveTime ? String(l.leaveTime) : '00:00';
+                                                    const dt = new Date(`${dstr}T${tstr}`);
+                                                    s = isNaN(dt) ? null : dt;
+                                                } else if (l.timestamp && l.timestamp.seconds) {
+                                                    const d = new Date(l.timestamp.seconds * 1000);
+                                                    s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+                                                }
+                                            }
+                                            if (!e) {
+                                                if (l.leaveDate) {
+                                                    const dstr = String(l.leaveDate).replace(/\//g, '-');
+                                                    const tstr = l.leaveTime ? String(l.leaveTime) : '23:59';
+                                                    const dt = new Date(`${dstr}T${tstr}`);
+                                                    e = isNaN(dt) ? null : dt;
+                                                } else if (s) {
+                                                    e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                }
+                                            }
+                                            return { s, e };
+                                        };
+                                        const monthLeaves = leavesList.filter(l => {
+                                            if (l.userId !== cadreMapSelectedUserId) return false;
+                                            const { s, e } = parseLeaveRange(l);
+                                            if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                            return s <= monthEnd && e >= monthStart;
+                                        }).sort((a,b) => {
+                                            const sa = parseLeaveRange(a).s ? parseLeaveRange(a).s.getTime() : 0;
+                                            const sb = parseLeaveRange(b).s ? parseLeaveRange(b).s.getTime() : 0;
+                                            return sa - sb;
+                                        });
+                                        
+                                        const fmt = (v) => {
+                                            if (!v) return '-';
+                                            const d = v instanceof Date ? v : new Date(v);
+                                            if (isNaN(d)) return String(v);
+                                            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                                        };
+                                        return (
+                                            <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                                                <div className="min-w-[720px]">
+                                                    <div className="text-center font-bold text-lg text-gray-800 py-1">
+                                                        西北保全{user?.title || ''}{user?.name || ''}
+                                                    </div>
+                                                    <div className="text-center font-bold text-md text-gray-600 pb-3">
+                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 請假列表
+                                                    </div>
+                                                    <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
+                                                        <div className="px-3 py-2">日期</div>
+                                                        <div className="px-3 py-2">星期</div>
+                                                        <div className="px-3 py-2">事由</div>
+                                                        <div className="px-3 py-2">開始時間</div>
+                                                        <div className="px-3 py-2">結束時間</div>
+                                                        <div className="px-3 py-2">狀況</div>
+                                                        <div className="px-3 py-2">備註</div>
+                                                    </div>
+                                                    <div className="divide-y divide-gray-100">
+                                                        {monthLeaves.map((l, idx) => {
+                                                            const rng = (function(){ const r = parseLeaveRange(l); return r; })();
+                                                            const sd = rng.s;
+                                                            const w = !sd || isNaN(sd) ? '-' : weekMap[sd.getDay()];
+                                                            const statusMap = { approved: '已核准', pending: '待核准', rejected: '已駁回' };
+                                                            const status = statusMap[l.approvalStatus] || l.approvalStatus || '';
+                                                            return (
+                                                                <div key={idx} className="grid grid-cols-7 text-sm">
+                                                                    <div className="px-3 py-2">{(!sd || isNaN(sd)) ? '-' : String(sd.getDate()).padStart(2,'0')}</div>
+                                                                    <div className="px-3 py-2">{w}</div>
+                                                                    <div className="px-3 py-2">{l.leaveReason || '-'}</div>
+                                                                    <div className="px-3 py-2">{fmt(rng.s)}</div>
+                                                                    <div className="px-3 py-2">{fmt(rng.e)}</div>
+                                                                    <div className="px-3 py-2">{status}</div>
+                                                                    <div className="px-3 py-2">{l.leaveDescription || ''}</div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    if (reportModalType === 'duty') {
+                                        if (!cadreMapSelectedUserId) {
+                                            return (
+                                                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                                    <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
+                                                    <p>請先在左側列表選取人員</p>
+                                                </div>
+                                            );
+                                        }
+                                        const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                        const weekMap = ['日','一','二','三','四','五','六'];
+                                        const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
+                                        const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+                                        const monthRecords = attendanceList.filter(r => {
+                                            if (r.userId !== cadreMapSelectedUserId) return false;
+                                            const ts = r.timestamp?.seconds;
+                                            if (!ts) return false;
+                                            const d = new Date(ts * 1000);
+                                            return d >= monthStart && d <= monthEnd;
+                                        });
+                                        const cardRecords = monthRecords.filter(r => ['late_in','late_out'].includes(r.type));
+                                        const byDay = {};
+                                        cardRecords.forEach(r => {
+                                            const d = new Date(r.timestamp.seconds * 1000);
+                                            const day = d.getDate();
+                                            byDay[day] = byDay[day] || { ins: [], outs: [], locationName: '' };
+                                            if (r.type === 'late_in') byDay[day].ins.push(r);
+                                            if (r.type === 'late_out') byDay[day].outs.push(r);
+                                            const comm = communities.find(c => String(c.id) === String(r.communityId));
+                                            const locName = r.checkInLocationName || (comm ? comm.name : '') || r.address || '';
+                                            if (!byDay[day].locationName && locName) byDay[day].locationName = locName;
+                                        });
+                                        const rows = Object.keys(byDay).map(k => {
+                                            const day = Number(k);
+                                            const ins = byDay[day].ins.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                                            const outs = byDay[day].outs.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                                            const firstIn = ins[0] || null;
+                                            const lastOut = outs.length > 0 ? outs[outs.length - 1] : null;
+                                            const dateObj = new Date(targetYear, targetMonth, day);
+                                            let workStr = '-';
+                                            if (firstIn && lastOut) {
+                                                const diffMs = (lastOut.timestamp.seconds - firstIn.timestamp.seconds) * 1000;
+                                                const totalHours = diffMs / 3600000;
+                                                workStr = `${totalHours.toFixed(1)} hr`;
+                                            }
+                                            const inTimeStr = firstIn ? new Date(firstIn.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                                            const outTimeStr = lastOut ? new Date(lastOut.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                                            return {
+                                                day,
+                                                week: weekMap[dateObj.getDay()],
+                                                inTimeStr,
+                                                outTimeStr,
+                                                workStr,
+                                                location: byDay[day].locationName || '-',
+                                                remarks: ''
+                                            };
+                                        }).sort((a,b) => a.day - b.day);
+                                        
+                                        return (
+                                            <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                                                <div className="min-w-[720px]">
+                                                    <div className="text-center font-bold text-lg text-gray-800 py-1">
+                                                        西北保全{user?.title || ''}{user?.name || ''}
+                                                    </div>
+                                                    <div className="text-center font-bold text-md text-gray-600 pb-3">
+                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 卡班月報表
+                                                    </div>
+                                                    <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
+                                                        <div className="px-3 py-2">日期</div>
+                                                        <div className="px-3 py-2">星期</div>
+                                                        <div className="px-3 py-2">開始時間</div>
+                                                        <div className="px-3 py-2">結束時間</div>
+                                                        <div className="px-3 py-2">判定工時</div>
+                                                        <div className="px-3 py-2">打卡位置</div>
+                                                        <div className="px-3 py-2">備註</div>
+                                                    </div>
+                                                    <div className="divide-y divide-gray-100">
+                                                        {rows.map((row, idx) => (
+                                                            <div key={idx} className="grid grid-cols-7 text-sm">
+                                                                <div className="px-3 py-2">{String(row.day).padStart(2,'0')}</div>
+                                                                <div className="px-3 py-2">{row.week}</div>
+                                                                <div className="px-3 py-2">{row.inTimeStr}</div>
+                                                                <div className="px-3 py-2">{row.outTimeStr}</div>
+                                                                <div className="px-3 py-2">{row.workStr}</div>
+                                                                <div className="px-3 py-2">{row.location}</div>
+                                                                <div className="px-3 py-2">{row.remarks}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
                                     
                                     const monthRecords = attendanceList.filter(r => {
                                         if (!cadreMapSelectedUserId) return false;
@@ -9225,15 +9452,7 @@
                                         });
                                     }
 
-                                    const hasAnyData = monthRecords.length > 0;
-                                    if (!hasAnyData) {
-                                        return (
-                                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                                <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
-                                                <p>本月份尚無資料</p>
-                                            </div>
-                                        );
-                                    }
+                                    
 
                                     return (
                                         <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
