@@ -3758,6 +3758,9 @@
             const [myLeaves, setMyLeaves] = useState([]);
             const [showScheduleConfirmModal, setShowScheduleConfirmModal] = useState(false);
             const [scheduleConfirmData, setScheduleConfirmData] = useState(null);
+            const [outingReasonOption, setOutingReasonOption] = useState('例行督察');
+            const [outingCustomReason, setOutingCustomReason] = useState('');
+            const [showOutingReasonSelector, setShowOutingReasonSelector] = useState(false);
 
             // Hardcoded Holidays (Taiwan)
             const holidays = [
@@ -4162,6 +4165,28 @@
                 return currentTime < resetTime;
             }, [lastRecord, mySchedules, currentTime]);
 
+            const isOutingActive = useMemo(() => {
+                if (!lastRecord || !['outing_start','outing_arrive'].includes(lastRecord.type)) return false;
+                const seconds = lastRecord.timestamp?.seconds || (lastRecord.createdAt?.seconds) || (Date.now() / 1000);
+                const recordTime = new Date(seconds * 1000);
+                const y = recordTime.getFullYear();
+                const m = String(recordTime.getMonth() + 1).padStart(2, '0');
+                const d = String(recordTime.getDate()).padStart(2, '0');
+                const recordDateStr = `${y}-${m}-${d}`;
+                const schedule = mySchedules[recordDateStr];
+                const isNightShiftRecord = schedule && (schedule.startTime === '12:00' || schedule.crossDay === true);
+                const resetTime = new Date(recordTime);
+                resetTime.setHours(0, 0, 0, 0);
+                if (isNightShiftRecord) {
+                    resetTime.setDate(resetTime.getDate() + 1);
+                    resetTime.setHours(12, 0, 0, 0);
+                } else {
+                    resetTime.setDate(resetTime.getDate() + 1);
+                    resetTime.setHours(0, 0, 0, 0);
+                }
+                return currentTime < resetTime;
+            }, [lastRecord, mySchedules, currentTime]);
+
             const getButtonConfig = () => {
                 if (mode === 'card') {
                     const lastType = lastRecord?.type;
@@ -4174,12 +4199,14 @@
 
                 if (mode === 'outing') {
                     const lastType = lastRecord?.type;
+                    if (!isOutingActive) {
+                        return { type: 'outing_start', text: '外出打卡', sub: '紀錄外出開始', icon: LogOut, colorClass: 'bg-white text-blue-600 border-2 border-blue-100', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' };
+                    }
                     if (lastType === 'outing_start') {
                         return { type: 'outing_arrive', text: '抵達打卡', sub: '紀錄抵達時間', icon: MapPin, colorClass: 'bg-white text-blue-600 border-2 border-blue-100', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' };
                     } else if (lastType === 'outing_arrive') {
                         return { type: 'outing_end', text: '離開打卡', sub: '紀錄離開時間', icon: LogOut, colorClass: 'bg-white text-blue-600 border-2 border-blue-100', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' };
                     } else {
-                        // null, 'outing_end', or other -> Start cycle with Outing Start
                         return { type: 'outing_start', text: '外出打卡', sub: '紀錄外出開始', icon: LogOut, colorClass: 'bg-white text-blue-600 border-2 border-blue-100', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' };
                     }
                 }
@@ -4525,6 +4552,27 @@
                     </div>
                     )}
                     
+                    {/* Outing Reason Selector (only in outing mode) */}
+                    {mode === 'outing' && (
+                        <div className="px-2 mb-4">
+                            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                        <ClipboardList className="w-5 h-5 text-red-600" />
+                                        <span className="font-bold text-sm">
+                                            {outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption}
+                                        </span>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowOutingReasonSelector(v => !v)}
+                                        className="text-xs bg-gray-100 px-3 py-1.5 rounded-lg text-gray-600 font-bold hover:bg-gray-200"
+                                    >
+                                        更換
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {/* Location Display & Selector */}
                     {['work', 'outing', 'card'].includes(mode) && (
                         <div className="px-2 mb-4">
@@ -4802,6 +4850,54 @@
                                             {checkInLocation?.id === loc.id && <CheckCircle className="w-4 h-4" />}
                                         </button>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showOutingReasonSelector && (
+                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden animate-fade-in-up max-h-[80vh] flex flex-col">
+                                <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                                    <h3 className="font-bold text-gray-800">選擇外出事由</h3>
+                                    <button onClick={() => setShowOutingReasonSelector(false)} className="p-1 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"><X className="w-4 h-4" /></button>
+                                </div>
+                                <div className="overflow-y-auto p-2">
+                                    {['例行督察','例會','臨時會','區大','節日活動','簡報','其他'].map(opt => (
+                                        <button
+                                            key={opt}
+                                            onClick={() => {
+                                                setOutingReasonOption(opt);
+                                                if (opt !== '其他') { 
+                                                    setOutingCustomReason('');
+                                                    setShowOutingReasonSelector(false);
+                                                }
+                                            }}
+                                            className={`w-full text-left px-4 py-3 rounded-xl mb-1 flex items-center justify-between ${outingReasonOption === opt ? 'bg-red-50 text-red-600 font-bold' : 'hover:bg-gray-50 text-gray-700'}`}
+                                        >
+                                            <span>{opt}</span>
+                                            {outingReasonOption === opt && <CheckCircle className="w-4 h-4" />}
+                                        </button>
+                                    ))}
+                                    {outingReasonOption === '其他' && (
+                                        <div className="p-2">
+                                            <input 
+                                                type="text" 
+                                                className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-red-500"
+                                                placeholder="請輸入外出事由"
+                                                value={outingCustomReason}
+                                                onChange={(e) => setOutingCustomReason(e.target.value)}
+                                            />
+                                            <div className="mt-3 flex justify-end gap-2">
+                                                <button 
+                                                    className="px-3 py-1.5 rounded-lg text-xs bg-gray-100 text-gray-600 font-bold hover:bg-gray-200"
+                                                    onClick={() => setShowOutingReasonSelector(false)}
+                                                >
+                                                    確定
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -9104,7 +9200,7 @@
                                                         西北保全{user?.title || ''}{user?.name || ''}
                                                     </div>
                                                     <div className="text-center font-bold text-md text-gray-600 pb-3">
-                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 請假列表
+                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 請假月報表
                                                     </div>
                                                     <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
                                                         <div className="px-3 py-2">日期</div>
