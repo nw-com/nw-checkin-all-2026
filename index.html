@@ -530,9 +530,11 @@
                             >
                                 重新整理頁面
                             </button>
-                        </div>
-                    );
-                }
+                                        </div>
+                                        );
+                                    }
+                                    
+                                    
                 return this.props.children; 
             }
         }
@@ -4327,9 +4329,15 @@
                  // Default behavior
                  if (config.type === 'leave') {
                      setShowLeaveModal(true);
-                 } else {
-                     onClockIn(config.type, availableLocations);
-                 }
+                } else {
+                    onClockIn(
+                        config.type, 
+                        availableLocations,
+                        (config.type || '').startsWith('outing') 
+                            ? { outingReason: (outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption) } 
+                            : undefined
+                    );
+                }
             };
 
 
@@ -4552,13 +4560,13 @@
                     </div>
                     )}
                     
-                    {/* Outing Reason Selector (only in outing mode) */}
                     {mode === 'outing' && (
                         <div className="px-2 mb-4">
                             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-2 text-gray-700">
                                         <ClipboardList className="w-5 h-5 text-red-600" />
+                                        <span className="text-xs font-bold text-gray-500">外出事由</span>
                                         <span className="font-bold text-sm">
                                             {outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption}
                                         </span>
@@ -4726,6 +4734,12 @@
                                                                 : (r.checkInLocationName || r.address || '未記錄')
                                                             }
                                                         </div>
+                                                        {['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.outingReason || '').trim() && (
+                                                            <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                <ClipboardList className="w-3 h-3" />
+                                                                外出事由：{r.outingReason}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         {(function(){
@@ -5252,6 +5266,7 @@
             const [showCadreLeaveModal, setShowCadreLeaveModal] = useState(false);
             const [editingCadreLeave, setEditingCadreLeave] = useState(null);
             const [cadreLeaveLoading, setCadreLeaveLoading] = useState(false);
+            const [pendingOutingReason, setPendingOutingReason] = useState('');
             const [showApprovalModal, setShowApprovalModal] = useState(false);
             const [selectedApprovalLeave, setSelectedApprovalLeave] = useState(null);
             const [adminEditData, setAdminEditData] = useState(null);
@@ -6606,10 +6621,15 @@
                 }
             };
 
-            const handleClockIn = (type, locations = []) => {
+            const handleClockIn = (type, locations = [], extra = {}) => {
                 setClockType(type);
                 if (locations.length > 0) {
                     setAvailableClockInLocations(locations);
+                }
+                if ((type || '').startsWith('outing')) {
+                    setPendingOutingReason(extra?.outingReason || '');
+                } else {
+                    setPendingOutingReason('');
                 }
                 setShowCameraModal(true);
             };
@@ -6671,6 +6691,7 @@
                             communityId: checkInLocation ? checkInLocation.id : dbUser.communityId,
                             checkInLocationName: checkInLocation ? checkInLocation.name : (dbUser.communityName || ''),
                             type: clockType,
+                            outingReason: (clockType || '').startsWith('outing') ? (pendingOutingReason || '') : '',
                             timestamp: serverTimestamp(),
                             device: 'Web Browser',
                             location: `${location.lat}, ${location.lng}`,
@@ -9321,6 +9342,98 @@
                                                                 <div className="px-3 py-2">{row.workStr}</div>
                                                                 <div className="px-3 py-2">{row.location}</div>
                                                                 <div className="px-3 py-2">{row.remarks}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    if (reportModalType === 'outing') {
+                                        if (!cadreMapSelectedUserId) {
+                                            return (
+                                                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                                    <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
+                                                    <p>請先在左側列表選取人員</p>
+                                                </div>
+                                            );
+                                        }
+                                        const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                        const weekMap = ['日','一','二','三','四','五','六'];
+                                        const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
+                                        const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+                                        const monthRecords = attendanceList.filter(r => {
+                                            if (r.userId !== cadreMapSelectedUserId) return false;
+                                            const ts = r.timestamp?.seconds;
+                                            if (!ts) return false;
+                                            const d = new Date(ts * 1000);
+                                            return d >= monthStart && d <= monthEnd;
+                                        });
+                                        const outingRecords = monthRecords.filter(r => ['outing_start','outing_arrive','outing_end'].includes(r.type));
+                                        const byDay = {};
+                                        outingRecords.forEach(r => {
+                                            const d = new Date(r.timestamp.seconds * 1000);
+                                            const day = d.getDate();
+                                            byDay[day] = byDay[day] || { starts: [], arrives: [], ends: [], locationName: '' };
+                                            if (r.type === 'outing_start') byDay[day].starts.push(r);
+                                            if (r.type === 'outing_arrive') byDay[day].arrives.push(r);
+                                            if (r.type === 'outing_end') byDay[day].ends.push(r);
+                                            const comm = communities.find(c => String(c.id) === String(r.communityId));
+                                            const locName = r.checkInLocationName || (comm ? comm.name : '') || r.address || '';
+                                            if (!byDay[day].locationName && locName) byDay[day].locationName = locName;
+                                        });
+                                        const rows = Object.keys(byDay).map(k => {
+                                            const day = Number(k);
+                                            const starts = byDay[day].starts.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                                            const arrives = byDay[day].arrives.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                                            const ends = byDay[day].ends.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                                            const firstStart = starts[0] || null;
+                                            const firstArrive = arrives[0] || null;
+                                            const lastEnd = ends.length > 0 ? ends[ends.length - 1] : null;
+                                            const dateObj = new Date(targetYear, targetMonth, day);
+                                            const startStr = firstStart ? new Date(firstStart.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                                            const arriveStr = firstArrive ? new Date(firstArrive.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                                            const endStr = lastEnd ? new Date(lastEnd.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                                            const reasonStr = (firstStart?.outingReason || firstArrive?.outingReason || lastEnd?.outingReason || '').trim() || '-';
+                                            return {
+                                                day,
+                                                week: weekMap[dateObj.getDay()],
+                                                reasonStr,
+                                                startStr,
+                                                arriveStr,
+                                                endStr,
+                                                location: byDay[day].locationName || '-',
+                                            };
+                                        }).sort((a,b) => a.day - b.day);
+                                        
+                                        return (
+                                            <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                                                <div className="min-w-[720px]">
+                                                    <div className="text-center font-bold text-lg text-gray-800 py-1">
+                                                        西北保全{user?.title || ''}{user?.name || ''}
+                                                    </div>
+                                                    <div className="text-center font-bold text-md text-gray-600 pb-3">
+                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 外出月報表
+                                                    </div>
+                                                    <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
+                                                        <div className="px-3 py-2">日期</div>
+                                                        <div className="px-3 py-2">星期</div>
+                                                        <div className="px-3 py-2">外出事由</div>
+                                                        <div className="px-3 py-2">外出位置</div>
+                                                        <div className="px-3 py-2">外出時間</div>
+                                                        <div className="px-3 py-2">抵達時間</div>
+                                                        <div className="px-3 py-2">離開時間</div>
+                                                    </div>
+                                                    <div className="divide-y divide-gray-100">
+                                                        {rows.map((row, idx) => (
+                                                            <div key={idx} className="grid grid-cols-7 text-sm">
+                                                                <div className="px-3 py-2">{String(row.day).padStart(2,'0')}</div>
+                                                                <div className="px-3 py-2">{row.week}</div>
+                                                                <div className="px-3 py-2">{row.reasonStr}</div>
+                                                                <div className="px-3 py-2">{row.location}</div>
+                                                                <div className="px-3 py-2">{row.startStr}</div>
+                                                                <div className="px-3 py-2">{row.arriveStr}</div>
+                                                                <div className="px-3 py-2">{row.endStr}</div>
                                                             </div>
                                                         ))}
                                                     </div>
