@@ -3777,11 +3777,10 @@
                     setMySchedules(newSchedules);
                 });
 
-                // Leaves (Approved)
+                // Leaves (All Status)
                 const qLeaves = query(
                     collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
-                    where('userId', '==', currentUser.id),
-                    where('approvalStatus', '==', 'approved')
+                    where('userId', '==', currentUser.id)
                 );
                 const unsubLeaves = onSnapshot(qLeaves, (snapshot) => {
                     const leaves = [];
@@ -4311,35 +4310,49 @@
             // Calculate Header Background
             let headerBgClass = 'bg-gradient-to-br from-gray-600 to-gray-700 shadow-gray-200';
             
-            // Get Today's Records for Background Logic
-            const todayRecordsForBg = attendanceHistory.filter(r => {
-                const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
-                const rDate = new Date(seconds * 1000);
-                // Use currentTime from state for consistent date comparison
-                return rDate.getFullYear() === currentTime.getFullYear() && 
-                       rDate.getMonth() === currentTime.getMonth() && 
-                       rDate.getDate() === currentTime.getDate();
-            }).sort((a, b) => {
-                 const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
-                 const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
-                 return ta - tb;
+            // Check Schedule / Approved Leave for Background
+            const hY = currentTime.getFullYear();
+            const hM = String(currentTime.getMonth() + 1).padStart(2, '0');
+            const hD = String(currentTime.getDate()).padStart(2, '0');
+            const hTodayStr = `${hY}-${hM}-${hD}`;
+            const hSchedule = mySchedules[hTodayStr];
+            const hApprovedLeave = myLeaves.find(l => {
+                 if (l.approvalStatus !== 'approved') return false;
+                 return hTodayStr >= l.leaveStartDate && hTodayStr <= l.leaveEndDate;
             });
-            const lastRecordForBg = todayRecordsForBg[todayRecordsForBg.length - 1];
 
-            if (lastRecordForBg?.type) {
-                const t = lastRecordForBg.type;
-                if (['in', 'late_in'].includes(t)) {
-                    headerBgClass = 'bg-gradient-to-br from-green-600 to-green-700 shadow-green-200';
-                } else if (['out', 'late_out'].includes(t)) {
-                    headerBgClass = 'bg-gradient-to-br from-red-600 to-red-700 shadow-red-200';
-                } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(t)) {
-                    headerBgClass = 'bg-gradient-to-br from-blue-600 to-blue-700 shadow-blue-200';
-                } else if (t === 'leave') {
-                    headerBgClass = 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-200';
-                }
+            if (hSchedule?.type === 'off') {
+                 headerBgClass = 'bg-gradient-to-br from-stone-500 to-stone-600 shadow-stone-200';
+            } else if (hSchedule?.type === 'leave' || hApprovedLeave) {
+                 headerBgClass = 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-200';
             } else {
-                // No records today -> Grey
-                headerBgClass = 'bg-gradient-to-br from-gray-600 to-gray-700 shadow-gray-200';
+                // Get Today's Records for Background Logic
+                const todayRecordsForBg = attendanceHistory.filter(r => {
+                    const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
+                    const rDate = new Date(seconds * 1000);
+                    // Use currentTime from state for consistent date comparison
+                    return rDate.getFullYear() === currentTime.getFullYear() && 
+                           rDate.getMonth() === currentTime.getMonth() && 
+                           rDate.getDate() === currentTime.getDate();
+                }).sort((a, b) => {
+                     const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                     const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                     return ta - tb;
+                });
+                const lastRecordForBg = todayRecordsForBg[todayRecordsForBg.length - 1];
+    
+                if (lastRecordForBg?.type) {
+                    const t = lastRecordForBg.type;
+                    if (['in', 'late_in'].includes(t)) {
+                        headerBgClass = 'bg-gradient-to-br from-green-600 to-green-700 shadow-green-200';
+                    } else if (['out', 'late_out'].includes(t)) {
+                        headerBgClass = 'bg-gradient-to-br from-red-600 to-red-700 shadow-red-200';
+                    } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(t)) {
+                        headerBgClass = 'bg-gradient-to-br from-blue-600 to-blue-700 shadow-blue-200';
+                    } else if (t === 'leave') {
+                        headerBgClass = 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-200';
+                    }
+                }
             }
 
             return (
@@ -4423,11 +4436,17 @@
                                     let statusText = '未打卡';
                                     let statusClass = 'bg-gray-500 text-white';
 
-                                    // Priority: Schedule (Off/Leave) -> Records -> Default
+                                    // Check for approved leave in myLeaves (Fallback if no schedule found)
+                                    const approvedLeave = myLeaves.find(l => {
+                                        if (l.approvalStatus !== 'approved') return false;
+                                        return todayStr >= l.leaveStartDate && todayStr <= l.leaveEndDate;
+                                    });
+
+                                    // Priority: Schedule (Off/Leave) -> Approved Leave -> Records -> Default
                                     if (schedule?.type === 'off') {
                                         statusText = '公休';
                                         statusClass = 'bg-stone-500 text-white';
-                                    } else if (schedule?.type === 'leave') {
+                                    } else if (schedule?.type === 'leave' || approvedLeave) {
                                         statusText = '請假';
                                         statusClass = 'bg-orange-500 text-white';
                                     } else {
@@ -5053,6 +5072,7 @@
             const [communities, setCommunities] = useState([]);
             const [usersList, setUsersList] = useState([]);
             const [attendanceList, setAttendanceList] = useState([]);
+            const [leavesList, setLeavesList] = useState([]); // New state for leaves from 'leaves' collection
             const [myAttendance, setMyAttendance] = useState([]);
             const [fetchError, setFetchError] = useState('');
             const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -5155,6 +5175,44 @@
                 }, 3000);
                 return () => clearTimeout(timer);
             }, [toast]);
+
+            const handlePrintReport = () => {
+                const el = document.getElementById('attendance-report');
+                if (!el) return;
+                window.print();
+            };
+
+            const handleExportExcel = () => {
+                const el = document.getElementById('attendance-report');
+                if (!el) return;
+                const rows = Array.from(el.querySelectorAll('.divide-y > div.grid'));
+                const header = ['日期','星期','上班時間','下班時間','判定工時','狀況','備註'];
+                const data = rows.map(row => {
+                    const cells = Array.from(row.children).map(c => (c.textContent || '').replace(/\s+/g, ' ').trim());
+                    return [
+                        cells[0] || '',
+                        cells[1] || '',
+                        cells[2] || '',
+                        cells[3] || '',
+                        cells[4] || '',
+                        cells[5] || '',
+                        cells[6] || ''
+                    ];
+                });
+                const u = usersList.find(x => x.id === cadreMapSelectedUserId);
+                const ym = (cadreRecordDate || '').split('-').slice(0,2).join('-');
+                const filename = `${ym}_${u?.name || '報表'}_出缺勤月報表.csv`;
+                const csv = [header].concat(data).map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+                const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
 
             // Fetch Signatures
             useEffect(() => {
@@ -5621,7 +5679,23 @@
             const confirmAdminDelete = async () => {
                 if (!adminDeleteTarget) return;
                 try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', adminDeleteTarget.id));
+                    // Check if it's a leave record from 'leaves' collection
+                    const collectionName = (adminDeleteTarget.approvalStatus || adminDeleteTarget.leaveStartDate) ? 'leaves' : 'attendance';
+                    
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, adminDeleteTarget.id));
+                    
+                    // If it was a leave, also remove related schedule
+                    if (collectionName === 'leaves') {
+                        const qSchedule = query(
+                            collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                            where('leaveId', '==', adminDeleteTarget.id)
+                        );
+                        const scheduleSnap = await getDocs(qSchedule);
+                        for (const d of scheduleSnap.docs) {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', d.id));
+                        }
+                    }
+
                     setToast('刪除成功');
                     setShowAdminDeleteModal(false);
                     setAdminDeleteTarget(null);
@@ -6159,6 +6233,17 @@
                         (snap) => setAttendanceList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
                         (e) => handleFetchError(e, 'attendance_all_snap')
                     ));
+
+                    // Fetch All Leaves (for Cadre/Admin/Manager/HR)
+                    const qAllLeaves = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                        orderBy('timestamp', 'desc'),
+                        limit(2000)
+                    );
+                    unsubscribes.push(onSnapshot(qAllLeaves,
+                        (snap) => setLeavesList(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                        (e) => handleFetchError(e, 'leaves_all_snap')
+                    ));
                 }
 
                 return () => unsubscribes.forEach(u => u());
@@ -6516,8 +6601,8 @@
                     }
 
                     if (leaveData.id) {
-                        // Update existing leave record
-                        const leaveRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', leaveData.id);
+                        // Update existing leave record in 'leaves' collection
+                        const leaveRef = doc(db, 'artifacts', appId, 'public', 'data', 'leaves', leaveData.id);
                         await updateDoc(leaveRef, {
                             leaveReason: leaveData.reason,
                             leaveStartDate: leaveData.startDate,
@@ -6528,15 +6613,18 @@
                         });
                         alert('請假申請已更新');
                     } else {
-                        // Create new leave record
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                        // Create new leave record in 'leaves' collection
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaves'), {
                             userId: dbUser.id,
                             userName: dbUser.name,
                             userRole: dbUser.role,
-                            communityId: dbUser.communityId,
+                            companyId: dbUser.companyId || '',
+                            companyName: dbUser.companyName || '',
+                            communityId: dbUser.communityId || '',
                             checkInLocationName: dbUser.communityName || '',
                             type: 'leave',
                             timestamp: serverTimestamp(),
+                            createdAt: serverTimestamp(),
                             device: 'Web Browser',
                             // Leave specific fields
                             leaveReason: leaveData.reason,
@@ -6568,12 +6656,64 @@
                 if (!window.confirm(msg)) return;
                 
                 try {
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', target.id), {
+                    // 1. Update Leave Record in 'leaves' collection
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leaves', target.id), {
                         approvalStatus: status,
                         approvalTime: serverTimestamp(),
                         approverId: dbUser.id,
                         approverName: dbUser.name
                     });
+
+                    // 2. Sync with Schedules
+                    const startDate = new Date(target.leaveStartDate);
+                    const endDate = new Date(target.leaveEndDate);
+                    
+                    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                        const dateStr = d.toISOString().split('T')[0];
+                        
+                        // Check for existing schedule
+                        const qSchedule = query(
+                            collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                            where('userId', '==', target.userId),
+                            where('date', '==', dateStr)
+                        );
+                        const scheduleSnap = await getDocs(qSchedule);
+
+                        if (status === 'approved') {
+                            if (!scheduleSnap.empty) {
+                                // Update existing schedule
+                                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', scheduleSnap.docs[0].id), {
+                                    type: 'leave',
+                                    leaveId: target.id,
+                                    leaveReason: target.leaveReason,
+                                    updatedAt: serverTimestamp(),
+                                    updatedBy: dbUser.name
+                                });
+                            } else {
+                                // Create new schedule
+                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), {
+                                    userId: target.userId,
+                                    userName: target.userName || '',
+                                    date: dateStr,
+                                    type: 'leave',
+                                    leaveId: target.id,
+                                    leaveReason: target.leaveReason,
+                                    createdAt: serverTimestamp(),
+                                    createdBy: dbUser.name
+                                });
+                            }
+                        } else {
+                            // If Rejected/Pending, remove the schedule if it was linked to this leave
+                            if (!scheduleSnap.empty) {
+                                const scheduleDoc = scheduleSnap.docs[0];
+                                const scheduleData = scheduleDoc.data();
+                                if (scheduleData.leaveId === target.id) {
+                                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', scheduleDoc.id));
+                                }
+                            }
+                        }
+                    }
+
                     if (!record) {
                         setShowApprovalModal(false);
                         setSelectedApprovalLeave(null);
@@ -7213,8 +7353,8 @@
                                         onClockIn={handleClockIn}
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         onLeaveSubmit={handleLeaveSubmit}
-                                        attendanceHistory={myAttendance.filter(r => r.type === 'leave')}
-                                        timeOffset={timeOffset}
+                                    attendanceHistory={myLeaves}
+                                    timeOffset={timeOffset}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -7778,19 +7918,16 @@
 
                                         const currentMonth = cadreRecordDate.substring(0, 7); // YYYY-MM
 
-                                        const records = targetCompany ? attendanceList.filter(r => {
+                                        const records = targetCompany ? leavesList.filter(r => {
                                             if (!companyUserIds.includes(r.userId)) return false;
                                             if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
-                                            if (r.type !== 'leave') return false;
                                             
-                                            const rDateStr = r.leaveDate || (() => {
+                                            const rDateStr = r.leaveStartDate ? r.leaveStartDate.split('T')[0] : (r.leaveDate || (() => {
                                                 const d = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
                                                 return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                                            })();
+                                            })());
                                             
                                             if (!rDateStr.startsWith(currentMonth)) return false;
-
-
 
                                             return true;
                                         }) : [];
@@ -8766,9 +8903,17 @@
                                         </button>
                                     </span>
                                 </h3>
-                                <button onClick={() => { setReportModalType(null); setIsReportMonthOpen(false); }} className="p-2 bg-gray-100 rounded-full text-gray-600">
-                                    <X className="w-5 h-5" />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={handlePrintReport} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                        列印
+                                    </button>
+                                    <button onClick={handleExportExcel} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                        匯出(Excel)
+                                    </button>
+                                    <button onClick={() => { setReportModalType(null); setIsReportMonthOpen(false); }} className="p-2 bg-gray-100 rounded-full text-gray-600">
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
                                 
                                 {isReportMonthOpen && (
                                     <div className="absolute left-4 top-full mt-2 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-[101] w-[160px] max-h-64 overflow-y-auto">
@@ -8815,6 +8960,46 @@
                                     </div>
                                 )}
                             </div>
+                            <style>
+                                {`@page { size: A4; margin: 10mm; }
+                                @media print {
+                                    body * { visibility: hidden; }
+                                    #attendance-report, #attendance-report * { visibility: visible; }
+                                    #attendance-report {
+                                        position: static;
+                                        left: auto;
+                                        top: auto;
+                                        width: 100%;
+                                        max-width: none;
+                                        overflow: visible;
+                                        page-break-inside: avoid;
+                                        font-size: 8pt;
+                                        line-height: 1.1;
+                                        background: #fff !important;
+                                        box-shadow: none !important;
+                                        border: none !important;
+                                        padding: 0 !important;
+                                        border-radius: 0 !important;
+                                    }
+                                    #attendance-report .text-lg { font-size: 10pt !important; }
+                                    #attendance-report .text-md { font-size: 9pt !important; }
+                                    #attendance-report .text-sm { font-size: 8pt !important; }
+                                    #attendance-report .text-xs { font-size: 7pt !important; }
+                                    #attendance-report .min-w\\[720px\\] { min-width: auto !important; width: 100% !important; }
+                                    #attendance-report .grid.grid-cols-7 { grid-template-columns: 10mm 10mm 40mm 40mm 20mm 20mm 50mm !important; }
+                                    #attendance-report .px-3 { padding-left: 2mm !important; padding-right: 2mm !important; }
+                                    #attendance-report .py-2 { padding-top: 0 !important; padding-bottom: 0 !important; }
+                                    #attendance-report .text-center.py-1 { padding-top: 0 !important; padding-bottom: 0 !important; }
+                                    #attendance-report .text-center.pb-3 { padding-bottom: 2mm !important; }
+                                    #attendance-report .grid.grid-cols-7.text-xs.font-bold > div { height: 8mm !important; display: flex; align-items: center; white-space: nowrap; }
+                                    #attendance-report .divide-y > .grid > div { height: 8mm !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; }
+                                    #attendance-report .divide-y > .grid > div > div { display: inline !important; margin-right: 2mm !important; }
+                                    #attendance-report .divide-y > .grid { page-break-inside: avoid; }
+                                    #attendance-report .bg-gray-50 { background: #ffffff !important; }
+                                    #attendance-report .bg-orange-100 { background: #fff6e5 !important; }
+                                    #attendance-report .bg-gray-200 { background: #f5f5f5 !important; }
+                                }`}
+                            </style>
                             <div className="flex-1 overflow-y-auto p-4">
                                 {(function(){
                                     const targetDate = new Date(cadreRecordDate);
@@ -9051,7 +9236,7 @@
                                     }
 
                                     return (
-                                        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                                        <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
                                             <div className="min-w-[720px]">
                                                 <div className="text-center font-bold text-lg text-gray-800 py-1">
                                                     西北保全{user?.title || ''}{user?.name || ''}
