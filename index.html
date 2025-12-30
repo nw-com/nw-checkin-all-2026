@@ -8628,10 +8628,16 @@
                                                 </div>
                                             )}
                                             <div className="flex gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar flex-nowrap whitespace-nowrap">
-                                                <button onClick={() => setReportModalType('attendance')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">出勤</button>
-                                                <button onClick={() => setReportModalType('outing')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">外出</button>
-                                                <button onClick={() => setReportModalType('duty')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">卡班</button>
-                                                <button onClick={() => setReportModalType('leave')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
+                                                {cadreMapSelectedUserId ? (
+                                                    <>
+                                                        <button onClick={() => setReportModalType('attendance')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">出勤</button>
+                                                        <button onClick={() => setReportModalType('outing')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">外出</button>
+                                                        <button onClick={() => setReportModalType('duty')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">卡班</button>
+                                                        <button onClick={() => setReportModalType('leave')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
+                                                    </>
+                                                ) : (
+                                                    <button onClick={() => setReportModalType('attendance')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
+                                                )}
                                             </div>
                                         </>
                                     )}
@@ -9298,8 +9304,29 @@
                                             let workStr = '-';
                                             if (firstIn && lastOut) {
                                                 const diffMs = (lastOut.timestamp.seconds - firstIn.timestamp.seconds) * 1000;
-                                                const totalHours = diffMs / 3600000;
-                                                workStr = `${totalHours.toFixed(1)} hr`;
+                                                const actualHours = diffMs / 3600000;
+                                                let showHr = true;
+                                                const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                                const schedule = userSchedules[dateStr];
+                                                if (schedule && (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.startTime && schedule.endTime) {
+                                                    const parseToMin = (s) => {
+                                                        const [h, m] = String(s).split(':').map(Number);
+                                                        return (h * 60) + m;
+                                                    };
+                                                    let sDurationMin = parseToMin(schedule.endTime) - parseToMin(schedule.startTime);
+                                                    if (schedule.crossDay) {
+                                                        const endMin = parseToMin(schedule.endTime) + (24 * 60);
+                                                        sDurationMin = endMin - parseToMin(schedule.startTime);
+                                                    }
+                                                    const scheduleHours = sDurationMin / 60;
+                                                    if (actualHours < scheduleHours) {
+                                                        workStr = '異常-未達工時';
+                                                        showHr = false;
+                                                    }
+                                                }
+                                                if (showHr) {
+                                                    workStr = `${actualHours.toFixed(1)} hr`;
+                                                }
                                             }
                                             const inTimeStr = firstIn ? new Date(firstIn.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
                                             const outTimeStr = lastOut ? new Date(lastOut.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
