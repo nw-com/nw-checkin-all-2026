@@ -119,6 +119,7 @@
         } from 'firebase/storage';
         import { 
             Clock, 
+            Bell, 
             LogOut, 
             Shield, 
             Users, 
@@ -1300,6 +1301,21 @@
 
         // 2. Login Component (Mobile Optimized, Red Theme)
         const Login = ({ onLogin, onLoginSuccess, isOnline }) => {
+            const [showUpgradeNotice, setShowUpgradeNotice] = useState(true);
+            const [noticeCountdown, setNoticeCountdown] = useState(10);
+
+            useEffect(() => {
+                if (!showUpgradeNotice) return;
+                if (noticeCountdown <= 0) {
+                    setShowUpgradeNotice(false);
+                    return;
+                }
+                const timer = setInterval(() => {
+                    setNoticeCountdown(prev => prev - 1);
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [showUpgradeNotice, noticeCountdown]);
+
             const [identifier, setIdentifier] = useState('');
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
@@ -1339,6 +1355,32 @@
 
             return (
                 <div className="min-h-screen flex flex-col justify-center bg-gray-50 px-6 py-12">
+                    {showUpgradeNotice && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden relative animate-bounce-in">
+                                <button 
+                                    onClick={() => setShowUpgradeNotice(false)}
+                                    className="absolute top-3 right-3 p-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                                
+                                <div className="p-6 text-center">
+                                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <Bell className="w-8 h-8 text-red-600" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-gray-800 mb-2">系統升級通知</h3>
+                                    <p className="text-gray-600 mb-6 leading-relaxed">
+                                        西北打卡系統已升級至2026版<br/>
+                                        請使用原帳號密碼登入，謝謝~
+                                    </p>
+                                    <div className="text-xs font-bold text-gray-400 bg-gray-50 py-2 rounded-lg">
+                                        {noticeCountdown} 秒後自動關閉
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <div className="w-full max-w-sm mx-auto bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
                         <div className="text-center mb-8">
                             <div className="bg-red-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-red-200 transform rotate-3">
@@ -5204,6 +5246,8 @@
             const [isOnline, setIsOnline] = useState(navigator.onLine);
             const [activeTab, setActiveTab] = useState(() => localStorage.getItem('last_active_tab') || 'home');
             const [clockSubtab, setClockSubtab] = useState('work');
+            const [clockScheduleDate, setClockScheduleDate] = useState(new Date()); // New State for Clock Tab Schedule
+            const [mySchedules, setMySchedules] = useState({}); // New State for My Schedules
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
             const [functionSubtab, setFunctionSubtab] = useState('patrol');
@@ -5588,13 +5632,7 @@
                 } catch {}
             }, [cadreMapSelectedUserId]);
 
-            useEffect(() => {
-                try {
-                    if (cadreScheduleDate) {
-                        localStorage.setItem('last_selected_schedule_date', cadreScheduleDate.toISOString());
-                    }
-                } catch {}
-            }, [cadreScheduleDate]);
+
 
             useEffect(() => {
                 // Clear schedules immediately when user changes to prevent ghost data
@@ -5624,6 +5662,27 @@
 
                 return () => unsubscribe();
             }, [cadreMapSelectedUserId]);
+
+            // Fetch My Schedules for Clock Tab
+            useEffect(() => {
+                if (!dbUser) return;
+                
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                    where('userId', '==', dbUser.id)
+                );
+
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const newSchedules = {};
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        newSchedules[data.date] = data;
+                    });
+                    setMySchedules(newSchedules);
+                });
+
+                return () => unsubscribe();
+            }, [dbUser]);
 
             useEffect(() => {
                 setUserAttendanceRecords([]);
@@ -6012,6 +6071,9 @@
 
             useEffect(() => {
                 const syncTime = async () => {
+                    // External time APIs are unstable and causing console errors.
+                    // Disabling them to rely on local device time, which is sufficient for most cases.
+                    /*
                     if (!navigator.onLine) return; // Skip if offline to prevent network errors
 
                     // Try multiple time APIs in sequence - prioritized more stable ones first
@@ -6050,6 +6112,7 @@
                             // Silently ignore
                         }
                     }
+                    */
                     // Fallback to local time (no action needed as offset defaults to 0)
                 };
                 syncTime();
@@ -7186,11 +7249,10 @@
                                     {hasSubPermission('clock', 'out') && <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>外出</button>}
                                     {hasSubPermission('clock', 'card') && <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>}
                                     {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>}
+                                    <button onClick={() => setClockSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>
                                 </div>
                             )}
-                            {activeTab === 'community' && (
-                                <button className="px-3 py-2 text-xs font-bold rounded-2xl bg-red-50 text-red-600">全部</button>
-                            )}
+
                             {activeTab === 'function' && (
                                 <div className="flex gap-2">
                                     {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>巡邏</button>}
@@ -7499,8 +7561,155 @@
                                         mode="leave"
                                     />
                                 )}
+                                {clockSubtab === 'schedule' && (
+                                    <div>
+                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                                            <div className="flex items-center justify-between mb-4">
+                                                <button 
+                                                    onClick={() => setClockScheduleDate(new Date(clockScheduleDate.getFullYear(), clockScheduleDate.getMonth() - 1, 1))}
+                                                    className="p-1 rounded-full hover:bg-gray-100"
+                                                >
+                                                    <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                                </button>
+                                                <span className="font-bold text-gray-800 text-lg">
+                                                    {clockScheduleDate.getFullYear()}年 {clockScheduleDate.getMonth() + 1}月
+                                                </span>
+                                                <button 
+                                                    onClick={() => setClockScheduleDate(new Date(clockScheduleDate.getFullYear(), clockScheduleDate.getMonth() + 1, 1))}
+                                                    className="p-1 rounded-full hover:bg-gray-100"
+                                                >
+                                                    <ChevronRight className="w-5 h-5 text-gray-600" />
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                                {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                                    <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                                ))}
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-1">
+                                                {(() => {
+                                                    const year = clockScheduleDate.getFullYear();
+                                                    const month = clockScheduleDate.getMonth();
+                                                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                                    const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                                    const days = [];
+                                                    
+                                                    // Taiwan National Holidays (2025-2026)
+                                                    const holidays = [
+                                                        '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', 
+                                                        '2025-02-28', 
+                                                        '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', 
+                                                        '2025-05-01', 
+                                                        '2025-05-30', '2025-05-31', '2025-06-01', 
+                                                        '2025-10-04', '2025-10-05', '2025-10-06', 
+                                                        '2025-10-10', '2025-10-11', '2025-10-12', 
+                                                        '2025-12-25', 
+
+                                                        '2026-01-01', 
+                                                        '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', 
+                                                        '2026-02-27', '2026-02-28', '2026-03-01', 
+                                                        '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', 
+                                                        '2026-05-01', 
+                                                        '2026-06-19', '2026-06-20', '2026-06-21', 
+                                                        '2026-09-25', '2026-09-26', '2026-09-27', 
+                                                        '2026-10-09', '2026-10-10', '2026-10-11', 
+                                                        '2026-12-25', 
+                                                    ];
+
+                                                    // Empty cells
+                                                    for (let i = 0; i < firstDayOfWeek; i++) {
+                                                        days.push(<div key={`empty-${i}`} className="h-10"></div>);
+                                                    }
+
+                                                    // Days
+                                                    for (let d = 1; d <= daysInMonth; d++) {
+                                                        const currentDate = new Date(year, month, d);
+                                                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                                        const isToday = new Date().toDateString() === currentDate.toDateString();
+                                                        const isHoliday = holidays.includes(dateStr);
+                                                        const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                                        const schedule = mySchedules[dateStr];
+
+                                                        let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                                        
+                                                        // Check for Leave
+                                                        const leave = myAttendance.find(l => {
+                                                            if (l.type !== 'leave' || l.approvalStatus !== 'approved') return false;
+                                                            const start = new Date(l.leaveStartDate || l.leaveDate);
+                                                            return start.getFullYear() === year && start.getMonth() === month && start.getDate() === d;
+                                                        });
+
+                                                        if (leave) {
+                                                            cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
+                                                        } else if (schedule) {
+                                                            if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
+                                                            else if (schedule.type === 'duty') cellClass = 'bg-purple-100 text-purple-700 border border-purple-200';
+                                                            else if (schedule.type === 'card') cellClass = 'bg-green-100 text-green-700 border border-green-200';
+                                                            else if (schedule.type === 'off') cellClass = 'bg-gray-100 text-gray-400 border border-gray-200';
+                                                        }
+
+                                                        days.push(
+                                                            <div 
+                                                                key={d}
+                                                                className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''}`}
+                                                            >
+                                                                <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
+                                                                {leave ? (
+                                                                    <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">請假</span>
+                                                                ) : schedule ? (
+                                                                    <div className="flex flex-col items-center w-full">
+                                                                        <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
+                                                                            {schedule.type === 'work' ? '正常' : 
+                                                                             schedule.type === 'duty' ? '值班' : 
+                                                                             schedule.type === 'card' ? '卡班' : '排休'}
+                                                                        </span>
+                                                                        {schedule.type !== 'off' && (
+                                                                            <span className="text-[9px] scale-75 opacity-80 leading-none">
+                                                                                {schedule.startTime}-{schedule.endTime}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-[9px] text-gray-300 scale-75">無</span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return days;
+                                                })()}
+                                            </div>
+                                            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200"></div> 正常
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-purple-100 border border-purple-200"></div> 值班
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-green-100 border border-green-200"></div> 卡班
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-orange-100 border border-orange-200"></div> 請假
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-gray-100 border border-gray-200"></div> 休假
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 </div>
                             )}
+
+                        {activeTab === 'community' && (
+                            <div className="w-full h-[70vh] rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white">
+                                <iframe 
+                                    src="https://nw-com.github.io/nw-checkin-all/" 
+                                    className="w-full h-full border-0"
+                                    title="Community Page"
+                                />
+                            </div>
+                        )}
 
                         {dbUser?.role === 'manager' && (
                             <div className="space-y-6">
