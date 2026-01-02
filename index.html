@@ -5241,6 +5241,87 @@
         };
 
         // --- Main App Component ---
+        // Schedule Reminder Component
+        const ScheduleReminder = ({ schedules }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const [timeType, setTimeType] = useState(''); // '上班' or '下班'
+            const [timeStr, setTimeStr] = useState('');
+            const lastTriggeredRef = useRef('');
+
+            useEffect(() => {
+                const checkTime = () => {
+                    const now = new Date();
+                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                    const schedule = schedules[todayStr];
+
+                    if (!schedule) return;
+
+                    const parseTime = (t) => {
+                        const [h, m] = t.split(':').map(Number);
+                        const d = new Date(now);
+                        d.setHours(h, m, 0, 0);
+                        return d;
+                    };
+
+                    const checkTrigger = (tStr, type) => {
+                        if (!tStr) return;
+                        const targetTime = parseTime(tStr);
+                        // Difference in minutes
+                        const diff = (now - targetTime) / 1000 / 60;
+
+                        // Trigger if within 15 minutes (0 <= diff < 15)
+                        // This ensures if user opens app slightly late, they still get reminded once.
+                        if (diff >= 0 && diff < 15) {
+                            const key = `${type}_${todayStr}_${tStr}`;
+                            // Check if already triggered in this session
+                            if (lastTriggeredRef.current !== key) {
+                                setTimeType(type);
+                                setTimeStr(tStr);
+                                setIsOpen(true);
+                                lastTriggeredRef.current = key;
+                            }
+                        }
+                    };
+
+                    if (schedule.startTime) checkTrigger(schedule.startTime, '上班');
+                    if (schedule.endTime) checkTrigger(schedule.endTime, '下班');
+                };
+
+                const timer = setInterval(checkTime, 5000); // Check every 5 seconds
+                checkTime(); // Check immediately on mount/update
+                return () => clearInterval(timer);
+            }, [schedules]);
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 pointer-events-none">
+                    <div className="bg-white rounded-2xl shadow-2xl border-4 border-red-100 p-6 w-72 pointer-events-auto relative animate-[bounce_0.5s_ease-out]">
+                        <button 
+                            onClick={() => setIsOpen(false)}
+                            className="absolute -top-3 -right-3 bg-red-600 text-white rounded-full p-2 shadow-lg hover:bg-red-700 transition transform hover:scale-110"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                        <div className="flex flex-col items-center gap-4">
+                            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-red-600 shadow-inner">
+                                <Clock className="w-8 h-8 animate-pulse" />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="font-bold text-gray-800 text-xl">打卡提醒</h3>
+                                <p className="text-gray-600 font-bold mt-2 text-base">
+                                    現在是 {timeType} 時間
+                                </p>
+                                <p className="text-4xl font-black text-red-600 font-mono my-2 tracking-wider">
+                                    {timeStr}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const App = () => {
             const [user, setUser] = useState(null);
             const [dbUser, setDbUser] = useState(null);
@@ -7108,6 +7189,7 @@
 
             return (
                 <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
+                    <ScheduleReminder schedules={mySchedules} />
                     {/* Mobile Navbar */}
                     <header className="bg-white fixed top-0 left-0 right-0 z-50 border-b border-gray-100 h-[8vh]">
                         <div className="max-w-md mx-auto px-4 h-full flex justify-between items-center">
