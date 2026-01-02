@@ -5242,7 +5242,7 @@
 
         // --- Main App Component ---
         // Schedule Reminder Component
-        const ScheduleReminder = ({ schedules }) => {
+        const ScheduleReminder = ({ schedules, attendance }) => {
             const [isOpen, setIsOpen] = useState(false);
             const [timeType, setTimeType] = useState(''); // '上班' or '下班'
             const [timeStr, setTimeStr] = useState('');
@@ -5256,6 +5256,14 @@
 
                     if (!schedule) return;
 
+                    // Filter attendance for today
+                    const todayAttendance = (attendance || []).filter(a => {
+                        if (!a.timestamp) return false;
+                        const d = a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+                        const dStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                        return dStr === todayStr;
+                    });
+
                     const parseTime = (t) => {
                         const [h, m] = t.split(':').map(Number);
                         const d = new Date(now);
@@ -5265,13 +5273,44 @@
 
                     const checkTrigger = (tStr, type) => {
                         if (!tStr) return;
+
+                        // Check if already attended
+                        // For '上班', check if any 'in' record exists today
+                        if (type === '上班') {
+                             const hasClockIn = todayAttendance.some(a => ['in', 'late_in', 'outing_start', 'outing_arrive'].includes(a.type));
+                             if (hasClockIn) return; // Already clocked in
+                        }
+                        // For '下班', check if any 'out' record exists today
+                        if (type === '下班') {
+                             const hasClockOut = todayAttendance.some(a => ['out', 'early_out', 'late_out'].includes(a.type));
+                             if (hasClockOut) return; // Already clocked out
+                        }
+
                         const targetTime = parseTime(tStr);
                         // Difference in minutes
                         const diff = (now - targetTime) / 1000 / 60;
 
-                        // Trigger if within 15 minutes (0 <= diff < 15)
-                        // This ensures if user opens app slightly late, they still get reminded once.
-                        if (diff >= 0 && diff < 15) {
+                        // Modified Trigger Logic:
+                        // Clock In: Trigger from 10 mins BEFORE start time
+                        // Clock Out: Trigger from 10 mins AFTER end time
+                        
+                        let shouldTrigger = false;
+
+                        if (type === '上班') {
+                            // Trigger if within [Start - 10, Start + 20] window (30 mins window)
+                            // "前10分鐘"
+                            if (diff >= -10 && diff < 20) {
+                                shouldTrigger = true;
+                            }
+                        } else if (type === '下班') {
+                            // Trigger if within [End + 10, End + 40] window (30 mins window)
+                            // "後10分鐘"
+                            if (diff >= 10 && diff < 40) {
+                                shouldTrigger = true;
+                            }
+                        }
+
+                        if (shouldTrigger) {
                             const key = `${type}_${todayStr}_${tStr}`;
                             // Check if already triggered in this session
                             if (lastTriggeredRef.current !== key) {
@@ -5290,7 +5329,7 @@
                 const timer = setInterval(checkTime, 5000); // Check every 5 seconds
                 checkTime(); // Check immediately on mount/update
                 return () => clearInterval(timer);
-            }, [schedules]);
+            }, [schedules, attendance]); // Re-run if attendance updates
 
             if (!isOpen) return null;
 
@@ -7189,7 +7228,7 @@
 
             return (
                 <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
-                    <ScheduleReminder schedules={mySchedules} />
+                    <ScheduleReminder schedules={mySchedules} attendance={myAttendance} />
                     {/* Mobile Navbar */}
                     <header className="bg-white fixed top-0 left-0 right-0 z-50 border-b border-gray-100 h-[8vh]">
                         <div className="max-w-md mx-auto px-4 h-full flex justify-between items-center">
