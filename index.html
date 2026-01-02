@@ -4482,22 +4482,31 @@
                                         })()} {currentUser?.name}
                                     </h2>
                                     <p className="text-white/80 text-sm flex items-center gap-1 mt-1">
-                                        <Building2 className="w-4 h-4" />
                                         {(function() {
-                                            // Show Last Record Location + Time
+                                            // Show Last Record Location + Time (Only for Today)
                                             if (lastRecord) {
-                                                const timeStr = new Date((lastRecord.timestamp?.seconds || Date.now()/1000) * 1000).toLocaleString('zh-TW', { 
-                                                    year: 'numeric', 
-                                                    month: '2-digit', 
-                                                    day: '2-digit', 
-                                                    hour: '2-digit', 
-                                                    minute: '2-digit', 
-                                                    second: '2-digit',
-                                                    hour12: false 
-                                                });
-                                                return `${lastRecord.checkInLocationName || lastRecord.address || '未記錄位置'} ${timeStr}`;
+                                                const recordDate = new Date((lastRecord.timestamp?.seconds || Date.now()/1000) * 1000);
+                                                const now = new Date();
+                                                
+                                                if (recordDate.toDateString() === now.toDateString()) {
+                                                    const timeStr = recordDate.toLocaleString('zh-TW', { 
+                                                        year: 'numeric', 
+                                                        month: '2-digit', 
+                                                        day: '2-digit', 
+                                                        hour: '2-digit', 
+                                                        minute: '2-digit', 
+                                                        second: '2-digit',
+                                                        hour12: false 
+                                                    });
+                                                    return (
+                                                        <>
+                                                            <Building2 className="w-4 h-4" />
+                                                            {`${lastRecord.checkInLocationName || lastRecord.address || '未記錄位置'} ${timeStr}`}
+                                                        </>
+                                                    );
+                                                }
                                             }
-                                            return '尚無打卡紀錄';
+                                            return null;
                                         })()}
                                     </p>
                                 </div>
@@ -5240,13 +5249,15 @@
             const [communities, setCommunities] = useState([]);
             const [usersList, setUsersList] = useState([]);
             const [attendanceList, setAttendanceList] = useState([]);
-            const [leavesList, setLeavesList] = useState([]); // New state for leaves from 'leaves' collection
+            const [leavesList, setLeavesList] = useState([]);
+            const [schedulesList, setSchedulesList] = useState([]); // New state for leaves from 'leaves' collection
             const [myAttendance, setMyAttendance] = useState([]);
             const [fetchError, setFetchError] = useState('');
             const [isOnline, setIsOnline] = useState(navigator.onLine);
             const [activeTab, setActiveTab] = useState(() => localStorage.getItem('last_active_tab') || 'home');
             const [clockSubtab, setClockSubtab] = useState('work');
             const [clockScheduleDate, setClockScheduleDate] = useState(new Date()); // New State for Clock Tab Schedule
+            const [clockScheduleSelectedDate, setClockScheduleSelectedDate] = useState(new Date()); // New State for Selected Date in Clock Schedule
             const [mySchedules, setMySchedules] = useState({}); // New State for My Schedules
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
@@ -5319,6 +5330,7 @@
             const [reviewData, setReviewData] = useState(null);
             const [reportModalType, setReportModalType] = useState(null);
             const [isReportMonthOpen, setIsReportMonthOpen] = useState(false);
+            const [reportSelectedUserIds, setReportSelectedUserIds] = useState([]);
             const [adminEditLoading, setAdminEditLoading] = useState(false);
             const [showAdminDeleteModal, setShowAdminDeleteModal] = useState(false);
             const [adminDeleteTarget, setAdminDeleteTarget] = useState(null);
@@ -5386,6 +5398,24 @@
             };
 
             // Fetch Signatures
+            // Auto-set Cadre Company
+            useEffect(() => {
+                if (!dbUser || !companies.length) return;
+                
+                 let userCompany = null;
+                 if (dbUser.companyIds && dbUser.companyIds.length > 0) {
+                     userCompany = companies.find(c => dbUser.companyIds.includes(c.id));
+                 } else if (dbUser.companyId) {
+                     userCompany = companies.find(c => c.id === dbUser.companyId);
+                 }
+                 
+                 if (userCompany) {
+                     if (cadreCompany === '台北' || !cadreCompany) {
+                         setCadreCompany(userCompany.name);
+                     }
+                 }
+            }, [dbUser, companies, cadreCompany]);
+
             useEffect(() => {
                 if (!dbUser || !dbUser.id) return;
                 
@@ -6439,6 +6469,35 @@
                 return () => unsubscribes.forEach(u => u());
             }, [user, dbUser, roles]);
 
+            // Fetch Schedules for Report (Monthly)
+            useEffect(() => {
+                if (!dbUser || !cadreRecordDate) return;
+                
+                const hasCadrePermission = (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('cadre');
+                const shouldFetch = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role) || hasCadrePermission;
+                if (!shouldFetch) return;
+
+                const targetDate = new Date(cadreRecordDate);
+                const targetYear = targetDate.getFullYear();
+                const targetMonth = targetDate.getMonth();
+                // Format YYYY-MM-DD
+                const startOfMonthStr = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-01`;
+                const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+                const endOfMonthStr = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-${lastDay}`;
+
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                    where('date', '>=', startOfMonthStr),
+                    where('date', '<=', endOfMonthStr)
+                );
+
+                const unsubscribe = onSnapshot(q, (snap) => {
+                    setSchedulesList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                }, (e) => console.error('Error fetching schedules list:', e));
+
+                return () => unsubscribe();
+            }, [dbUser, cadreRecordDate, roles]);
+
             // 2. Tab-Specific Data (My Attendance)
             useEffect(() => {
                 if (!user || !dbUser) return;
@@ -7060,8 +7119,8 @@
                             </div>
                             
                             <div className="flex items-center gap-3">
-                                <div className="text-right hidden sm:block">
-                                    <div className="text-xs font-bold text-gray-800">{dbUser?.name}</div>
+                                <div className="text-right">
+                                    <div className="text-xs font-bold text-gray-800">Hi~ {dbUser?.name}</div>
                                 </div>
                                 <button 
                                     onClick={() => setShowProfileModal(true)}
@@ -7651,7 +7710,8 @@
                                                         days.push(
                                                             <div 
                                                                 key={d}
-                                                                className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''}`}
+                                                                onClick={() => setClockScheduleSelectedDate(currentDate)}
+                                                                className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors cursor-pointer ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''} ${clockScheduleSelectedDate && clockScheduleSelectedDate.toDateString() === currentDate.toDateString() ? 'ring-2 ring-blue-500 z-10' : ''}`}
                                                             >
                                                                 <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
                                                                 {leave ? (
@@ -7696,6 +7756,103 @@
                                                 </div>
                                             </div>
                                         </div>
+
+                                        {clockScheduleSelectedDate && (() => {
+                                            const year = clockScheduleSelectedDate.getFullYear();
+                                            const month = clockScheduleSelectedDate.getMonth();
+                                            const date = clockScheduleSelectedDate.getDate();
+                                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+                                            const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][clockScheduleSelectedDate.getDay()];
+                                            
+                                            const schedule = mySchedules[dateStr];
+                                            
+                                            const attendance = myAttendance.filter(r => {
+                                                if (!r.checkInTime) return false;
+                                                const d = new Date(r.checkInTime);
+                                                return d.getFullYear() === year && d.getMonth() === month && d.getDate() === date;
+                                            }).sort((a,b) => new Date(a.checkInTime) - new Date(b.checkInTime));
+                                            
+                                            const leave = myAttendance.find(l => {
+                                                if (l.type !== 'leave' || l.approvalStatus !== 'approved') return false;
+                                                const start = new Date(l.leaveStartDate || l.leaveDate);
+                                                return start.getFullYear() === year && start.getMonth() === month && start.getDate() === date;
+                                            });
+
+                                            return (
+                                                <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                                                    <h3 className="font-bold text-gray-800 text-lg mb-3 flex items-center gap-2">
+                                                        <Calendar className="w-5 h-5 text-blue-600" />
+                                                        {year}年{month+1}月{date}日 (星期{dayOfWeek})
+                                                    </h3>
+                                                    
+                                                    <div className="space-y-3">
+                                                        <div className="bg-gray-50 p-3 rounded-xl">
+                                                            <div className="text-xs font-bold text-gray-400 mb-1">班表排程</div>
+                                                            {schedule ? (
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className={`font-bold ${
+                                                                        schedule.type === 'work' ? 'text-blue-600' :
+                                                                        schedule.type === 'duty' ? 'text-purple-600' :
+                                                                        schedule.type === 'card' ? 'text-green-600' :
+                                                                        'text-gray-500'
+                                                                    }`}>
+                                                                        {schedule.type === 'work' ? '正常班' : 
+                                                                         schedule.type === 'duty' ? '值班' : 
+                                                                         schedule.type === 'card' ? '卡班' : '排休'}
+                                                                    </span>
+                                                                    {schedule.type !== 'off' && (
+                                                                        <span className="font-mono font-bold text-gray-700">
+                                                                            {schedule.startTime} - {schedule.endTime}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                 <div className="text-sm text-gray-500 font-bold">無排班資料</div>
+                                                            )}
+                                                        </div>
+
+                                                         {leave && (
+                                                            <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
+                                                                <div className="text-xs font-bold text-orange-400 mb-1">請假紀錄</div>
+                                                                 <div className="font-bold text-orange-700">
+                                                                    {leave.leaveType} ({leave.leaveDuration}小時)
+                                                                 </div>
+                                                                 <div className="text-xs text-orange-600 mt-1">{leave.reason}</div>
+                                                            </div>
+                                                         )}
+
+                                                        <div className="bg-gray-50 p-3 rounded-xl">
+                                                            <div className="text-xs font-bold text-gray-400 mb-1">打卡紀錄</div>
+                                                            {attendance.length > 0 ? (
+                                                                <div className="space-y-2">
+                                                                    {attendance.map((record, idx) => (
+                                                                        <div key={idx} className="flex items-center justify-between text-sm">
+                                                                            <span className="text-gray-600 font-bold">
+                                                                                {record.type === 'work_in' ? '上班打卡' :
+                                                                                 record.type === 'work_out' ? '下班打卡' :
+                                                                                 record.type === 'duty_in' ? '值班簽到' :
+                                                                                 record.type === 'duty_out' ? '值班簽退' :
+                                                                                 record.type === 'card_in' ? '卡班簽到' :
+                                                                                 record.type === 'card_out' ? '卡班簽退' :
+                                                                                 record.type === 'outing_start' ? '外出開始' :
+                                                                                 record.type === 'outing_arrive' ? '外出抵達' :
+                                                                                 record.type === 'outing_end' ? '外出結束' :
+                                                                                 '打卡'}
+                                                                            </span>
+                                                                            <span className="font-mono font-bold text-gray-800">
+                                                                                {new Date(record.checkInTime).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'})}
+                                                                            </span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-sm text-gray-400 font-bold">尚無打卡紀錄</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
                                 </div>
@@ -9218,46 +9375,51 @@
 
                     {reportModalType && (
                         <div className="fixed inset-0 z-[100] bg-gray-100 flex flex-col animate-fade-in">
-                            <div className="bg-white p-4 shadow-sm flex items-center justify-between flex-shrink-0 relative">
-                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-3">
-                                    {(function(){
-                                        const u = usersList.find(x => x.id === cadreMapSelectedUserId);
-                                        if (!u) return null;
-                                        return (
-                                            <>
-                                                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
-                                                    {u.avatarUrl ? (
-                                                        <img src={u.avatarUrl} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-sm">{u.name?.[0] || '人'}</div>
-                                                    )}
-                                                </div>
-                                                <span className="text-base font-bold text-gray-800">{u.name}</span>
-                                            </>
-                                        );
-                                    })()}
-                                    <span className="flex items-center gap-2">
-                                        {reportModalType === 'attendance' && '出勤報表'}
-                                        {reportModalType === 'outing' && '外出報表'}
-                                        {reportModalType === 'duty' && '卡班報表'}
-                                        {reportModalType === 'leave' && '請假報表'}
-                                        <button 
-                                            onClick={() => setIsReportMonthOpen(v => !v)} 
-                                            className="text-sm font-normal text-gray-500 ml-2 hover:underline inline-flex items-center"
-                                            title="選擇月份"
-                                        >
-                                            {cadreRecordDate.split('-').slice(0, 2).join('-')}
-                                            <ChevronDown className="w-4 h-4 ml-1" />
-                                        </button>
-                                    </span>
-                                </h3>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={handlePrintReport} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
-                                        列印
-                                    </button>
-                                    <button onClick={handleExportExcel} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
-                                        匯出(Excel)
-                                    </button>
+                            <div className="bg-white p-4 shadow-sm flex-shrink-0 relative">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex flex-col gap-3 w-full">
+
+                                        <div className="flex items-center gap-3">
+                                            {(function(){
+                                                const u = usersList.find(x => x.id === cadreMapSelectedUserId);
+                                                if (!u) return null;
+                                                return (
+                                                    <>
+                                                        <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
+                                                            {u.avatarUrl ? (
+                                                                <img src={u.avatarUrl} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-sm">{u.name?.[0] || '人'}</div>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-base font-bold text-gray-800">{u.name}</span>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-lg font-bold text-gray-800">
+                                                {reportModalType === 'attendance' && '出勤報表'}
+                                                {reportModalType === 'outing' && '外出報表'}
+                                                {reportModalType === 'duty' && '卡班報表'}
+                                                {reportModalType === 'leave' && '請假報表'}
+                                            </span>
+                                            <button 
+                                                onClick={() => setIsReportMonthOpen(v => !v)} 
+                                                className="text-sm font-normal text-gray-500 hover:underline inline-flex items-center"
+                                                title="選擇月份"
+                                            >
+                                                {cadreRecordDate.split('-').slice(0, 2).join('-')}
+                                                <ChevronDown className="w-4 h-4 ml-1" />
+                                            </button>
+                                            <button onClick={handlePrintReport} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                                列印
+                                            </button>
+                                            <button onClick={handleExportExcel} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                                匯出(Excel)
+                                            </button>
+                                        </div>
+                                    </div>
                                     <button onClick={() => { setReportModalType(null); setIsReportMonthOpen(false); }} className="p-2 bg-gray-100 rounded-full text-gray-600">
                                         <X className="w-5 h-5" />
                                     </button>
@@ -9688,9 +9850,475 @@
 
                                     if (!cadreMapSelectedUserId) {
                                         return (
-                                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                                <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
-                                                <p>請先在左側列表選取人員</p>
+                                            <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                                                <div className="min-w-[1200px]">
+                                                    <div className="mb-4 print:hidden">
+                                                        {(function(){
+                                                            const filteredUsers = usersList.filter(u => {
+                                                                if (u.name === '蔡總') return false;
+                                                                
+                                                                if (cadreCompany) {
+                                                                    // 1. Resolve Cadre Company to ID
+                                                                    const targetComp = companies.find(c => c.name === cadreCompany);
+                                                                    
+                                                                    // 2. Check for ID Match (Primary)
+                                                                    if (targetComp) {
+                                                                        const hasIdMatch = (u.companyIds && u.companyIds.includes(targetComp.id)) || 
+                                                                                           (u.companyId === targetComp.id);
+                                                                        if (hasIdMatch) return true;
+                                                                    }
+                                                                    
+                                                                    // 3. Check for Name Match (Legacy/Fallback)
+                                                                    const normalize = (s) => (s || '').replace('公司', '').trim();
+                                                                    const uComp = normalize(u.company);
+                                                                    const cComp = normalize(cadreCompany);
+                                                                    
+                                                                    if (uComp === cComp && uComp !== '') return true;
+                                                                    
+                                                                    return false;
+                                                                }
+                                                                return true;
+                                                            });
+                                                            
+                                                            return (
+                                                                <>
+                                                                    <label className="flex items-center gap-2 mb-2 font-bold cursor-pointer text-sm">
+                                                                        <input type="checkbox" 
+                                                                            checked={reportSelectedUserIds.length > 0 && reportSelectedUserIds.length === filteredUsers.length}
+                                                                            onChange={(e) => {
+                                                                                if (e.target.checked) setReportSelectedUserIds(filteredUsers.map(u=>u.id));
+                                                                                else setReportSelectedUserIds([]);
+                                                                            }}
+                                                                        />
+                                                                        全選 (已選 {reportSelectedUserIds.length} 人)
+                                                                    </label>
+                                                                    <div className="flex flex-nowrap overflow-x-auto gap-2 border border-gray-200 p-2 rounded-xl bg-gray-50 items-center">
+                                                                        {filteredUsers.map(u => (
+                                                                            <label key={u.id} className="flex-shrink-0 flex items-center gap-1 text-xs cursor-pointer select-none bg-white px-2 py-1 rounded border border-gray-100 hover:bg-blue-50 whitespace-nowrap">
+                                                                                <input type="checkbox"
+                                                                                    checked={reportSelectedUserIds.includes(u.id)}
+                                                                                    onChange={(e) => {
+                                                                                        if (e.target.checked) setReportSelectedUserIds(prev => [...prev, u.id]);
+                                                                                        else setReportSelectedUserIds(prev => prev.filter(id => id !== u.id));
+                                                                                    }}
+                                                                                />
+                                                                                {u.name}
+                                                                            </label>
+                                                                        ))}
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+
+                                                    <div className="text-center font-bold text-lg text-gray-800 py-1">
+                                                        西北保全{cadreCompany}人員
+                                                    </div>
+                                                    <div className="text-center font-bold text-md text-gray-600 pb-3">
+                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 出勤月報表
+                                                    </div>
+                                                    
+                                                    <div className="grid grid-cols-[80px_repeat(31,minmax(24px,1fr))_repeat(10,32px)] text-[10px] border-b border-r border-gray-300 user-select-none">
+                                                        <div className="border-t border-l border-gray-300 bg-gray-100 p-1 flex items-center justify-center font-bold sticky left-0 z-10">姓名</div>
+                                                        {Array.from({length: 31}, (_, i) => i+1).map(d => {
+                                                            const dateObj = new Date(targetYear, targetMonth, d);
+                                                            const weekMap = ['日','一','二','三','四','五','六'];
+                                                            const week = weekMap[dateObj.getDay()];
+                                                            const isValidDate = dateObj.getMonth() === targetMonth;
+                                                            return (
+                                                                <div key={d} className={`border-t border-l border-gray-300 ${['六','日'].includes(week) ? 'bg-orange-50' : 'bg-gray-100'} p-1 flex flex-col items-center justify-center font-bold`}>
+                                                                    {isValidDate ? (
+                                                                        <>
+                                                                            <span>{d}</span>
+                                                                            <span className="text-[8px]">({week})</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span className="text-gray-300">-</span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {['出勤<br/>日數','出勤<br/>工時','公休<br/>日數','請假<br/>日數','曠職<br/>日數','遲到<br/>次數','早退<br/>次數','外出<br/>次數','卡班<br/>日數','卡班<br/>工時'].map(h => (
+                                                            <div key={h} className="border-t border-l border-gray-300 bg-gray-100 p-1 flex items-center justify-center font-bold text-center leading-tight">
+                                                                <span dangerouslySetInnerHTML={{ __html: h }}></span>
+                                                            </div>
+                                                        ))}
+
+                                                        {(function(){
+                                                            // Calculate data for selected users
+                                                            const targetUsers = usersList.filter(u => reportSelectedUserIds.includes(u.id));
+                                                            const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
+                                                            const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+                                                            
+                                                            const allMonthRecords = attendanceList.filter(r => {
+                                                                const ts = r.timestamp?.seconds;
+                                                                if (!ts) return false;
+                                                                const d = new Date(ts * 1000);
+                                                                return d >= monthStart && d <= monthEnd;
+                                                            });
+                                                            
+                                                            const allMonthLeaves = leavesList.filter(l => {
+                                                                // Simple leave check (intersection)
+                                                                // Reuse parseLeaveRange logic if possible or inline simplified version
+                                                                return l.approvalStatus === 'approved'; // Only count approved?
+                                                            });
+
+                                                            return targetUsers.map(u => {
+                                                                const uRecords = allMonthRecords.filter(r => r.userId === u.id);
+                                                                const uLeaves = allMonthLeaves.filter(r => r.userId === u.id);
+                                                                // Pre-filter schedules for this user from the bulk list
+                                                                const uSchedules = schedulesList.filter(s => s.userId === u.id);
+                                                                
+                                                                let attendanceDays = 0;
+                                                                let totalHours = 0;
+                                                                let restDays = 0;
+                                                                let leaveDays = 0;
+                                                                let absentDays = 0;
+                                                                let lateCount = 0;
+                                                                let earlyCount = 0;
+                                                                let outingCount = 0;
+                                                                let cardDays = 0;
+                                                                let cardHours = 0;
+
+                                                                const dailyCells = Array.from({length: 31}, (_, i) => i+1).map(d => {
+                                                                    const dateObj = new Date(targetYear, targetMonth, d);
+                                                                    if (dateObj.getMonth() !== targetMonth) return <div key={d} className="border-t border-l border-gray-300 bg-gray-50"></div>;
+                                                                    
+                                                                    const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                                                                    const dayStart = new Date(targetYear, targetMonth, d, 0, 0, 0);
+                                                                    const dayEnd = new Date(targetYear, targetMonth, d, 23, 59, 59);
+                                                                    const todayStart = new Date();
+                                                                    todayStart.setHours(0,0,0,0);
+                                                                    
+                                                                    // 1. Check Records
+                                                                    const dayRecords = uRecords.filter(r => {
+                                                                        const rd = new Date(r.timestamp.seconds * 1000);
+                                                                        return rd >= dayStart && rd <= dayEnd;
+                                                                    }).sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
+                                                                    
+                                                                    const isV = dayRecords.length > 0;
+
+                                                                    // Late/Early
+                                                                    if (dayRecords.some(r => r.type === 'late_in')) lateCount++;
+                                                                    if (dayRecords.some(r => r.type === 'early_out')) earlyCount++;
+                                                                    
+                                                                    // 2. Check Schedule
+                                                                    // Prioritize userSchedules for the selected user (most reliable), otherwise use bulk list
+                                                                    let schedule = null;
+                                                                    if (u.id === cadreMapSelectedUserId && userSchedules[dateStr]) {
+                                                                        schedule = userSchedules[dateStr];
+                                                                    } else {
+                                                                        schedule = uSchedules.find(s => s.date === dateStr);
+                                                                    }
+                                                                    
+                                                                    // National Holidays 2026 (From Schedule Reference)
+                                                                    const nationalHolidays = [
+                                                                        '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
+                                                                        '2025-02-28','2025-04-03','2025-04-04','2025-04-05','2025-04-06','2025-05-01','2025-05-30','2025-05-31','2025-06-01',
+                                                                        '2025-10-04','2025-10-05','2025-10-06','2025-10-10','2025-10-11','2025-10-12','2025-12-25',
+                                                                        '2026-01-01','2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
+                                                                        '2026-02-27','2026-02-28','2026-03-01','2026-04-03','2026-04-04','2026-04-05','2026-04-06','2026-05-01',
+                                                                        '2026-06-19','2026-06-20','2026-06-21','2026-09-25','2026-09-26','2026-09-27','2026-10-09','2026-10-10','2026-10-11','2026-12-25'
+                                                                    ];
+                                                                    const isNationalHoliday = nationalHolidays.includes(dateStr);
+
+                                                                    // Determine if Duty/Card day
+                                                                    let isCardDay = false;
+                                                                    let isDutyDay = false;
+                                                                    let isWorkDay = false;
+                                                                    let isOff = false;
+                                                                    let isHoliday = false;
+
+                                                                    if (schedule) {
+                                                                        if (schedule.type === 'card') isCardDay = true;
+                                                                        else if (schedule.type === 'duty') isDutyDay = true;
+                                                                        else if (['work'].includes(schedule.type)) isWorkDay = true;
+                                                                        else if (schedule.type === 'off') isOff = true;
+                                                                        else if (schedule.type === 'holiday') isHoliday = true;
+                                                                    } else {
+                                                                        // Fallback logic
+                                                                        const w = dateObj.getDay();
+                                                                        
+                                                                        if (isNationalHoliday) {
+                                                                            isHoliday = true;
+                                                                        } else if (w === 0 || w === 6) {
+                                                                            // Saturday (6) and Sunday (0) are Holidays
+                                                                            isHoliday = true;
+                                                                        } else if (w === 5) {
+                                                                            // Friday (5) is default Off day (公休) if no schedule
+                                                                            isOff = true;
+                                                                        } else {
+                                                                            // Mon-Thu are Work days (unless scheduled otherwise)
+                                                                            isWorkDay = true;
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    // Hours Calculation
+                                                                    let dayHours = 0;
+                                                                    let cardCalcHours = 0;
+                                                                    let regularCalcHours = 0;
+                                                                    
+                                                                    // Split records into Card Shift (late_in/late_out) and Regular
+                                                                    // Card Shift Report Logic: uses late_in and late_out types
+                                                                    const cardShiftRecords = dayRecords.filter(r => ['late_in', 'late_out'].includes(r.type));
+                                                                    const regularRecords = dayRecords.filter(r => !['late_in', 'late_out'].includes(r.type));
+
+                                                                    // 1. Calculate Card Shift Hours (Replicating Card Shift Report logic)
+                                                                    if (cardShiftRecords.length > 0) {
+                                                                        const ins = cardShiftRecords.filter(r => r.type === 'late_in').sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
+                                                                        const outs = cardShiftRecords.filter(r => r.type === 'late_out').sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
+                                                                        
+                                                                        if (ins.length > 0 && outs.length > 0) {
+                                                                            const firstIn = ins[0];
+                                                                            const lastOut = outs[outs.length - 1];
+                                                                            if (lastOut.timestamp.seconds > firstIn.timestamp.seconds) {
+                                                                                cardCalcHours = (lastOut.timestamp.seconds - firstIn.timestamp.seconds) / 3600;
+                                                                            }
+                                                                        }
+                                                                    }
+
+                                                                    // 2. Calculate Regular Hours
+                                                                    if (regularRecords.length > 0) {
+                                                                         const first = regularRecords[0];
+                                                                         const last = regularRecords[regularRecords.length-1];
+                                                                         if (first && last && first !== last) {
+                                                                             regularCalcHours = (last.timestamp.seconds - first.timestamp.seconds) / 3600;
+                                                                         }
+                                                                    }
+                                                                    
+                                                                    // Combined dayHours for display (if needed, but usually we use specific hours)
+                                                                    dayHours = regularCalcHours; // Default cell display uses regular hours
+
+                                                                    // Update Totals
+                                                                    // Always count Off days (restDays) based on schedule type, regardless of attendance
+                                                                    if (isOff) {
+                                                                        restDays++;
+                                                                    }
+
+                                                                    if (cardCalcHours > 0) {
+                                                                        cardDays++;
+                                                                        cardHours += cardCalcHours;
+                                                                    }
+
+                                                                    if (regularCalcHours > 0) {
+                                                                         if (isDutyDay) {
+                                                                             attendanceDays++; 
+                                                                             totalHours += regularCalcHours;
+                                                                         } else if (isWorkDay) {
+                                                                             attendanceDays++;
+                                                                             totalHours += regularCalcHours;
+                                                                         }
+                                                                         // Off/Holiday regular hours are excluded from totals
+                                                                    }
+                                                                    
+                                                                    // 3. Check Leave
+                                                                    const getLeaveRange = (l) => {
+                                                                        let s, e;
+                                                                        if (l.leaveStartDate) {
+                                                                             s = new Date(l.leaveStartDate + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                        } else if (l.startDate) {
+                                                                             s = new Date(l.startDate);
+                                                                        }
+                                                                        
+                                                                        if (l.leaveEndDate) {
+                                                                             e = new Date(l.leaveEndDate + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                        } else if (l.endDate) {
+                                                                             e = new Date(l.endDate);
+                                                                        }
+                                                                        
+                                                                        if (s && !e) e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                                        
+                                                                        return { s, e };
+                                                                    };
+                                                                    
+                                                                    const activeLeave = uLeaves.find(l => {
+                                                                         const { s, e } = getLeaveRange(l);
+                                                                         if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                                                         return s <= dayEnd && e >= dayStart;
+                                                                    });
+                                                                    
+                                                                    if (activeLeave && activeLeave.leaveReason === '公出') {
+                                                                        outingCount++;
+                                                                    }
+
+                                                                    // Determine Content
+                                                                    let cellContent = '';
+                                                                    let bgClass = 'bg-white';
+                                                                    let fontSizeClass = 'text-xs';
+                                                                    
+                                                                    if (activeLeave) {
+                                                                        cellContent = '請假';
+                                                                        fontSizeClass = 'text-[10px] scale-90';
+                                                                        bgClass = 'bg-yellow-50';
+                                                                        if (activeLeave.leaveReason !== '公出') leaveDays++;
+                                                                    } else if (isV) {
+                                                                        // Attendance logic
+                                                                        if (isCardDay) {
+                                                                            cellContent = 'V';
+                                                                        } else if (isHoliday) {
+                                                                             // If holiday and attended, do NOT show hours as per request
+                                                                             // Show '假日' or maybe just empty/special indicator?
+                                                                             // Request: "若為假日則當日上班不予顯示工時"
+                                                                             // Let's keep it as '假日' to indicate the day type, even if attended.
+                                                                             // Or maybe show nothing? But usually we want to know it's a holiday.
+                                                                             // Let's stick to showing '假日' but maybe with a different style or just '假日'
+                                                                             // Actually, if they worked on holiday, usually it's overtime.
+                                                                             // But user said "do not show hours".
+                                                                             // If we show '假日', it covers the request.
+                                                                             cellContent = '假日';
+                                                                             fontSizeClass = 'text-[10px] scale-90';
+                                                                             bgClass = 'bg-orange-50';
+                                                                        } else if (isOff) {
+                                                                            // If Off day and attended, similar logic?
+                                                                            // User didn't explicitly say for Off days, but usually grouped with Holiday.
+                                                                            // But request specifically said "若為假日...".
+                                                                            // Let's assume Off days (公休) also follow this or maybe show hours?
+                                                                            // Previous request said "如非假日或公休 只顯示上班或值班 工時".
+                                                                            // So Off day should also NOT show hours.
+                                                                            cellContent = '公休';
+                                                                            fontSizeClass = 'text-[10px] scale-90';
+                                                                            bgClass = 'bg-gray-50';
+                                                                            // restDays already incremented above
+                                                                        } else {
+                                                                            // Show hours for Work, Duty (if attended and not holiday/off)
+                                                                            const displayVal = Math.min(dayHours, 8.5).toFixed(1);
+                                                                            cellContent = displayVal.endsWith('.0') ? displayVal.slice(0, -2) : displayVal;
+                                                                        }
+                                                                    } else {
+                                                                        // No Attendance
+                                                                        if (isDutyDay) {
+                                                                            // Duty day but no attendance? Usually shouldn't happen if planned.
+                                                                            // Request: "當日值班則應為'值班'(不顯示公休)"
+                                                                            // If scheduled as Duty, it overrides Off/Holiday logic in classification above.
+                                                                            // So isOff/isHoliday would be false if isDutyDay is true (based on current logic).
+                                                                            // Wait, let's check classification logic.
+                                                                            // if (schedule) ...
+                                                                            // If schedule.type is duty, isDutyDay=true, others false.
+                                                                            // So it won't be Off/Holiday.
+                                                                            // But if NO schedule, fallback logic might set isOff/isHoliday.
+                                                                            // If fallback sets isOff, but we want it to be Duty? 
+                                                                            // No, if it's Duty, it must come from schedule (or user needs to add schedule).
+                                                                            // Assuming Duty is always from schedule.
+                                                                            
+                                                                            // If isDutyDay is true, and no attendance (isV false).
+                                                                            // Should we show '值班' or '曠職'?
+                                                                            // Usually if duty and no show -> Absent.
+                                                                            // But maybe user just wants to see the schedule label if future/no data?
+                                                                            // "當日值班則應為'值班'(不顯示公休)" -> This might refer to the LABEL when there IS attendance or simply the day type.
+                                                                            // If there IS attendance (isV), we showed hours above (unless Card).
+                                                                            // If user wants '值班' text instead of hours for Duty?
+                                                                            // "當日值班則應為'值班'(不顯示公休)"
+                                                                            // This sounds like if a day is BOTH Duty and (Holiday/Off), Duty takes precedence.
+                                                                            // My current logic: if schedule is Duty, isDutyDay=true, isOff=false. So '公休' won't show.
+                                                                            // So this is already handled IF duty is scheduled.
+                                                                            
+                                                                            // However, if the user means: "If I worked on a Duty day, show '值班' instead of hours?"
+                                                                            // Re-reading: "div 當日值班則應為'值班'(不顯示公休)"
+                                                                            // Context: User clicked on '公休' cell.
+                                                                            // Maybe that day WAS a duty day but showed '公休'?
+                                                                            // That implies schedule was missing or fallback took over.
+                                                                            // If schedule is 'duty', my code sets isDutyDay=true.
+                                                                            // And fallback is skipped.
+                                                                            // So '公休' shouldn't appear.
+                                                                            
+                                                                            // UNLESS: isDutyDay is true, but isV is false.
+                                                                            // Then it goes to 'else' block.
+                                                                            // Inside else: if (isOff) ... else if (isHoliday) ... else if (isWorkDay || isDutyDay) ...
+                                                                            // Ah, if isDutyDay is true, it falls to the last block -> '曠職' if past.
+                                                                            // It won't show '公休'.
+                                                                            
+                                                                            // Wait, maybe the user means: On a Duty day, don't show '公休' text even if it's a weekend?
+                                                                            // Yes, my logic does that.
+                                                                            
+                                                                            // Let's assume the user wants to see '值班' text explicitly if it is a Duty day and NO attendance (instead of Absent? or just label?).
+                                                                            // Or if attended, show '值班' instead of hours?
+                                                                            // Previous request: "只顯示上班或值班 工時". So Duty should show hours.
+                                                                            
+                                                                            // Let's look at "div 當日值班則應為'值班'(不顯示公休)" again.
+                                                                            // Maybe the user wants the cell to say '值班' if it is a duty day?
+                                                                            // But we just enabled hours for duty.
+                                                                            // Maybe for the header or specific state?
+                                                                            
+                                                                            // Let's strictly follow "若為假日則當日上班不予顯示工時".
+                                                                            // Done above (isHoliday check inside isV).
+                                                                            
+                                                                            // "當日值班則應為'值班'(不顯示公休)"
+                                                                            // Likely case: It's a weekend (normally 公休), but user is scheduled for Duty.
+                                                                            // User wants to ensure it doesn't say '公休'.
+                                                                            // My code: if schedule='duty', isOff=false. So it won't say '公休'.
+                                                                            // But if no attendance, it might say '曠職'.
+                                                                            // Maybe user wants it to say '值班' if no attendance yet (future) or just as a label?
+                                                                            // Or if attended, maybe show '值班' label? But user asked for hours on duty before.
+                                                                            // Contradiction? "只顯示上班或值班 工時" vs "當日值班則應為'值班'".
+                                                                            // Maybe "值班" refers to the day type label when NO attendance?
+                                                                            
+                                                                            // Let's ensure if isDutyDay && !isV, we show '值班' instead of '曠職' or nothing, if not past?
+                                                                            // Or maybe just show '值班' text if it is duty day?
+                                                                            
+                                                                            // Let's add a check: if isDutyDay and !isV.
+                                                                            cellContent = '值班';
+                                                                            fontSizeClass = 'text-[10px] scale-90';
+                                                                            // But if past and no V, is it Absent?
+                                                                            if (dateObj < todayStart) {
+                                                                                 cellContent = '曠職';
+                                                                                 fontSizeClass = 'text-[10px] scale-90 text-red-500';
+                                                                                 absentDays++;
+                                                                                 bgClass = 'bg-red-50';
+                                                                            }
+                                                                        } else if (isOff) {
+                                                                            cellContent = '公休';
+                                                                            fontSizeClass = 'text-[10px] scale-90'; 
+                                                                            // restDays already incremented above
+                                                                            bgClass = 'bg-gray-50';
+                                                                        } else if (isHoliday) {
+                                                                            cellContent = '假日';
+                                                                            fontSizeClass = 'text-[10px] scale-90'; 
+                                                                            // restDays++; 
+                                                                            bgClass = 'bg-orange-50';
+                                                                        } else if (isWorkDay || isCardDay) {
+                                                                            if (dateObj < todayStart && !isV) {
+                                                                                cellContent = '曠職';
+                                                                                fontSizeClass = 'text-[10px] scale-90 text-red-500'; 
+                                                                                absentDays++;
+                                                                                bgClass = 'bg-red-50';
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    return (
+                                                                        <div key={d} className={`border-t border-l border-gray-300 p-1 flex items-center justify-center font-bold ${fontSizeClass} ${bgClass}`}>
+                                                                            {cellContent}
+                                                                        </div>
+                                                                    );
+                                                                });
+
+                                                                return (
+                                                                    <React.Fragment key={u.id}>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center font-bold bg-white sticky left-0 z-10 text-xs">{u.name}</div>
+                                                                        {dailyCells}
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{attendanceDays}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{totalHours.toFixed(1)}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{restDays}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{leaveDays}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-red-500">{absentDays}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-orange-500">{lateCount}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-orange-500">{earlyCount}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-blue-500">{outingCount}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{cardDays}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{cardHours.toFixed(1)}</div>
+                                                                    </React.Fragment>
+                                                                );
+                                                            });
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                                <style>{`
+                                                    @page { size: A4 landscape; margin: 10mm; }
+                                                    @media print {
+                                                        #attendance-report .min-w-\\[1200px\\] { min-width: auto; width: 100%; }
+                                                        #attendance-report { margin-top: 0 !important; }
+                                                    }
+                                                `}</style>
                                             </div>
                                         );
                                     }
