@@ -72,6 +72,36 @@
         .animate-bg-red-pulse {
             animation: bg-red-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
+
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 10mm;
+            }
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+                background-color: white;
+            }
+            #attendance-report {
+                overflow: visible !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            #attendance-report > div {
+                min-width: 0 !important;
+            }
+            /* Ensure grid rows expand and don't break awkwardly */
+            #attendance-report .grid {
+                break-inside: avoid;
+                page-break-inside: avoid;
+                height: auto !important;
+                align-items: start;
+            }
+        }
     </style>
     <script src="./firebase-config.js"></script>
     <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&loading=async&language=zh-TW"></script>
@@ -554,6 +584,9 @@
             const [step, setStep] = useState('location'); // location, camera, preview
             const [isProcessing, setIsProcessing] = useState(false);
             const [showLocationList, setShowLocationList] = useState(false);
+            const [facing, setFacing] = useState('user');
+            const [cameraDevices, setCameraDevices] = useState([]);
+            const [selectedDeviceId, setSelectedDeviceId] = useState(null);
 
             useEffect(() => {
                 if (isOpen) {
@@ -726,18 +759,41 @@
                 }
             }, [step, location, workSite, checkInLocation, userAvatar]);
 
-            const startCamera = async () => {
+            const startCamera = async (targetFacing = facing) => {
                 try {
-                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        throw new Error('您的瀏覽器不支援相機功能，請使用 Safari (iOS) 或 Chrome (Android)');
+                    if (stream) {
+                        stream.getTracks().forEach(t => t.stop());
                     }
-                    const s = await navigator.mediaDevices.getUserMedia({ 
-                        video: { 
-                            facingMode: 'user',
-                            width: { ideal: 1280 },
-                            height: { ideal: 720 }
-                        } 
-                    });
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error(/iPhone|iPad|iPod/.test(navigator.userAgent) ? '無法存取相機：請至「設定 > Safari > 相機」允許存取' : '您的瀏覽器不支援相機功能，請使用 Safari (iOS) 或 Chrome (Android)');
+                    }
+                    let constraints = { video: { facingMode: { exact: targetFacing }, width: { ideal: 1280 }, height: { ideal: 720 } } };
+                    let s = null;
+                    try {
+                        s = await navigator.mediaDevices.getUserMedia(constraints);
+                    } catch {
+                        constraints = { video: { facingMode: targetFacing, width: { ideal: 1280 }, height: { ideal: 720 } } };
+                        try {
+                            s = await navigator.mediaDevices.getUserMedia(constraints);
+                        } catch {
+                            const base = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }).catch(() => null);
+                            if (base) {
+                                const devices = await navigator.mediaDevices.enumerateDevices();
+                                const vids = devices.filter(d => d.kind === 'videoinput');
+                                setCameraDevices(vids);
+                                const pickFront = vids.find(d => /front|前/i.test(d.label));
+                                const pickBack = vids.find(d => /back|rear|後/i.test(d.label));
+                                const pick = targetFacing === 'user' ? (pickFront || vids[0]) : (pickBack || vids[vids.length - 1] || vids[0]);
+                                if (pick) {
+                                    setSelectedDeviceId(pick.deviceId);
+                                    s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: pick.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+                                }
+                            }
+                            if (!s) {
+                                s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                            }
+                        }
+                    }
                     setStream(s);
                     if (videoRef.current) {
                         videoRef.current.srcObject = s;
@@ -950,7 +1006,7 @@
 
             const nextToCamera = () => {
                 setStep('camera');
-                startCamera();
+                startCamera(facing);
             };
 
             const capture = () => {
@@ -1029,7 +1085,13 @@
             const retake = () => {
                 setImage(null);
                 setStep('camera');
-                startCamera();
+                startCamera(facing);
+            };
+            
+            const toggleFacing = async () => {
+                const next = facing === 'user' ? 'environment' : 'user';
+                setFacing(next);
+                await startCamera(next);
             };
 
             const isMounted = useRef(true);
@@ -1213,9 +1275,14 @@
                             )}
 
                             {step === 'camera' && (
-                                <button onClick={capture} className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold text-lg flex items-center justify-center gap-2">
-                                    <Camera className="w-6 h-6" /> 拍照
-                                </button>
+                                <div className="flex gap-3">
+                                    <button onClick={toggleFacing} className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-2">
+                                        前/後鏡頭
+                                    </button>
+                                    <button onClick={capture} className="flex-1 py-3 bg-red-600 text-white rounded-2xl font-bold text-lg flex items-center justify-center gap-2">
+                                        <Camera className="w-6 h-6" /> 拍照
+                                    </button>
+                                </div>
                             )}
 
                             {step === 'preview' && (
@@ -5984,7 +6051,7 @@
                         updatedAt: serverTimestamp()
                     };
 
-                    if (scheduleForm.type !== 'off') {
+                    if (scheduleForm.type !== 'off' && scheduleForm.type !== 'leave') {
                         scheduleData.startTime = scheduleForm.startTime;
                         scheduleData.endTime = scheduleForm.endTime;
                         scheduleData.crossDay = scheduleForm.crossDay || false;
@@ -7132,56 +7199,6 @@
                         approverName: dbUser.name
                     });
 
-                    // 2. Sync with Schedules
-                    const startDate = new Date(target.leaveStartDate);
-                    const endDate = new Date(target.leaveEndDate);
-                    
-                    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                        const dateStr = d.toISOString().split('T')[0];
-                        
-                        // Check for existing schedule
-                        const qSchedule = query(
-                            collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
-                            where('userId', '==', target.userId),
-                            where('date', '==', dateStr)
-                        );
-                        const scheduleSnap = await getDocs(qSchedule);
-
-                        if (status === 'approved') {
-                            if (!scheduleSnap.empty) {
-                                // Update existing schedule
-                                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', scheduleSnap.docs[0].id), {
-                                    type: 'leave',
-                                    leaveId: target.id,
-                                    leaveReason: target.leaveReason,
-                                    updatedAt: serverTimestamp(),
-                                    updatedBy: dbUser.name
-                                });
-                            } else {
-                                // Create new schedule
-                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), {
-                                    userId: target.userId,
-                                    userName: target.userName || '',
-                                    date: dateStr,
-                                    type: 'leave',
-                                    leaveId: target.id,
-                                    leaveReason: target.leaveReason,
-                                    createdAt: serverTimestamp(),
-                                    createdBy: dbUser.name
-                                });
-                            }
-                        } else {
-                            // If Rejected/Pending, remove the schedule if it was linked to this leave
-                            if (!scheduleSnap.empty) {
-                                const scheduleDoc = scheduleSnap.docs[0];
-                                const scheduleData = scheduleDoc.data();
-                                if (scheduleData.leaveId === target.id) {
-                                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', scheduleDoc.id));
-                                }
-                            }
-                        }
-                    }
-
                     if (!record) {
                         setShowApprovalModal(false);
                         setSelectedApprovalLeave(null);
@@ -7905,56 +7922,105 @@
 
                                                         let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
                                                         
-                                                        // Check for Leave
-                                                        const leave = myAttendance.find(l => {
-                                                            if (l.type !== 'leave' || l.approvalStatus !== 'approved') return false;
-                                                            const start = new Date(l.leaveStartDate || l.leaveDate);
-                                                            return start.getFullYear() === year && start.getMonth() === month && start.getDate() === d;
-                                                        });
+                                                        // Check for Approved Leave (range-based)
+                                                        const dayStart = new Date(year, month, d, 0, 0, 0);
+                                                        const dayEnd = new Date(year, month, d, 23, 59, 59);
+                                                        const isApprovedLeaveOnDay = (() => {
+                                                            const parseRange = (l) => {
+                                                                if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
+                                                                let s, e;
+                                                                if (l.leaveStartDate) {
+                                                                    const sd = String(l.leaveStartDate).replace(/\//g, '-');
+                                                                    s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                } else if (l.startDate) {
+                                                                    const sd = String(l.startDate).replace(/\//g, '-');
+                                                                    s = new Date(sd);
+                                                                } else if (l.leaveDate) {
+                                                                    const sd = String(l.leaveDate).replace(/\//g, '-');
+                                                                    s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                                }
+                                                                if (l.leaveEndDate) {
+                                                                    const ed = String(l.leaveEndDate).replace(/\//g, '-');
+                                                                    e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                } else if (l.endDate) {
+                                                                    const ed = String(l.endDate).replace(/\//g, '-');
+                                                                    e = new Date(ed);
+                                                                } else if (s) {
+                                                                    e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                                }
+                                                                if (!s || !e || isNaN(s) || isNaN(e)) return null;
+                                                                return { s, e };
+                                                            };
+                                                            const listA = (myAttendance || []).filter(r => r.type === 'leave' && r.approvalStatus === 'approved');
+                                                            const listB = (leavesList || []).filter(r => r.userId === dbUser?.id && r.approvalStatus === 'approved');
+                                                            for (const l of [...listA, ...listB]) {
+                                                                const rng = parseRange(l);
+                                                                if (!rng) continue;
+                                                                if (rng.s <= dayEnd && rng.e >= dayStart) return true;
+                                                            }
+                                                            return false;
+                                                        })();
 
-                                                        if (leave) {
-                                                            cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
-                                                        } else if (schedule) {
-                                                            if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
-                                                            else if (schedule.type === 'duty') cellClass = 'bg-purple-100 text-purple-700 border border-purple-200';
-                                                            else if (schedule.type === 'card') cellClass = 'bg-green-100 text-green-700 border border-green-200';
-                                                            else if (schedule.type === 'off') cellClass = 'bg-gray-100 text-gray-400 border border-gray-200';
-                                                        }
+                                                            if (isApprovedLeaveOnDay) {
+                                                                cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
+                                                            } else if (schedule) {
+                                                                if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
+                                                                else if (schedule.type === 'duty') cellClass = 'bg-purple-100 text-purple-700 border border-purple-200';
+                                                                else if (schedule.type === 'card') cellClass = 'bg-green-100 text-green-700 border border-green-200';
+                                                                else if (schedule.type === 'off') cellClass = 'bg-gray-100 text-gray-400 border border-gray-200';
+                                                            }
 
-                                                        days.push(
-                                                            <div 
-                                                                key={d}
-                                                                onClick={() => setClockScheduleSelectedDate(currentDate)}
-                                                                className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors cursor-pointer ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''} ${clockScheduleSelectedDate && clockScheduleSelectedDate.toDateString() === currentDate.toDateString() ? 'ring-2 ring-blue-500 z-10' : ''}`}
-                                                            >
-                                                                <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
-                                                                {leave ? (
-                                                                    <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">請假</span>
-                                                                ) : schedule ? (
-                                                                    <div className="flex flex-col items-center w-full">
-                                                                        <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
-                                                                            {schedule.type === 'work' ? '正常' : 
-                                                                             schedule.type === 'duty' ? '值班' : 
-                                                                             schedule.type === 'card' ? '卡班' : '排休'}
-                                                                        </span>
-                                                                        {schedule.type !== 'off' && (
-                                                                            <span className="text-[9px] scale-75 opacity-80 leading-none">
-                                                                                {schedule.startTime}-{schedule.endTime}
+                                                            // Past day attendance status coloring (normal=green, abnormal=red)
+                                                            const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+                                                            if (currentDate < todayDate && schedule && (schedule.type === 'work' || schedule.type === 'duty')) {
+                                                                const dayRecords = myAttendance.filter(r => {
+                                                                    const t = r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
+                                                                    if (!t) return false;
+                                                                    return t.getFullYear() === year && t.getMonth() === month && t.getDate() === d;
+                                                                });
+                                                                const hasIn = dayRecords.some(r => r.type === 'in' || r.type === 'late_in');
+                                                                const hasOut = dayRecords.some(r => r.type === 'out' || r.type === 'late_out');
+                                                                if (hasIn && hasOut) {
+                                                                    cellClass = 'bg-green-100 text-green-700 border border-green-200';
+                                                                } else {
+                                                                    cellClass = 'bg-red-100 text-red-700 border border-red-200';
+                                                                }
+                                                            }
+
+                                                            days.push(
+                                                                <div 
+                                                                    key={d}
+                                                                    onClick={() => setClockScheduleSelectedDate(currentDate)}
+                                                                    className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors cursor-pointer ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''} ${clockScheduleSelectedDate && clockScheduleSelectedDate.toDateString() === currentDate.toDateString() ? 'ring-2 ring-blue-500 z-10' : ''}`}
+                                                                >
+                                                                    <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
+                                                            {isApprovedLeaveOnDay ? (
+                                                                <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">請假</span>
+                                                            ) : schedule ? (
+                                                                <div className="flex flex-col items-center w-full">
+                                                                    <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
+                                                                        {schedule.type === 'work' ? '上班' : 
+                                                                         schedule.type === 'duty' ? '值班' : 
+                                                                         schedule.type === 'card' ? '卡班' : '特休'}
                                                                             </span>
-                                                                        )}
-                                                                    </div>
-                                                                ) : (
-                                                                    <span className="text-[9px] text-gray-300 scale-75">無</span>
-                                                                )}
-                                                            </div>
-                                                        );
+                                                                            {schedule.type !== 'off' && (
+                                                                                <span className="text-[9px] scale-75 opacity-80 leading-none">
+                                                                                    {schedule.startTime}-{schedule.endTime}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-[9px] text-gray-300 scale-75">假日</span>
+                                                                    )}
+                                                                </div>
+                                                            );
                                                     }
                                                     return days;
                                                 })()}
                                             </div>
                                             <div className="mt-4 flex flex-wrap gap-2 justify-center">
                                                 <div className="flex items-center gap-1 text-xs text-gray-500">
-                                                    <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200"></div> 正常
+                                                    <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200"></div> 上班
                                                 </div>
                                                 <div className="flex items-center gap-1 text-xs text-gray-500">
                                                     <div className="w-3 h-3 rounded bg-purple-100 border border-purple-200"></div> 值班
@@ -8010,9 +8076,9 @@
                                                                         schedule.type === 'card' ? 'text-green-600' :
                                                                         'text-gray-500'
                                                                     }`}>
-                                                                        {schedule.type === 'work' ? '正常班' : 
+                                                                        {schedule.type === 'work' ? '上班' : 
                                                                          schedule.type === 'duty' ? '值班' : 
-                                                                         schedule.type === 'card' ? '卡班' : '排休'}
+                                                                         schedule.type === 'card' ? '卡班' : '特休'}
                                                                     </span>
                                                                     {schedule.type !== 'off' && (
                                                                         <span className="font-mono font-bold text-gray-700">
@@ -8762,7 +8828,7 @@
                                                                                 '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
                                                                                 '2025-02-28','2025-04-03','2025-04-04','2025-04-05','2025-04-06','2025-05-01','2025-05-30','2025-05-31','2025-06-01',
                                                                                 '2025-10-04','2025-10-05','2025-10-06','2025-10-10','2025-10-11','2025-10-12','2025-12-25',
-                                                                                '2026-01-01','2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
+                                                                                '2026-01-01','2026-01-02','2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
                                                                                 '2026-02-27','2026-02-28','2026-03-01','2026-04-03','2026-04-04','2026-04-05','2026-04-06','2026-05-01',
                                                                                 '2026-06-19','2026-06-20','2026-06-21','2026-09-25','2026-09-26','2026-09-27','2026-10-09','2026-10-10','2026-10-11','2026-12-25'
                                                                             ];
@@ -8945,6 +9011,7 @@
 
                                                             // 2026
                                                             '2026-01-01', // New Year
+                                                            '2026-01-02',
                                                             '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', // LNY
                                                             '2026-02-27', '2026-02-28', '2026-03-01', // Peace Memorial
                                                             '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', // Tomb Sweeping / Childrens
@@ -8971,14 +9038,26 @@
 
                                                             let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
                                                             
-                                                            // Check for Leave
-                                                            const leave = userLeaveRequests.find(l => {
-                                                                if (l.approvalStatus !== 'approved') return false;
-                                                                const start = new Date(l.leaveStartDate || l.leaveDate);
-                                                                return start.getFullYear() === year && start.getMonth() === month && start.getDate() === d;
-                                                            });
+                                                            const isFridayOff = currentDate.getDay() === 5 && (!schedule || schedule.type === 'off');
+                                                            const isWorkingDay = !isHoliday && !isWeekend && !(schedule && (schedule.type === 'off' || schedule.type === 'rest' || schedule.type === 'holiday')) && !isFridayOff;
 
-                                                            if (leave) {
+                                                            const isApprovedActualLeave = (function() {
+                                                                if (!isWorkingDay) return false;
+                                                                const dayStart = new Date(year, month, d, 0, 0, 0);
+                                                                const dayEnd = new Date(year, month, d, 23, 59, 59);
+                                                                for (const l of userLeaveRequests) {
+                                                                    if (l.approvalStatus !== 'approved') continue;
+                                                                    let s = l.leaveStartDate ? new Date(String(l.leaveStartDate).replace('T',' ')) : (l.leaveDate ? new Date(l.leaveDate) : null);
+                                                                    let e = l.leaveEndDate ? new Date(String(l.leaveEndDate).replace('T',' ')) : (s ? new Date(s) : null);
+                                                                    if (!s || !e || isNaN(s) || isNaN(e)) continue;
+                                                                    s = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0);
+                                                                    e = new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59);
+                                                                    if (s <= dayEnd && e >= dayStart) return true;
+                                                                }
+                                                                return false;
+                                                            })();
+
+                                                            if (isApprovedActualLeave) {
                                                                 cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
                                                             } else if (schedule) {
                                                                 if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
@@ -9007,7 +9086,7 @@
                                                             }
                                                             
                                                             if (isToday) {
-                                                                if (schedule || leave) {
+                                                                if (schedule || isApprovedActualLeave) {
                                                                     cellClass += ' ring-2 ring-red-600';
                                                                 } else {
                                                                     cellClass = 'bg-red-600 text-white shadow-md';
@@ -9023,7 +9102,9 @@
                                                                             return;
                                                                         }
                                                                         setScheduleModalDate(dateStr);
-                                                                        if (schedule) {
+                                                                        if (isApprovedActualLeave) {
+                                                                            setScheduleForm({ type: 'leave' });
+                                                                        } else if (schedule) {
                                                                             setScheduleForm({
                                                                                 type: schedule.type,
                                                                                 startTime: schedule.startTime || '09:00',
@@ -9804,12 +9885,12 @@
                                     #attendance-report .text-sm { font-size: 8pt !important; }
                                     #attendance-report .text-xs { font-size: 7pt !important; }
                                     #attendance-report .min-w\\[720px\\] { min-width: auto !important; width: 100% !important; }
-                                    #attendance-report .grid.grid-cols-7 { grid-template-columns: 10mm 10mm 40mm 40mm 20mm 20mm 50mm !important; }
+                                    #attendance-report .grid.grid-cols-10 { grid-template-columns: 10mm 10mm 20mm 25mm 25mm 25mm 15mm 15mm 15mm 30mm !important; }
                                     #attendance-report .px-3 { padding-left: 2mm !important; padding-right: 2mm !important; }
                                     #attendance-report .py-2 { padding-top: 0 !important; padding-bottom: 0 !important; }
                                     #attendance-report .text-center.py-1 { padding-top: 0 !important; padding-bottom: 0 !important; }
                                     #attendance-report .text-center.pb-3 { padding-bottom: 1mm !important; }
-                                    #attendance-report .grid.grid-cols-7.text-xs.font-bold > div { height: 7mm !important; display: flex; align-items: center; white-space: nowrap; }
+                                    #attendance-report .grid.grid-cols-10.text-xs.font-bold > div { height: 7mm !important; display: flex; align-items: center; white-space: nowrap; }
                                     #attendance-report .divide-y > .grid > div { height: 7mm !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; }
                                     #attendance-report .divide-y > .grid > div > div { display: inline !important; margin-right: 2mm !important; }
                                     #attendance-report .divide-y > .grid { page-break-inside: avoid; }
@@ -9837,6 +9918,14 @@
                                         const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
                                         const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
                                         const weekMap = ['日','一','二','三','四','五','六'];
+                                        const holidays = [
+                                            // 2025
+                                            '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02',
+                                            '2025-02-28', '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', '2025-05-01', '2025-05-30', '2025-05-31', '2025-06-01', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-10', '2025-10-11', '2025-10-12', '2025-12-25',
+                                            // 2026
+                                            '2026-01-01', '2026-01-02', '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22',
+                                            '2026-02-27', '2026-02-28', '2026-03-01', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', '2026-05-01', '2026-06-19', '2026-06-20', '2026-06-21', '2026-09-25', '2026-09-26', '2026-09-27', '2026-10-09', '2026-10-10', '2026-10-11', '2026-12-25'
+                                        ];
                                         const normalizeDateStr = (v) => {
                                             if (!v) return null;
                                             const s = String(v).replace(/\//g, '-');
@@ -9896,30 +9985,80 @@
                                                     <div className="text-center font-bold text-md text-gray-600 pb-3">
                                                         {cadreRecordDate.split('-').slice(0,2).join('-')} 請假月報表
                                                     </div>
-                                                    <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
+                                                    <div className="grid text-xs font-bold text-gray-600 bg-gray-50 rounded-xl" style={{ gridTemplateColumns: '10mm 10mm 20mm 30mm 30mm 30mm 15mm 15mm 30mm' }}>
                                                         <div className="px-3 py-2">日期</div>
                                                         <div className="px-3 py-2">星期</div>
                                                         <div className="px-3 py-2">事由</div>
                                                         <div className="px-3 py-2">開始時間</div>
                                                         <div className="px-3 py-2">結束時間</div>
-                                                        <div className="px-3 py-2">狀況</div>
+                                                        <div className="px-3 py-2">實際日期</div>
+                                                        <div className="px-3 py-2">實際天數</div>
+                                                        <div className="px-3 py-2">實際時數</div>
                                                         <div className="px-3 py-2">備註</div>
                                                     </div>
                                                     <div className="divide-y divide-gray-100">
-                                                        {monthLeaves.map((l, idx) => {
+                                                        {monthLeaves.filter(l => l.approvalStatus === 'approved').map((l, idx) => {
                                                             const rng = (function(){ const r = parseLeaveRange(l); return r; })();
                                                             const sd = rng.s;
                                                             const w = !sd || isNaN(sd) ? '-' : weekMap[sd.getDay()];
                                                             const statusMap = { approved: '已核准', pending: '待核准', rejected: '已駁回' };
                                                             const status = statusMap[l.approvalStatus] || l.approvalStatus || '';
+
+                                                            let actualDates = [];
+                                                            let actualHours = 0;
+                                                            if (rng.s && rng.e && !isNaN(rng.s) && !isNaN(rng.e)) {
+                                                                let curr = new Date(rng.s);
+                                                                let loopDate = new Date(curr.getFullYear(), curr.getMonth(), curr.getDate());
+                                                                const endDate = new Date(rng.e.getFullYear(), rng.e.getMonth(), rng.e.getDate());
+                                                                
+                                                                while (loopDate <= endDate) {
+                                                                    const dStr = `${loopDate.getFullYear()}-${String(loopDate.getMonth()+1).padStart(2,'0')}-${String(loopDate.getDate()).padStart(2,'0')}`;
+                                                                    const isHoliday = holidays.includes(dStr);
+                                                                    const isWeekend = loopDate.getDay() === 0 || loopDate.getDay() === 6;
+                                                                    const sched = userSchedules ? userSchedules[dStr] : null;
+                                                                    const isRest = sched && (sched.type === 'off' || sched.type === 'rest' || sched.type === 'holiday');
+                                                                    const isFridayOff = loopDate.getDay() === 5 && (!sched || sched.type === 'off');
+                                                                    const fullDateStr = `${loopDate.getFullYear()}/${String(loopDate.getMonth()+1).padStart(2,'0')}/${String(loopDate.getDate()).padStart(2,'0')}`;
+                                                                    
+                                                                    if (!isHoliday && !isWeekend && !isRest && !isFridayOff) {
+                                                                        actualDates.push(fullDateStr);
+                                                                        
+                                                                        if (sched && (sched.type === 'work' || sched.type === 'duty' || sched.type === 'card') && sched.startTime && sched.endTime) {
+                                                                            const parseToMin = (s) => {
+                                                                                const [h, m] = String(s).split(':').map(Number);
+                                                                                return (h * 60) + m;
+                                                                            };
+                                                                            let startMin = parseToMin(sched.startTime);
+                                                                            let endMin = parseToMin(sched.endTime);
+                                                                            
+                                                                            const schedStart = new Date(loopDate);
+                                                                            schedStart.setHours(Math.floor(startMin/60), startMin%60, 0, 0);
+                                                                            const schedEnd = new Date(loopDate);
+                                                                            schedEnd.setHours(Math.floor(endMin/60), endMin%60, 0, 0);
+                                                                            if (sched.crossDay) schedEnd.setDate(schedEnd.getDate() + 1);
+
+                                                                            const scheduleHours = (schedEnd - schedStart) / 3600000;
+                                                                            if (scheduleHours > 0) actualHours += scheduleHours;
+                                                                        }
+                                                                    }
+                                                                    loopDate.setDate(loopDate.getDate() + 1);
+                                                                }
+                                                            }
+
                                                             return (
-                                                                <div key={idx} className="grid grid-cols-7 text-sm">
+                                                                <div key={idx} className="grid text-sm" style={{ gridTemplateColumns: '10mm 10mm 20mm 30mm 30mm 30mm 15mm 15mm 30mm' }}>
                                                                     <div className="px-3 py-2">{(!sd || isNaN(sd)) ? '-' : String(sd.getDate()).padStart(2,'0')}</div>
                                                                     <div className="px-3 py-2">{w}</div>
                                                                     <div className="px-3 py-2">{l.leaveReason || '-'}</div>
                                                                     <div className="px-3 py-2">{fmt(rng.s)}</div>
                                                                     <div className="px-3 py-2">{fmt(rng.e)}</div>
-                                                                    <div className="px-3 py-2">{status}</div>
+                                                                    <div className="px-3 py-2">
+                                                                        {actualDates.length > 0 ? actualDates.map((d, i) => (
+                                                                            <div key={i}>{d}</div>
+                                                                        )) : '-'}
+                                                                    </div>
+                                                                    <div className="px-3 py-2">{actualDates.length}</div>
+                                                                    <div className="px-3 py-2">{actualDates.length > 0 ? actualHours.toFixed(1) : '-'}</div>
                                                                     <div className="px-3 py-2">{l.leaveDescription || ''}</div>
                                                                 </div>
                                                             );
@@ -10435,18 +10574,27 @@
                                                                     const getLeaveRange = (l) => {
                                                                         let s, e;
                                                                         if (l.leaveStartDate) {
-                                                                             s = new Date(l.leaveStartDate + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                             const sd = String(l.leaveStartDate).replace(/\//g, '-');
+                                                                             s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
                                                                         } else if (l.startDate) {
-                                                                             s = new Date(l.startDate);
+                                                                             const sd = String(l.startDate).replace(/\//g, '-');
+                                                                             s = new Date(sd);
+                                                                        } else if (l.leaveDate) {
+                                                                             const sd = String(l.leaveDate).replace(/\//g, '-');
+                                                                             s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
                                                                         }
                                                                         
                                                                         if (l.leaveEndDate) {
-                                                                             e = new Date(l.leaveEndDate + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                             const ed = String(l.leaveEndDate).replace(/\//g, '-');
+                                                                             e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
                                                                         } else if (l.endDate) {
-                                                                             e = new Date(l.endDate);
+                                                                             const ed = String(l.endDate).replace(/\//g, '-');
+                                                                             e = new Date(ed);
+                                                                        } else if (s) {
+                                                                             e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
                                                                         }
                                                                         
-                                                                        if (s && !e) e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                                        if (s && e && e < s) e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
                                                                         
                                                                         return { s, e };
                                                                     };
@@ -10456,8 +10604,35 @@
                                                                          if (!s || !e || isNaN(s) || isNaN(e)) return false;
                                                                          return s <= dayEnd && e >= dayStart;
                                                                     });
-                                                                    
-                                                                    if (activeLeave && activeLeave.leaveReason === '公出') {
+                                                                    let leaveObj = activeLeave || null;
+                                                                    if (!leaveObj && Array.isArray(userLeaveRequests) && userLeaveRequests.length > 0) {
+                                                                        leaveObj = userLeaveRequests.find(l => {
+                                                                            if (l.approvalStatus !== 'approved') return false;
+                                                                            let start, end;
+                                                                            if (l.leaveStartDate) {
+                                                                                const sd = String(l.leaveStartDate).replace(/\//g, '-');
+                                                                                start = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                            } else if (l.startDate) {
+                                                                                const sd = String(l.startDate).replace(/\//g, '-');
+                                                                                start = new Date(sd);
+                                                                            } else if (l.leaveDate) {
+                                                                                const sd = String(l.leaveDate).replace(/\//g, '-');
+                                                                                start = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                                            }
+                                                                            if (l.leaveEndDate) {
+                                                                                const ed = String(l.leaveEndDate).replace(/\//g, '-');
+                                                                                end = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                            } else if (l.endDate) {
+                                                                                const ed = String(l.endDate).replace(/\//g, '-');
+                                                                                end = new Date(ed);
+                                                                            } else if (start) {
+                                                                                end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59, 59);
+                                                                            }
+                                                                            if (!start || !end || isNaN(start) || isNaN(end)) return false;
+                                                                            return start <= dayEnd && end >= dayStart;
+                                                                        }) || null;
+                                                                    }
+                                                                    if (leaveObj && leaveObj.leaveReason === '公出') {
                                                                         outingCount++;
                                                                     }
 
@@ -10466,11 +10641,11 @@
                                                                     let bgClass = 'bg-white';
                                                                     let fontSizeClass = 'text-xs';
                                                                     
-                                                                    if (activeLeave) {
+                                                                    if (leaveObj) {
                                                                         cellContent = '請假';
                                                                         fontSizeClass = 'text-[10px] scale-90';
                                                                         bgClass = 'bg-yellow-50';
-                                                                        if (activeLeave.leaveReason !== '公出') leaveDays++;
+                                                                        if (leaveObj.leaveReason !== '公出') leaveDays++;
                                                                     } else if (isV) {
                                                                         // Attendance logic
                                                                         if (isCardDay) {
@@ -10859,7 +11034,7 @@
                                                 <div className="text-center font-bold text-md text-gray-600 pb-3">
                                                     {cadreRecordDate.split('-').slice(0,2).join('-')} 出缺勤月報表
                                                 </div>
-                                                <div className="grid grid-cols-8 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
+                                                <div className="grid text-xs font-bold text-gray-600 bg-gray-50 rounded-xl" style={{ gridTemplateColumns: '10mm 10mm 20mm 45mm 45mm 15mm 15mm 30mm' }}>
                                                     <div className="px-3 py-2">日期</div>
                                                     <div className="px-3 py-2">星期</div>
                                                     <div className="px-3 py-2">打卡位置</div>
@@ -10871,7 +11046,7 @@
                                                 </div>
                                                 <div className="divide-y divide-gray-100">
                                                     {dayRows.map((row, idx) => (
-                                                        <div key={idx} className={`grid grid-cols-8 text-sm ${row.isHoliday ? 'bg-gray-200' : ''} ${row.isLeave ? 'bg-orange-100' : ''}`}>
+                                                        <div key={idx} className={`grid text-sm ${row.isHoliday ? 'bg-gray-200' : ''} ${row.isLeave ? 'bg-orange-100' : ''}`} style={{ gridTemplateColumns: '10mm 10mm 20mm 45mm 45mm 15mm 15mm 30mm' }}>
                                                             <div className="px-3 py-2">{String(row.dateNum).padStart(2,'0')}</div>
                                                             <div className="px-3 py-2">{row.week}</div>
                                                             <div className="px-3 py-2 text-xs truncate" title={row.locationStr}>{row.locationStr}</div>
@@ -11029,9 +11204,15 @@
                                     >
                                         特休
                                     </button>
+                                    <button
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'leave' }))}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'leave' ? 'bg-orange-100 text-orange-700 border border-orange-200 shadow-lg shadow-orange-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    >
+                                        請假
+                                    </button>
                                 </div>
 
-                                {scheduleForm.type !== 'off' && (
+                                {(scheduleForm.type !== 'off' && scheduleForm.type !== 'leave') && (
                                     <div className="space-y-4 mb-6">
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">上班時間</label>
