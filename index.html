@@ -3650,12 +3650,13 @@
         };
 
         // 3.5 Attendance Edit Modal
-        const AttendanceEditModal = ({ isOpen, onClose, record, mode, onSubmit, loading }) => {
+        const AttendanceEditModal = ({ isOpen, onClose, record, mode, onSubmit, loading, availableLocations = [] }) => {
             const [formData, setFormData] = useState({
                 type: '',
                 date: '',
                 time: '',
-                reason: ''
+                reason: '',
+                locationName: ''
             });
 
             useEffect(() => {
@@ -3672,7 +3673,8 @@
                         type: record.type,
                         date: dateStr,
                         time: timeStr,
-                        reason: ''
+                        reason: '',
+                        locationName: record.checkInLocationName || record.address || ''
                     });
                 }
             }, [record, isOpen]);
@@ -3698,6 +3700,30 @@
                         </h3>
                         
                         <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">打卡位置</label>
+                                <select
+                                    value={formData.locationName}
+                                    onChange={e => setFormData({...formData, locationName: e.target.value})}
+                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none"
+                                >
+                                    <option value="">{formData.locationName ? `目前：${formData.locationName}` : '請選擇位置'}</option>
+                                    {availableLocations.length > 0 && (
+                                        <>
+                                            <optgroup label="公司">
+                                                {availableLocations.filter(l => l.type === 'company').map(l => (
+                                                    <option key={`company_${l.id}`} value={l.name}>{l.name}</option>
+                                                ))}
+                                            </optgroup>
+                                            <optgroup label="社區">
+                                                {availableLocations.filter(l => l.type === 'community').map(l => (
+                                                    <option key={`community_${l.id}`} value={l.name}>{l.name}</option>
+                                                ))}
+                                            </optgroup>
+                                        </>
+                                    )}
+                                </select>
+                            </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1">打卡狀態</label>
                                 {mode === 'request' ? (
@@ -4779,7 +4805,7 @@
                             ) : (
                                 filteredHistory.map((r, idx) => {
                                     const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
-                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
                                     const typeConfig = getTypeLabel(r.type);
                                     const isLeave = r.type === 'leave';
                                     
@@ -4819,7 +4845,7 @@
                                                             )}
                                                             {!isLeave && r.modification?.status === 'pending' && (
                                                                 <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">
-                                                                    修改審核中
+                                                                    待核准
                                                                 </span>
                                                             )}
                                                             {!isLeave && r.modification?.status === 'approved' && (
@@ -4834,13 +4860,31 @@
                                                             )}
                                                         </div>
                                                         <div className="text-sm text-gray-500 mt-0.5">
-                                                            <div className="flex items-center gap-1 mb-1">
-                                                                <Clock className="w-3 h-3" /> 
-                                                                {isLeave 
-                                                                    ? `請假日期 : ${r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}` 
-                                                                    : timeStr
-                                                                }
-                                                            </div>
+                                                            {!isLeave && r.modification ? (
+                                                                <>
+                                                                    <div className="flex items-center gap-1 mb-1 font-bold text-blue-600">
+                                                                        <Clock className="w-3 h-3" /> 修改時間: {r.modification.time}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1 mb-1">
+                                                                        <Clock className="w-3 h-3" /> 原始時間: {(function(){
+                                                                            if (r.modification.status === 'approved' && r.modification.originalTimestamp) {
+                                                                                const ot = r.modification.originalTimestamp;
+                                                                                const s = ot.seconds || (ot instanceof Date ? ot.getTime()/1000 : 0);
+                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                            }
+                                                                            return timeStr;
+                                                                        })()}
+                                                                    </div>
+                                                                </>
+                                                            ) : (
+                                                                <div className="flex items-center gap-1 mb-1">
+                                                                    <Clock className="w-3 h-3" /> 
+                                                                    {isLeave 
+                                                                        ? `請假日期 : ${r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}` 
+                                                                        : timeStr
+                                                                    }
+                                                                </div>
+                                                            )}
                                                             {isLeave && (
                                                                 <div className="pl-5 text-xs text-gray-500 space-y-1 mt-1">
                                                                     {(function() {
@@ -5529,6 +5573,8 @@
             const [communities, setCommunities] = useState([]);
             const [usersList, setUsersList] = useState([]);
             const [attendanceList, setAttendanceList] = useState([]);
+            const [makeupRequests, setMakeupRequests] = useState([]);
+            const [myMakeupRequests, setMyMakeupRequests] = useState([]);
             const [leavesList, setLeavesList] = useState([]);
             const [schedulesList, setSchedulesList] = useState([]); // New state for leaves from 'leaves' collection
             const [myAttendance, setMyAttendance] = useState([]);
@@ -5596,6 +5642,24 @@
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
             const [availableClockInLocations, setAvailableClockInLocations] = useState([]);
+            const computeAvailableClockInLocations = () => {
+                if (!dbUser) return [];
+                const result = [];
+                const companyId = (dbUser.companyIds && dbUser.companyIds.length > 0) ? dbUser.companyIds[0] : dbUser.companyId;
+                const userCompany = (companies || []).find(c => c.id === companyId);
+                if (userCompany) {
+                    result.push({ ...userCompany, type: 'company', lat: userCompany.lat, lng: userCompany.lng });
+                }
+                const commIds = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                const comms = (communities || []).filter(c => commIds.includes(c.id)).map(c => ({ ...c, type: 'community', lat: c.coordLat, lng: c.coordLng }));
+                result.push(...comms);
+                result.push({ id: 'custom', name: '自定義地點', type: 'custom' });
+                return result;
+            };
+            useEffect(() => {
+                const locs = computeAvailableClockInLocations();
+                setAvailableClockInLocations(locs);
+            }, [dbUser, companies, communities]);
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
             const [showCadreLeaveModal, setShowCadreLeaveModal] = useState(false);
@@ -5615,6 +5679,14 @@
             const [showAdminDeleteModal, setShowAdminDeleteModal] = useState(false);
             const [adminDeleteTarget, setAdminDeleteTarget] = useState(null);
             const [toast, setToast] = useState('');
+            const [showMakeupModal, setShowMakeupModal] = useState(false);
+            const [makeupDefaultType, setMakeupDefaultType] = useState('in');
+            const [makeupForm, setMakeupForm] = useState({ timeType: 'in', locationId: '', reasonType: 'forgot', reasonText: '' });
+            const [makeupDateStr, setMakeupDateStr] = useState('');
+            const [makeupSchedule, setMakeupSchedule] = useState(null);
+            const [showMakeupEditModal, setShowMakeupEditModal] = useState(false);
+            const [editingMakeupRequest, setEditingMakeupRequest] = useState(null);
+            const [makeupEditForm, setMakeupEditForm] = useState({ startTime: '', endTime: '', locationId: '', reasonType: 'forgot', reasonRemark: '' });
             const [signatures, setSignatures] = useState([]);
             const [showSignatureModal, setShowSignatureModal] = useState(false);
             const [signatureForm, setSignatureForm] = useState({ type: '', content: '' });
@@ -6201,7 +6273,7 @@
                 }
             };
 
-            const handleAdminEditRecord = async (formData) => {
+                const handleAdminEditRecord = async (formData) => {
                 if (!adminEditData) return;
                 setAdminEditLoading(true);
                 try {
@@ -6209,6 +6281,8 @@
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', adminEditData.id), {
                         type: formData.type,
                         timestamp: newDate,
+                        checkInLocationName: formData.locationName || null,
+                        address: formData.locationName || null,
                         updatedAt: serverTimestamp()
                     });
                     
@@ -6243,6 +6317,10 @@
                 try {
                     const newDate = new Date(`${mod.date}T${mod.time}`);
                     
+                    // Capture original state if not already captured
+                    const originalType = reviewData.modification.originalType || reviewData.type;
+                    const originalTimestamp = reviewData.modification.originalTimestamp || reviewData.timestamp;
+
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', reviewData.id), {
                         type: mod.type,
                         timestamp: newDate,
@@ -6250,7 +6328,9 @@
                             ...mod,
                             status: 'approved',
                             reviewTime: new Date(),
-                            reviewerName: dbUser.name
+                            reviewerName: dbUser.name,
+                            originalType: originalType,
+                            originalTimestamp: originalTimestamp
                         }
                     });
                     setToast('已核准修改');
@@ -6320,6 +6400,10 @@
                 try {
                     const newDate = new Date(`${mod.date}T${mod.time}`);
                     
+                    // Capture original state if not already captured
+                    const originalType = r.modification.originalType || r.type;
+                    const originalTimestamp = r.modification.originalTimestamp || r.timestamp;
+
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id), {
                         type: mod.type,
                         timestamp: newDate,
@@ -6327,7 +6411,9 @@
                             ...mod,
                             status: 'approved',
                             reviewTime: new Date(),
-                            reviewerName: dbUser.name
+                            reviewerName: dbUser.name,
+                            originalType: originalType,
+                            originalTimestamp: originalTimestamp
                         }
                     });
                     setToast('已核准');
@@ -6341,14 +6427,29 @@
                 if (!r?.modification) return;
                 if (!confirm('要將此修改重設為「待審核」嗎？')) return;
                 try {
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id), {
+                    const updates = {
                         modification: {
                             ...r.modification,
                             status: 'pending',
                             reviewTime: null,
                             reviewerName: ''
                         }
-                    });
+                    };
+
+                    // If we have original data stored, restore it
+                    if (r.modification.originalType && r.modification.originalTimestamp) {
+                        updates.type = r.modification.originalType;
+                        updates.timestamp = r.modification.originalTimestamp;
+                        
+                        // Keep original values in modification object just in case? 
+                        // Or maybe we don't need to clear them, but let's leave them for now or clear them?
+                        // If we revert to pending, and then approve again, we might want to keep them or re-capture.
+                        // Re-capturing in handleQuickApprove handles "not already captured", so it's fine.
+                        // But if we restore, r.type becomes originalType.
+                        // So next approval will see r.type as originalType.
+                    }
+
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id), updates);
                     setToast('已重設為待審核');
                 } catch (e) {
                     console.error(e);
@@ -6744,6 +6845,16 @@
                         (snap) => setLeavesList(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
                         (e) => handleFetchError(e, 'leaves_all_snap')
                     ));
+
+                    // Fetch Make-up Requests (for Cadre/Admin/Manager/HR)
+                    const qMakeup = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'makeup_requests'),
+                        orderBy('createdAt', 'desc')
+                    );
+                    unsubscribes.push(onSnapshot(qMakeup,
+                        (snap) => setMakeupRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                        (e) => handleFetchError(e, 'makeup_requests_snap')
+                    ));
                 }
 
                 return () => unsubscribes.forEach(u => u());
@@ -6796,6 +6907,16 @@
                     unsubscribes.push(onSnapshot(qMine, 
                         (snap) => setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
                         (e) => handleFetchError(e, 'attendance_mine_snap')
+                    ));
+
+                    const qMineMakeup = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'makeup_requests'),
+                        where('userId', '==', dbUser.id),
+                        orderBy('createdAt', 'desc')
+                    );
+                    unsubscribes.push(onSnapshot(qMineMakeup,
+                        (snap) => setMyMakeupRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                        (e) => handleFetchError(e, 'makeup_mine_snap')
                     ));
                 }
 
@@ -7553,7 +7674,37 @@
                             {activeTab === 'cadre' && (
                                 <div className="flex gap-2">
                                     {hasSubPermission('cadre', 'map') && <button onClick={() => setCadreSubtab('map')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'map' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>地圖</button>}
-                                    {hasSubPermission('cadre', 'record') && <button onClick={() => setCadreSubtab('record')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>紀錄</button>}
+                                    {hasSubPermission('cadre', 'record') && (
+                                        <button 
+                                            onClick={() => setCadreSubtab('record')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative`}
+                                        >
+                                            紀錄
+                                            {(function(){
+                                                const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                if (!targetCompany) return null;
+                                                const companyUserIds = usersList.filter(u => 
+                                                    ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
+                                                ).map(u => u.id);
+                                                const pendingMakeupCount = makeupRequests.filter(req => 
+                                                    req.status === 'pending' && companyUserIds.includes(req.userId)
+                                                ).length;
+                                                const pendingModificationCount = attendanceList.filter(req => 
+                                                    req.modification?.status === 'pending' && companyUserIds.includes(req.userId)
+                                                ).length;
+                                                const totalPending = pendingMakeupCount + pendingModificationCount;
+                                                
+                                                if (totalPending > 0) {
+                                                    return (
+                                                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold leading-none px-1.5 py-1 rounded-full min-w-[18px] text-center">
+                                                            {totalPending}
+                                                        </span>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+                                        </button>
+                                    )}
                                     {hasSubPermission('cadre', 'leave') && <button onClick={() => setCadreSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>}
                                     {hasSubPermission('cadre', 'schedule') && <button onClick={() => setCadreSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>}
                                     {hasSubPermission('cadre', 'approval') && <button onClick={() => setCadreSubtab('approval')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'approval' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簽呈</button>}
@@ -7971,7 +8122,8 @@
                                                             }
 
                                                             // Past day attendance status coloring (normal=green, abnormal=red)
-                                                            const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+                                                    const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+                                                    let attendanceStatus = null;
                                                             if (currentDate < todayDate && schedule && (schedule.type === 'work' || schedule.type === 'duty')) {
                                                                 const dayRecords = myAttendance.filter(r => {
                                                                     const t = r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
@@ -7979,12 +8131,17 @@
                                                                     return t.getFullYear() === year && t.getMonth() === month && t.getDate() === d;
                                                                 });
                                                                 const hasIn = dayRecords.some(r => r.type === 'in' || r.type === 'late_in');
-                                                                const hasOut = dayRecords.some(r => r.type === 'out' || r.type === 'late_out');
-                                                                if (hasIn && hasOut) {
-                                                                    cellClass = 'bg-green-100 text-green-700 border border-green-200';
-                                                                } else {
-                                                                    cellClass = 'bg-red-100 text-red-700 border border-red-200';
-                                                                }
+                                                        const hasOut = dayRecords.some(r => r.type === 'out' || r.type === 'late_out');
+                                                        
+                                                        if (!isApprovedLeaveOnDay) {
+                                                            if (hasIn && hasOut) {
+                                                                cellClass = 'bg-green-100 text-green-700 border border-green-200';
+                                                                attendanceStatus = 'normal';
+                                                            } else {
+                                                                cellClass = 'bg-red-100 text-red-700 border border-red-200';
+                                                                attendanceStatus = 'abnormal';
+                                                            }
+                                                        }
                                                             }
 
                                                             days.push(
@@ -7999,7 +8156,9 @@
                                                             ) : schedule ? (
                                                                 <div className="flex flex-col items-center w-full">
                                                                     <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
-                                                                        {schedule.type === 'work' ? '上班' : 
+                                                                        {attendanceStatus === 'normal' ? '正常' : 
+                                                                         attendanceStatus === 'abnormal' ? '異常' :
+                                                                         schedule.type === 'work' ? '上班' : 
                                                                          schedule.type === 'duty' ? '值班' : 
                                                                          schedule.type === 'card' ? '卡班' : '特休'}
                                                                             </span>
@@ -8026,9 +8185,6 @@
                                                     <div className="w-3 h-3 rounded bg-purple-100 border border-purple-200"></div> 值班
                                                 </div>
                                                 <div className="flex items-center gap-1 text-xs text-gray-500">
-                                                    <div className="w-3 h-3 rounded bg-green-100 border border-green-200"></div> 卡班
-                                                </div>
-                                                <div className="flex items-center gap-1 text-xs text-gray-500">
                                                     <div className="w-3 h-3 rounded bg-orange-100 border border-orange-200"></div> 請假
                                                 </div>
                                                 <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -8047,10 +8203,14 @@
                                             const schedule = mySchedules[dateStr];
                                             
                                             const attendance = myAttendance.filter(r => {
-                                                if (!r.checkInTime) return false;
-                                                const d = new Date(r.checkInTime);
-                                                return d.getFullYear() === year && d.getMonth() === month && d.getDate() === date;
-                                            }).sort((a,b) => new Date(a.checkInTime) - new Date(b.checkInTime));
+                                                const t = r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
+                                                if (!t) return false;
+                                                return t.getFullYear() === year && t.getMonth() === month && t.getDate() === date;
+                                            }).sort((a,b) => {
+                                                const tA = a.checkInTime ? new Date(a.checkInTime) : (a.timestamp?.seconds ? new Date(a.timestamp.seconds * 1000) : new Date(0));
+                                                const tB = b.checkInTime ? new Date(b.checkInTime) : (b.timestamp?.seconds ? new Date(b.timestamp.seconds * 1000) : new Date(0));
+                                                return tA - tB;
+                                            });
                                             
                                             const leave = myAttendance.find(l => {
                                                 if (l.type !== 'leave' || l.approvalStatus !== 'approved') return false;
@@ -8069,22 +8229,41 @@
                                                         <div className="bg-gray-50 p-3 rounded-xl">
                                                             <div className="text-xs font-bold text-gray-400 mb-1">班表排程</div>
                                                             {schedule ? (
-                                                                <div className="flex items-center justify-between">
-                                                                    <span className={`font-bold ${
-                                                                        schedule.type === 'work' ? 'text-blue-600' :
-                                                                        schedule.type === 'duty' ? 'text-purple-600' :
-                                                                        schedule.type === 'card' ? 'text-green-600' :
-                                                                        'text-gray-500'
-                                                                    }`}>
-                                                                        {schedule.type === 'work' ? '上班' : 
-                                                                         schedule.type === 'duty' ? '值班' : 
-                                                                         schedule.type === 'card' ? '卡班' : '特休'}
-                                                                    </span>
-                                                                    {schedule.type !== 'off' && (
-                                                                        <span className="font-mono font-bold text-gray-700">
-                                                                            {schedule.startTime} - {schedule.endTime}
+                                                                <div className="flex w-full py-2">
+                                                                    <div className="flex-1 flex flex-col items-center border-r border-gray-200">
+                                                                        <span className={`text-xs font-bold mb-1 ${
+                                                                            schedule.type === 'work' ? 'text-blue-600' :
+                                                                            schedule.type === 'duty' ? 'text-purple-600' :
+                                                                            schedule.type === 'card' ? 'text-green-600' :
+                                                                            'text-gray-500'
+                                                                        }`}>
+                                                                            {schedule.type === 'work' ? '班表上班' : 
+                                                                             schedule.type === 'duty' ? '班表值班' : 
+                                                                             schedule.type === 'card' ? '卡班上班' : '特休'}
                                                                         </span>
-                                                                    )}
+                                                                        {schedule.type !== 'off' && (
+                                                                            <span className="font-mono font-bold text-xl text-gray-700">
+                                                                                {schedule.startTime}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex-1 flex flex-col items-center">
+                                                                        <span className={`text-xs font-bold mb-1 ${
+                                                                            schedule.type === 'work' ? 'text-blue-600' :
+                                                                            schedule.type === 'duty' ? 'text-purple-600' :
+                                                                            schedule.type === 'card' ? 'text-green-600' :
+                                                                            'text-gray-500'
+                                                                        }`}>
+                                                                            {schedule.type === 'work' ? '班表下班' : 
+                                                                             schedule.type === 'duty' ? '班表簽退' : 
+                                                                             schedule.type === 'card' ? '卡班下班' : ''}
+                                                                        </span>
+                                                                        {schedule.type !== 'off' && (
+                                                                            <span className="font-mono font-bold text-xl text-gray-700">
+                                                                                {schedule.endTime}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             ) : (
                                                                  <div className="text-sm text-gray-500 font-bold">無排班資料</div>
@@ -8104,29 +8283,201 @@
                                                         <div className="bg-gray-50 p-3 rounded-xl">
                                                             <div className="text-xs font-bold text-gray-400 mb-1">打卡紀錄</div>
                                                             {attendance.length > 0 ? (
-                                                                <div className="space-y-2">
-                                                                    {attendance.map((record, idx) => (
-                                                                        <div key={idx} className="flex items-center justify-between text-sm">
-                                                                            <span className="text-gray-600 font-bold">
-                                                                                {record.type === 'work_in' ? '上班打卡' :
-                                                                                 record.type === 'work_out' ? '下班打卡' :
-                                                                                 record.type === 'duty_in' ? '值班簽到' :
-                                                                                 record.type === 'duty_out' ? '值班簽退' :
-                                                                                 record.type === 'card_in' ? '卡班簽到' :
-                                                                                 record.type === 'card_out' ? '卡班簽退' :
-                                                                                 record.type === 'outing_start' ? '外出開始' :
-                                                                                 record.type === 'outing_arrive' ? '外出抵達' :
-                                                                                 record.type === 'outing_end' ? '外出結束' :
-                                                                                 '打卡'}
-                                                                            </span>
-                                                                            <span className="font-mono font-bold text-gray-800">
-                                                                                {new Date(record.checkInTime).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'})}
-                                                                            </span>
-                                                                        </div>
-                                                                    ))}
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="space-y-2">
+                                                                        <div className="text-xs text-gray-400 text-center border-b border-gray-200 pb-1 mb-2">上班/簽到</div>
+                                                                        {attendance.filter(r => ['in', 'work_in', 'duty_in', 'late_in', 'card_in', 'outing_start'].includes(r.type)).map((record, idx) => (
+                                                                            <div key={idx} className={`flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm ${
+                                                                                ['late_in'].includes(record.type) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'
+                                                                            }`}>
+                                                                                <span className="text-xs text-gray-500 mb-1">
+                                                                                    {record.type === 'work_in' || record.type === 'in' ? '上班' :
+                                                                                     record.type === 'duty_in' ? '值班' :
+                                                                                     record.type === 'card_in' || record.type === 'late_in' ? '卡班' :
+                                                                                     '外出'}
+                                                                                </span>
+                                                                                <span className="font-mono font-bold text-gray-800 text-lg">
+                                                                                    {(() => {
+                                                                                        const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
+                                                                                        return t ? t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--';
+                                                                                    })()}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    <div className="space-y-2">
+                                                                        <div className="text-xs text-gray-400 text-center border-b border-gray-200 pb-1 mb-2">下班/簽退</div>
+                                                                        {attendance.filter(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'outing_end', 'leave_early'].includes(r.type)).map((record, idx) => (
+                                                                            <div key={idx} className={`flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm ${
+                                                                                ['leave_early'].includes(record.type) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'
+                                                                            }`}>
+                                                                                <span className="text-xs text-gray-500 mb-1">
+                                                                                    {record.type === 'work_out' || record.type === 'out' || record.type === 'late_out' ? '下班' :
+                                                                                     record.type === 'duty_out' ? '簽退' :
+                                                                                     record.type === 'card_out' ? '簽退' :
+                                                                                     record.type === 'leave_early' ? '早退' :
+                                                                                     '下班'}
+                                                                                </span>
+                                                                                <div className="flex flex-col items-center">
+                                                                                    <span className="font-mono font-bold text-gray-800 text-lg">
+                                                                                        {(() => {
+                                                                                            const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
+                                                                                            if (!t) return '--:--:--';
+                                                                                            
+                                                                                            // Check if cross day (if date part is different from current selected view date)
+                                                                                            // We need to compare with the "date" variable (day of month) or full date logic
+                                                                                            // "date" variable comes from render logic, which is the selected day
+                                                                                            // "viewDate" is the Date object for the month
+                                                                                            // Actually, the simplest check is if the record date != schedule date (dateStr)
+                                                                                            
+                                                                                            // Construct selected date from viewDate components
+                                                                                            // But wait, "date" variable is available in scope (from map loop or upper scope)
+                                                                                            // Let's use dateStr which is YYYY-MM-DD of the selected day
+                                                                                            
+                                                                                            const rY = t.getFullYear();
+                                                                                            const rM = String(t.getMonth() + 1).padStart(2, '0');
+                                                                                            const rD = String(t.getDate()).padStart(2, '0');
+                                                                                            const rDateStr = `${rY}-${rM}-${rD}`;
+                                                                                            
+                                                                                            const isCrossDay = rDateStr !== dateStr;
+
+                                                                                            if (isCrossDay) {
+                                                                                                return `${rM}-${rD} ${t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}`;
+                                                                                            }
+                                                                                            return t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+                                                                                        })()}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
                                                                 </div>
-                                                            ) : (
-                                                                <div className="text-sm text-gray-400 font-bold">尚無打卡紀錄</div>
+                                                                    ) : (
+                                                                (() => {
+                                                                    // Check if Make-up button is needed
+                                                                    const isPastDate = clockScheduleSelectedDate < new Date(new Date().setHours(0,0,0,0));
+                                                                    const isWorkDay = schedule && (schedule.type === 'work' || schedule.type === 'duty');
+                                                                    
+                                                                    if (isPastDate && isWorkDay) {
+                                                                        const dayInReqs = myMakeupRequests.filter(r => r.userId === dbUser.id && r.date === dateStr && r.target !== 'out').sort((a,b)=> (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                                                                        const dayOutReqs = myMakeupRequests.filter(r => r.userId === dbUser.id && r.date === dateStr && r.target === 'out').sort((a,b)=> (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                                                                        const latestIn = dayInReqs[0];
+                                                                        const latestOut = dayOutReqs[0];
+                                                                        return (
+                                                                            <div className="grid grid-cols-2 gap-2">
+                                                                                <div className="w-full">
+                                                                                    {latestIn ? (
+                                                                                        latestIn.status === 'pending' ? (
+                                                                                            <button disabled className="w-full py-3 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-200 cursor-not-allowed flex items-center justify-center">
+                                                                                                <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                                已申請送出
+                                                                                            </button>
+                                                                                        ) : latestIn.status === 'approved' ? (
+                                                                                            <div className="flex items-center justify-center p-4 bg-green-50 rounded-xl border border-green-200 text-green-700 font-bold">
+                                                                                                核准 {latestIn.startTime || ''}
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="flex items-center justify-center p-4 bg-red-50 rounded-xl border border-red-200 text-red-700 font-bold">
+                                                                                                您的申請已駁回
+                                                                                            </div>
+                                                                                        )
+                                                                                    ) : (
+                                                                                        <button
+                                                                                            onClick={() => { 
+                                                                                                setMakeupDefaultType('in'); 
+                                                                                                const locs = availableClockInLocations || [];
+                                                                                                const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
+                                                                                                const defaultTime = schedule?.startTime || '09:00';
+                                                                                                setMakeupForm(prev => ({ ...prev, timeType: 'in', locationId: defaultLocId, customTime: defaultTime }));
+                                                                                                setMakeupDateStr(dateStr);
+                                                                                                setMakeupSchedule(schedule);
+                                                                                                setShowMakeupModal(true);
+                                                                                            }}
+                                                                                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center"
+                                                                                        >
+                                                                                            <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                            申請上班補打卡
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="w-full">
+                                                                                    {latestOut ? (
+                                                                                        latestOut.status === 'pending' ? (
+                                                                                            <button disabled className="w-full py-3 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-200 cursor-not-allowed flex items-center justify-center">
+                                                                                                <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                                已申請送出
+                                                                                            </button>
+                                                                                        ) : latestOut.status === 'approved' ? (
+                                                                                            <div className="flex items-center justify-center p-4 bg-green-50 rounded-xl border border-green-200 text-green-700 font-bold">
+                                                                                                核准 {latestOut.endTime || ''}
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="flex items-center justify-center p-4 bg-red-50 rounded-xl border border-red-200 text-red-700 font-bold">
+                                                                                                您的申請已駁回
+                                                                                            </div>
+                                                                                        )
+                                                                                    ) : (
+                                                                                        <button
+                                                                                            onClick={() => { 
+                                                                                                setMakeupDefaultType('out'); 
+                                                                                                const locs = availableClockInLocations || [];
+                                                                                                const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
+                                                                                                const defaultTime = schedule?.endTime || '18:00';
+                                                                                                setMakeupForm(prev => ({ ...prev, timeType: 'out', locationId: defaultLocId, customTime: defaultTime }));
+                                                                                                setMakeupDateStr(dateStr);
+                                                                                                setMakeupSchedule(schedule);
+                                                                                                setShowMakeupModal(true);
+                                                                                            }}
+                                                                                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center"
+                                                                                        >
+                                                                                            <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                            申請下班補打卡
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+
+                                                                        return (
+                                                                            <div className="grid grid-cols-2 gap-2">
+                                                                                <button
+                                                                                    onClick={() => { 
+                                                                                        setMakeupDefaultType('in'); 
+                                                                                        const locs = availableClockInLocations || [];
+                                                                                        const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
+                                                                                        const defaultTime = schedule?.startTime || '09:00';
+                                                                                        setMakeupForm(prev => ({ ...prev, timeType: 'in', locationId: defaultLocId, customTime: defaultTime }));
+                                                                                        setMakeupDateStr(dateStr);
+                                                                                        setMakeupSchedule(schedule);
+                                                                                        setShowMakeupModal(true);
+                                                                                    }}
+                                                                                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center"
+                                                                                >
+                                                                                    <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                    申請上班補打卡
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => { 
+                                                                                        setMakeupDefaultType('out'); 
+                                                                                        const locs = availableClockInLocations || [];
+                                                                                        const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
+                                                                                        const defaultTime = schedule?.endTime || '18:00';
+                                                                                        setMakeupForm(prev => ({ ...prev, timeType: 'out', locationId: defaultLocId, customTime: defaultTime }));
+                                                                                        setMakeupDateStr(dateStr);
+                                                                                        setMakeupSchedule(schedule);
+                                                                                        setShowMakeupModal(true);
+                                                                                    }}
+                                                                                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center"
+                                                                                >
+                                                                                    <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                    申請下班補打卡
+                                                                                </button>
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    return <div className="text-sm text-gray-400 font-bold">尚無打卡紀錄</div>;
+                                                                })()
                                                             )}
                                                         </div>
                                                     </div>
@@ -8371,38 +8722,57 @@
                                                             )}
                                                         </div>
 
+                                                        {(function(){ return null; })()}
+
                                                         {(function(){
-                                                            const noCheckinUsers = (companyUsers || []).filter(u => 
-                                                                u.statusText === '今日尚未打卡' && 
-                                                                (u.scheduleType === 'work' || u.scheduleType === 'duty')
-                                                            );
-                                                            if (noCheckinUsers.length === 0) return null;
+                                                            const now = new Date();
+                                                            const isToday = (secs) => {
+                                                                if (!secs) return false;
+                                                                const d = new Date(secs * 1000);
+                                                                return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+                                                            };
+                                                            const clockedInUsers = (companyUsers || []).map(u => {
+                                                                const recs = attendanceList.filter(r => {
+                                                                    const secs = r.timestamp?.seconds || r.createdAt?.seconds;
+                                                                    if (!secs) return false;
+                                                                    if (r.userId !== u.id) return false;
+                                                                    if (!isToday(secs)) return false;
+                                                                    return ['in','out','late_in','late_out'].includes(r.type);
+                                                                });
+                                                                if (recs.length === 0) return null;
+                                                                recs.sort((a, b) => {
+                                                                    const aSecs = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                                                                    const bSecs = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                                                                    return bSecs - aSecs;
+                                                                });
+                                                                const lastSecs = recs[0]?.timestamp?.seconds || recs[0]?.createdAt?.seconds || 0;
+                                                                return { user: u, secs: lastSecs };
+                                                            }).filter(Boolean).sort((a, b) => b.secs - a.secs).map(x => x.user);
+                                                            if (clockedInUsers.length === 0) return null;
                                                             return (
                                                                 <div className="bg-white rounded-2xl shadow-sm p-3">
-                                                                    <div className="text-xs font-bold text-gray-500 mb-2">今日尚未打卡</div>
-                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                                                        {noCheckinUsers.map(u => (
-                                                                            <div key={u.id} className="flex items-center gap-3 p-2 rounded-xl border border-red-100 bg-red-50">
-                                                                                <div className="w-9 h-9 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 border border-gray-100">
+                                                                    <div className="text-xs font-bold text-gray-500 mb-2">今日最新打卡紀錄</div>
+                                                                    <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
+                                                                        {clockedInUsers.map(u => (
+                                                                            <div key={u.id} className="inline-flex items-center gap-2 px-2 py-1 rounded-xl border border-green-100 bg-green-50">
+                                                                                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
                                                                                     {u.avatarUrl ? (
                                                                                         <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
                                                                                     ) : (
-                                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs">
+                                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs select-none">
                                                                                             {u.name?.[0]}
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
-                                                                                <div className="flex-1 min-w-0">
-                                                                                    <div className="font-bold text-sm text-gray-800 truncate">{u.name}</div>
-                                                                                    <div className="text-xs font-bold text-red-600">今日尚未打卡</div>
-                                                                                </div>
-                                                                                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                                                                                <div className="font-bold text-sm text-gray-800">{u.name}</div>
                                                                             </div>
                                                                         ))}
                                                                     </div>
                                                                 </div>
                                                             );
                                                         })()}
+
+                                                        {(function(){ return null; })()}
 
 
                                                     </div>
@@ -8495,12 +8865,281 @@
                                             <div className="space-y-3 pb-24">
                                                 {!targetCompany ? (
                                                     <div className="text-center text-gray-400 py-8">請選擇公司</div>
-                                                ) : records.length === 0 ? (
-                                                    <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
-                                                        本日尚無打卡紀錄
-                                                    </div>
                                                 ) : (
-                                                    records.map(r => {
+                                                    <>
+                                                        {(function(){
+                                                            const pendingMakeups = makeupRequests.filter(req => 
+                                                                req.status === 'pending' && 
+                                                                companyUserIds.includes(req.userId)
+                                                            );
+                                                            
+                                                            if (pendingMakeups.length === 0) return null;
+
+                                                            return (
+                                                                <div className="mb-6 space-y-3">
+                                                                    <div className="flex items-center gap-2 px-1">
+                                                                        <ClipboardList className="w-5 h-5 text-yellow-600" />
+                                                                        <h3 className="font-bold text-gray-800">待核准補打卡 ({pendingMakeups.length})</h3>
+                                                                    </div>
+                                                                    {pendingMakeups.map(req => {
+                                                                        const user = usersList.find(u => u.id === req.userId) || {};
+                                                                        return (
+                                                                            <div key={req.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                                                                                <div className="flex items-start gap-3">
+                                                                                    <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                                        {user.avatarUrl ? (
+                                                                                            <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                                        ) : (
+                                                                                            <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                                                {req.userName?.[0]}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <div className="font-bold text-gray-800">{req.userName}</div>
+                                                                                        <div className="text-xs font-bold text-gray-700 mt-1">
+                                                                                            申請補打卡: {req.date} ({req.scheduleType === 'work' ? '上班' : '值班'}) · {req.target === 'out' ? '下班' : '上班'}
+                                                                                        </div>
+                                                                                        <div className="text-xs text-gray-600 mt-0.5">
+                                                                                            時段: {req.startTime} - {req.endTime}
+                                                                                        </div>
+                                                                                        <div className="text-[11px] text-gray-600 mt-0.5">
+                                                                                            打卡位置: {req.checkInLocationName || '-'}
+                                                                                        </div>
+                                                                                        <div className="text-[11px] text-gray-600 mt-0.5">
+                                                                                            未打卡原因: {req.reasonType === 'other' ? (req.reasonRemark || '其他') : '忘記打卡'}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="flex flex-col gap-2 ml-auto">
+                                                                                        <button 
+                                                                                            onClick={() => {
+                                                                                                setEditingMakeupRequest(req);
+                                                                                                setMakeupEditForm({
+                                                                                                    startTime: req.startTime || '09:00',
+                                                                                                    endTime: req.endTime || '18:00',
+                                                                                                    locationId: req.locationId || '',
+                                                                                                    reasonType: req.reasonType || 'forgot',
+                                                                                                    reasonRemark: req.reasonRemark || ''
+                                                                                                });
+                                                                                                setShowMakeupEditModal(true);
+                                                                                            }}
+                                                                                            className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                                            title="編輯"
+                                                                                        >
+                                                                                            <Edit className="w-5 h-5" />
+                                                                                        </button>
+                                                                                        <button 
+                                                                                            onClick={async () => {
+                                                                                                if (!confirm('確認刪除此補打卡申請？')) return;
+                                                                                                try {
+                                                                                                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id));
+                                                                                                } catch (e) {
+                                                                                                    console.error(e);
+                                                                                                    alert('刪除失敗: ' + e.message);
+                                                                                                }
+                                                                                            }}
+                                                                                            className="w-12 h-12 rounded-lg flex items-center justify-center border transition-opacity bg-red-50 text-red-500 border-red-100 hover:opacity-90"
+                                                                                            title="刪除"
+                                                                                        >
+                                                                                            <Trash2 className="w-5 h-5" />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="mt-3 flex gap-2">
+                                                                                    <button
+                                                                                        onClick={async () => {
+                                                                                            if (!confirm(`確認核准 ${req.userName} 的補打卡申請？\n系統將自動補入 ${req.date} 的上下班打卡紀錄。`)) return;
+                                                                                            try {
+                                                                                                const batch = writeBatch(db);
+                                                                                                
+                                                                                                // 1. Update Request
+                                                                                                const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id);
+                                                                                                batch.update(reqRef, { 
+                                                                                                    status: 'approved',
+                                                                                                    approvedBy: dbUser.name,
+                                                                                                    approvedAt: serverTimestamp()
+                                                                                                });
+
+                                                                                                // 2. Create In Record
+                                                                                                const inTime = new Date(`${req.date}T${req.startTime}:00`);
+                                                                                                const inRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                                batch.set(inRef, {
+                                                                                                    userId: req.userId,
+                                                                                                    userName: req.userName,
+                                                                                                    companyId: req.userCompanyId,
+                                                                                                    type: req.scheduleType === 'duty' ? 'duty_in' : 'work_in',
+                                                                                                    checkInTime: inTime.toISOString(),
+                                                                                                    timestamp: inTime,
+                                                                                                    createdAt: serverTimestamp(),
+                                                                                                    modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
+                                                                                                });
+
+                                                                                                // 3. Create Out Record
+                                                                                                const outTime = new Date(`${req.date}T${req.endTime}:00`);
+                                                                                                if (outTime < inTime) {
+                                                                                                    outTime.setDate(outTime.getDate() + 1);
+                                                                                                }
+
+                                                                                                const outRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                                batch.set(outRef, {
+                                                                                                    userId: req.userId,
+                                                                                                    userName: req.userName,
+                                                                                                    companyId: req.userCompanyId,
+                                                                                                    type: req.scheduleType === 'duty' ? 'duty_out' : 'work_out',
+                                                                                                    checkInTime: outTime.toISOString(),
+                                                                                                    timestamp: outTime,
+                                                                                                    createdAt: serverTimestamp(),
+                                                                                                    modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
+                                                                                                });
+
+                                                                                                await batch.commit();
+                                                                                                alert('已核准並補入打卡紀錄');
+                                                                                            } catch (err) {
+                                                                                                console.error(err);
+                                                                                                alert('核准失敗: ' + err.message);
+                                                                                            }
+                                                                                        }}
+                                                                                        className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                                    >
+                                                                                        核准
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={async () => {
+                                                                                            if (!confirm('確認拒絕此申請？')) return;
+                                                                                            try {
+                                                                                                const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id);
+                                                                                                await updateDoc(reqRef, { 
+                                                                                                    status: 'rejected',
+                                                                                                    rejectedBy: dbUser.name,
+                                                                                                    rejectedAt: serverTimestamp()
+                                                                                                });
+                                                                                            } catch (err) {
+                                                                                                console.error(err);
+                                                                                                alert('操作失敗: ' + err.message);
+                                                                                            }
+                                                                                        }}
+                                                                                        className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                                    >
+                                                                                        拒絕
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            );
+                                                        })()}
+
+                                                        {(function(){
+                                                            const pendingModifications = attendanceList.filter(req => 
+                                                                req.modification?.status === 'pending' && 
+                                                                companyUserIds.includes(req.userId)
+                                                            );
+                                                            
+                                                            if (pendingModifications.length === 0) return null;
+
+                                                            return (
+                                                                <div className="mb-6 space-y-3">
+                                                                    <div className="flex items-center gap-2 px-1">
+                                                                        <Edit className="w-5 h-5 text-yellow-600" />
+                                                                        <h3 className="font-bold text-gray-800">待核准修改 ({pendingModifications.length})</h3>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-3">
+                                                                    {pendingModifications.map(r => {
+                                                                        const user = usersList.find(u => u.id === r.userId) || {};
+                                                                        // Safe time parsing
+                                                                        let seconds;
+                                                                        if (r.checkInTime) {
+                                                                            seconds = new Date(r.checkInTime).getTime() / 1000;
+                                                                        } else if (r.timestamp?.seconds) {
+                                                                            seconds = r.timestamp.seconds;
+                                                                        } else if (r.timestamp instanceof Date) {
+                                                                            seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                                        } else {
+                                                                            seconds = Date.now() / 1000;
+                                                                        }
+                                                                        
+                                                                        const rDate = new Date(seconds * 1000);
+                                                                        const dateStr = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
+                                                                        const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                        const modifiedTime = r.modification?.time || '無修改時間';
+                                                                        
+                                                                        const typeMap = {
+                                                                            'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                            'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                            'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
+                                                                            'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
+                                                                            'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
+                                                                            'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' },
+                                                                            'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                            'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' }
+                                                                        };
+                                                                        const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
+                                                                        
+                                                                        let finalText = config.text;
+                                                                        if (['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address)) {
+                                                                            finalText += ` ${r.checkInLocationName || r.address}`;
+                                                                        }
+
+                                                                        return (
+                                                                            <div key={r.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm">
+                                                                                <div className="flex items-start gap-3">
+                                                                                    <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                                        {user.avatarUrl ? (
+                                                                                            <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                                        ) : (
+                                                                                            <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                                                {user.name?.[0]}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <div className="font-bold text-gray-800">{user.name}</div>
+                                                                                        <div className={`text-xs font-bold mt-1 px-1.5 py-0.5 rounded-lg w-fit ${config.class}`}>
+                                                                                            {finalText}
+                                                                                        </div>
+                                                                                        <div className="text-xs font-bold text-gray-700 mt-1">
+                                                                                            申請修改: {dateStr}
+                                                                                        </div>
+                                                                                        <div className="text-xs font-bold text-blue-600 mt-0.5">
+                                                                                            修改時間: {modifiedTime}
+                                                                                        </div>
+                                                                                        <div className="text-xs text-gray-600 mt-0.5">
+                                                                                            原始時間: {timeStr}
+                                                                                        </div>
+                                                                                        <div className="text-[11px] text-gray-600 mt-0.5">
+                                                                                            原因: {r.modification?.reason || '無'}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="mt-3 flex gap-2">
+                                                                                     <button 
+                                                                                        onClick={() => handleQuickApprove(r)}
+                                                                                        className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                                                                                    >
+                                                                                        核准
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={() => handleQuickReject(r)}
+                                                                                        className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                                    >
+                                                                                        駁回
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+
+                                                        {records.length === 0 ? (
+                                                            <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                                本日尚無打卡紀錄
+                                                            </div>
+                                                        ) : (
+                                                            records.map(r => {
                                                         const user = usersList.find(u => u.id === r.userId) || {};
                                                         
                                                         // Safe time parsing
@@ -8512,7 +9151,7 @@
                                                         } else {
                                                             seconds = Date.now() / 1000;
                                                         }
-                                                        const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                                                        const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
                                                         
                                                         return (
                                                             <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -8566,12 +9205,30 @@
                                                                                     <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-red-100 text-red-700">拒絕</span>
                                                                                 )}
                                                                                 {r.modification?.status === 'pending' && (
-                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">修改審核中</span>
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">待核准</span>
                                                                                 )}
                                                                             </div>
-                                                                            <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
-                                                                                <Clock className="w-3 h-3" /> {timeStr}
-                                                                            </div>
+                                                                            {r.modification ? (
+                                                                                <>
+                                                                                    <div className="text-sm font-bold text-blue-600 mt-0.5 flex items-center gap-1">
+                                                                                        <Clock className="w-3 h-3" /> 修改時間: {r.modification.time}
+                                                                                    </div>
+                                                                                    <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                        <Clock className="w-3 h-3" /> 原始時間: {(function(){
+                                                                                            if (r.modification.status === 'approved' && r.modification.originalTimestamp) {
+                                                                                                const ot = r.modification.originalTimestamp;
+                                                                                                const s = ot.seconds || (ot instanceof Date ? ot.getTime()/1000 : 0);
+                                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                                            }
+                                                                                            return timeStr;
+                                                                                        })()}
+                                                                                    </div>
+                                                                                </>
+                                                                            ) : (
+                                                                                <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                    <Clock className="w-3 h-3" /> {timeStr}
+                                                                                </div>
+                                                                            )}
                                                                             <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
                                                                                 <MapPin className="w-3 h-3" /> {r.checkInLocationName || r.address || '未記錄'}
                                                                             </div>
@@ -8684,6 +9341,8 @@
                                                             </div>
                                                         );
                                                     })
+                                                )}
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -9699,6 +10358,115 @@
                         setCheckInLocation={setCheckInLocation}
                     />
 
+                    {showMakeupModal && (
+                        <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowMakeupModal(false)}>
+                            <div className="bg-white rounded-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-bold text-lg mb-4 text-gray-800">
+                                    申請 {makeupDateStr} {(makeupForm.timeType === 'out' ? '下班' : '上班')} 補打卡
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="text-xs font-bold text-gray-500 mb-1">打卡位置</div>
+                                        <select
+                                            value={makeupForm.locationId}
+                                            onChange={(e) => setMakeupForm(prev => ({ ...prev, locationId: e.target.value }))}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm"
+                                        >
+                                            <option value="">請選擇位置</option>
+                                            {(availableClockInLocations || []).map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name || loc.id}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-bold text-gray-500 mb-1">打卡時間</div>
+                                        <input
+                                            type="time"
+                                            value={makeupForm.customTime || ''}
+                                            onChange={(e) => setMakeupForm(prev => ({ ...prev, customTime: e.target.value }))}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-bold text-gray-500 mb-1">未打卡原因</div>
+                                        <div className="grid grid-cols-2 gap-2 mb-2">
+                                            <button
+                                                onClick={() => setMakeupForm(prev => ({ ...prev, reasonType: 'forgot' }))}
+                                                className={`px-3 py-2 rounded-xl text-sm font-bold ${makeupForm.reasonType === 'forgot' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                            >
+                                                忘記打卡
+                                            </button>
+                                            <button
+                                                onClick={() => setMakeupForm(prev => ({ ...prev, reasonType: 'other' }))}
+                                                className={`px-3 py-2 rounded-xl text-sm font-bold ${makeupForm.reasonType === 'other' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                            >
+                                                其他
+                                            </button>
+                                        </div>
+                                        {makeupForm.reasonType === 'other' && (
+                                            <input
+                                                value={makeupForm.reasonText}
+                                                onChange={(e) => setMakeupForm(prev => ({ ...prev, reasonText: e.target.value }))}
+                                                placeholder="請輸入自定義原因"
+                                                className="w-full px-3 py-2 border rounded-xl text-sm"
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="mt-6 flex justify-end gap-2">
+                                    <button
+                                        onClick={() => setShowMakeupModal(false)}
+                                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl font-bold"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!dbUser) return;
+                                            try {
+                                                const loc = availableClockInLocations.find(l => l.id === makeupForm.locationId) || null;
+                                                const chosenTime = makeupForm.customTime || (makeupForm.timeType === 'out' ? (makeupSchedule?.endTime || '18:00') : (makeupSchedule?.startTime || '09:00'));
+                                                const isIn = makeupForm.timeType !== 'out';
+                                                const reqData = {
+                                                    userId: dbUser.id,
+                                                    userName: dbUser.name || 'Unknown',
+                                                    userCompanyId: dbUser.companyId || '',
+                                                    date: makeupDateStr,
+                                                    scheduleType: makeupSchedule?.type || 'work',
+                                                    startTime: isIn ? chosenTime : (makeupSchedule?.startTime || '09:00'),
+                                                    endTime: isIn ? (makeupSchedule?.endTime || '18:00') : chosenTime,
+                                                    target: makeupForm.timeType,
+                                                    locationId: loc?.id || '',
+                                                    checkInLocationName: loc?.name || '',
+                                                    address: loc?.address || '',
+                                                    reasonType: makeupForm.reasonType,
+                                                    reasonRemark: makeupForm.reasonType === 'other' ? (makeupForm.reasonText || '') : '',
+                                                    status: 'pending',
+                                                    createdAt: serverTimestamp(),
+                                                    type: 'makeup'
+                                                };
+                                                // Optimistic update for immediate UI feedback
+                                                setMyMakeupRequests(prev => [
+                                                    { id: `temp_${Date.now()}`, ...reqData, createdAt: { seconds: Math.floor(Date.now()/1000) } },
+                                                    ...prev
+                                                ]);
+                                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'makeup_requests'), reqData);
+                                                setShowMakeupModal(false);
+                                                alert('已送出補打卡申請');
+                                            } catch (err) {
+                                                console.error(err);
+                                                alert('申請失敗: ' + err.message);
+                                            }
+                                        }}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold"
+                                    >
+                                        確認送出
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <ImagePreviewModal 
                         url={previewImageUrl} 
                         onClose={() => setPreviewImageUrl(null)}
@@ -9741,6 +10509,106 @@
                         onReject={handleReviewReject}
                     />
 
+                    {showMakeupEditModal && editingMakeupRequest && (
+                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowMakeupEditModal(false); setEditingMakeupRequest(null); }}>
+                            <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-xl font-bold text-gray-800 mb-4">編輯補打卡申請</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="text-xs font-bold text-gray-500 mb-1">打卡位置</div>
+                                        <select
+                                            value={makeupEditForm.locationId}
+                                            onChange={(e) => setMakeupEditForm(prev => ({ ...prev, locationId: e.target.value }))}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm"
+                                        >
+                                            <option value="">請選擇位置</option>
+                                            {(availableClockInLocations || []).map(loc => (
+                                                <option key={loc.id} value={loc.id}>{loc.name || loc.id}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-500 mb-1">上班時間</div>
+                                            <input
+                                                type="time"
+                                                value={makeupEditForm.startTime || ''}
+                                                onChange={(e) => setMakeupEditForm(prev => ({ ...prev, startTime: e.target.value }))}
+                                                className="w-full px-3 py-2 border rounded-xl text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-500 mb-1">下班時間</div>
+                                            <input
+                                                type="time"
+                                                value={makeupEditForm.endTime || ''}
+                                                onChange={(e) => setMakeupEditForm(prev => ({ ...prev, endTime: e.target.value }))}
+                                                className="w-full px-3 py-2 border rounded-xl text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-500 mb-1">未打卡原因</div>
+                                            <select
+                                                value={makeupEditForm.reasonType}
+                                                onChange={(e) => setMakeupEditForm(prev => ({ ...prev, reasonType: e.target.value }))}
+                                                className="w-full px-3 py-2 border rounded-xl text-sm"
+                                            >
+                                                <option value="forgot">忘記打卡</option>
+                                                <option value="other">其他</option>
+                                            </select>
+                                        </div>
+                                        {makeupEditForm.reasonType === 'other' && (
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-500 mb-1">說明</div>
+                                                <input
+                                                    type="text"
+                                                    value={makeupEditForm.reasonRemark || ''}
+                                                    onChange={(e) => setMakeupEditForm(prev => ({ ...prev, reasonRemark: e.target.value }))}
+                                                    className="w-full px-3 py-2 border rounded-xl text-sm"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="mt-6 flex gap-2 justify-end">
+                                    <button 
+                                        onClick={() => { setShowMakeupEditModal(false); setEditingMakeupRequest(null); }}
+                                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl font-bold"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        onClick={async () => {
+                                            if (!editingMakeupRequest) return;
+                                            try {
+                                                const loc = availableClockInLocations.find(l => l.id === makeupEditForm.locationId) || null;
+                                                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', editingMakeupRequest.id), {
+                                                    startTime: makeupEditForm.startTime || editingMakeupRequest.startTime,
+                                                    endTime: makeupEditForm.endTime || editingMakeupRequest.endTime,
+                                                    locationId: makeupEditForm.locationId || editingMakeupRequest.locationId,
+                                                    checkInLocationName: loc?.name || editingMakeupRequest.checkInLocationName || '',
+                                                    address: loc?.address || editingMakeupRequest.address || '',
+                                                    reasonType: makeupEditForm.reasonType || editingMakeupRequest.reasonType,
+                                                    reasonRemark: makeupEditForm.reasonType === 'other' ? (makeupEditForm.reasonRemark || '') : ''
+                                                });
+                                                setShowMakeupEditModal(false);
+                                                setEditingMakeupRequest(null);
+                                            } catch (e) {
+                                                console.error(e);
+                                                alert('更新失敗: ' + e.message);
+                                            }
+                                        }}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold"
+                                    >
+                                        儲存
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <AttendanceEditModal 
                         isOpen={showAdminEditModal} 
                         onClose={() => { setShowAdminEditModal(false); setAdminEditData(null); }}
@@ -9748,6 +10616,10 @@
                         mode="edit"
                         onSubmit={handleAdminEditRecord}
                         loading={adminEditLoading}
+                        availableLocations={[
+                            ...companies.map(c => ({ type: 'company', id: c.id, name: c.name })),
+                            ...communities.map(c => ({ type: 'community', id: c.id, name: c.name }))
+                        ]}
                     />
 
                     {reportModalType && (
