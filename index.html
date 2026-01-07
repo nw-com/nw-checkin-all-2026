@@ -3564,7 +3564,6 @@
                                         <input 
                                             type="file" 
                                             accept="image/*" 
-                                            capture="environment"
                                             onChange={handleFileChange}
                                             className="w-full"
                                         />
@@ -7673,7 +7672,95 @@
                             )}
                             {activeTab === 'cadre' && (
                                 <div className="flex gap-2">
-                                    {hasSubPermission('cadre', 'map') && <button onClick={() => setCadreSubtab('map')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'map' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>地圖</button>}
+                                    {hasSubPermission('cadre', 'map') && (
+                                        <button 
+                                            onClick={() => setCadreSubtab('map')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'map' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative`}
+                                        >
+                                            地圖
+                                            {(function(){
+                                                // Check for abnormal records today
+                                                const targetCompany = companies.find(c => c.name === cadreCompany);
+                                                if (!targetCompany) return null;
+
+                                                // Filter relevant users
+                                                const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                                const targetRoleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+                                                const companyUsers = usersList.filter(u => 
+                                                    ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
+                                                    finalTargetRoles.includes(u.role)
+                                                );
+
+                                                if (companyUsers.length === 0) return null;
+
+                                                const now = new Date();
+                                                const isToday = (secs) => {
+                                                    if (!secs) return false;
+                                                    const d = new Date(secs * 1000);
+                                                    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+                                                };
+
+                                                const calculateDistance = (lat1, lon1, lat2, lon2) => {
+                                                    const R = 6371e3; 
+                                                    const φ1 = lat1 * Math.PI / 180;
+                                                    const φ2 = lat2 * Math.PI / 180;
+                                                    const Δφ = (lat2 - lat1) * Math.PI / 180;
+                                                    const Δλ = (lon2 - lon1) * Math.PI / 180;
+                                                    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                                                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                                    return R * c;
+                                                };
+
+                                                let abnormalCount = 0;
+
+                                                companyUsers.forEach(u => {
+                                                    const recs = attendanceList.filter(r => {
+                                                        const secs = r.timestamp?.seconds || r.createdAt?.seconds;
+                                                        if (!secs) return false;
+                                                        if (r.userId !== u.id) return false;
+                                                        if (!isToday(secs)) return false;
+                                                        return ['in','out','late_in','late_out'].includes(r.type);
+                                                    });
+                                                    
+                                                    if (recs.length > 0) {
+                                                        // Sort by latest
+                                                        recs.sort((a, b) => {
+                                                            const aSecs = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                                                            const bSecs = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                                                            return bSecs - aSecs;
+                                                        });
+                                                        const lastRec = recs[0];
+                                                        
+                                                        let isAbnormal = false;
+                                                        if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                            if (lastRec.location && lastRec.location.includes(',')) {
+                                                                const [rLat, rLng] = lastRec.location.split(',').map(Number);
+                                                                const dist = calculateDistance(targetCompany.lat, targetCompany.lng, rLat, rLng);
+                                                                const radius = targetCompany.radius || 100;
+                                                                if (dist > radius) isAbnormal = true;
+                                                            } else {
+                                                                isAbnormal = true;
+                                                            }
+                                                        } else {
+                                                            isAbnormal = true;
+                                                        }
+                                                        
+                                                        if (isAbnormal) abnormalCount++;
+                                                    }
+                                                });
+
+                                                if (abnormalCount > 0) {
+                                                    return (
+                                                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold leading-none px-1.5 py-1 rounded-full min-w-[18px] text-center">
+                                                            {abnormalCount}
+                                                        </span>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+                                        </button>
+                                    )}
                                     {hasSubPermission('cadre', 'record') && (
                                         <button 
                                             onClick={() => setCadreSubtab('record')} 
@@ -8731,6 +8818,27 @@
                                                                 const d = new Date(secs * 1000);
                                                                 return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
                                                             };
+
+                                                            // Haversine formula for distance calculation (meters)
+                                                            const calculateDistance = (lat1, lon1, lat2, lon2) => {
+                                                                const R = 6371e3; // Earth radius in meters
+                                                                const φ1 = lat1 * Math.PI / 180;
+                                                                const φ2 = lat2 * Math.PI / 180;
+                                                                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                                                                const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+                                                                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                                                                        Math.cos(φ1) * Math.cos(φ2) *
+                                                                        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                                                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                                                                return R * c;
+                                                            };
+
+                                                            const totalCompanyUsers = companyUsers ? companyUsers.length : 0;
+                                                            let normalCount = 0;
+                                                            let abnormalCount = 0;
+
                                                             const clockedInUsers = (companyUsers || []).map(u => {
                                                                 const recs = attendanceList.filter(r => {
                                                                     const secs = r.timestamp?.seconds || r.createdAt?.seconds;
@@ -8745,28 +8853,103 @@
                                                                     const bSecs = b.timestamp?.seconds || b.createdAt?.seconds || 0;
                                                                     return bSecs - aSecs;
                                                                 });
-                                                                const lastSecs = recs[0]?.timestamp?.seconds || recs[0]?.createdAt?.seconds || 0;
-                                                                return { user: u, secs: lastSecs };
-                                                            }).filter(Boolean).sort((a, b) => b.secs - a.secs).map(x => x.user);
-                                                            if (clockedInUsers.length === 0) return null;
+                                                                const lastRec = recs[0];
+                                                                const lastSecs = lastRec.timestamp?.seconds || lastRec.createdAt?.seconds || 0;
+                                                                
+                                                                // Pre-calculate status for statistics
+                                                                let isAbnormal = false;
+                                                                if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                                    if (lastRec.location && lastRec.location.includes(',')) {
+                                                                        const [rLat, rLng] = lastRec.location.split(',').map(Number);
+                                                                        const dist = calculateDistance(targetCompany.lat, targetCompany.lng, rLat, rLng);
+                                                                        const radius = targetCompany.radius || 100;
+                                                                        if (dist > radius) isAbnormal = true;
+                                                                    } else {
+                                                                        isAbnormal = true;
+                                                                    }
+                                                                } else {
+                                                                    isAbnormal = true; // No company coordinates
+                                                                }
+                                                                
+                                                                if (isAbnormal) abnormalCount++;
+                                                                else normalCount++;
+
+                                                                return { user: u, secs: lastSecs, record: lastRec, isAbnormal };
+                                                            }).filter(Boolean).sort((a, b) => b.secs - a.secs);
+
+                                                            const clockedInCount = clockedInUsers.length;
+                                                            const notClockedInCount = totalCompanyUsers - clockedInCount;
+
+                                                            if (clockedInUsers.length === 0 && notClockedInCount === 0) return null;
+                                                            
+                                                            const typeMap = {
+                                                                'in': '上班', 'out': '下班', 'outing_start': '外出',
+                                                                'outing_arrive': '抵達', 'outing_end': '離開',
+                                                                'late_in': '卡上', 'late_out': '卡下',
+                                                                'leave': '請假'
+                                                            };
+
                                                             return (
                                                                 <div className="bg-white rounded-2xl shadow-sm p-3">
-                                                                    <div className="text-xs font-bold text-gray-500 mb-2">今日最新打卡紀錄</div>
-                                                                    <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
-                                                                        {clockedInUsers.map(u => (
-                                                                            <div key={u.id} className="inline-flex items-center gap-2 px-2 py-1 rounded-xl border border-green-100 bg-green-50">
-                                                                                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
-                                                                                    {u.avatarUrl ? (
-                                                                                        <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
-                                                                                    ) : (
-                                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs select-none">
-                                                                                            {u.name?.[0]}
+                                                                    <div className="text-xs font-bold text-gray-500 mb-2 flex items-center flex-wrap gap-1">
+                                                                        今日最新打卡紀錄
+                                                                        <span className="ml-1 text-gray-800">已打卡 : {clockedInCount}</span>
+                                                                        <span className="text-gray-400">(</span>
+                                                                        <span className="text-green-600">正常 : {normalCount}</span>
+                                                                        <span className="text-gray-300">|</span>
+                                                                        <span className="text-red-600">異常 : {abnormalCount}</span>
+                                                                        <span className="text-gray-400">)</span>
+                                                                        <span className="text-gray-800 ml-1">未打卡 : {notClockedInCount}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-2">
+                                                                        {clockedInUsers.map(({user: u, secs, record, isAbnormal}) => {
+                                                                            const timeStr = new Date(secs * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                            const locationName = record.checkInLocationName || record.address || '未顯示位置';
+                                                                            const typeText = typeMap[record.type] || record.type;
+                                                                            
+                                                                            // Status logic (re-use calculation or stored flag)
+                                                                            let statusText = '正常';
+                                                                            let statusClass = 'text-green-600 bg-green-50';
+                                                                            
+                                                                            if (isAbnormal) {
+                                                                                if (targetCompany && targetCompany.lat && targetCompany.lng) {
+                                                                                    if (record.location && record.location.includes(',')) {
+                                                                                        const [rLat, rLng] = record.location.split(',').map(Number);
+                                                                                        const dist = calculateDistance(targetCompany.lat, targetCompany.lng, rLat, rLng);
+                                                                                        const radius = targetCompany.radius || 100;
+                                                                                        statusText = `異常-距離過遠(${Math.round(dist)}m)`;
+                                                                                    } else {
+                                                                                        statusText = '異常-無打卡座標';
+                                                                                    }
+                                                                                } else {
+                                                                                     statusText = '異常-無公司座標';
+                                                                                }
+                                                                                statusClass = 'text-red-600 bg-red-50';
+                                                                            }
+
+                                                                            return (
+                                                                                <div key={u.id} className="flex flex-col p-3 rounded-xl border border-gray-100 bg-white shadow-sm w-full gap-2">
+                                                                                    <div className="flex items-center gap-2 border-b border-gray-50 pb-2">
+                                                                                        <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-100 shrink-0">
+                                                                                            {u.avatarUrl ? (
+                                                                                                <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                                                                            ) : (
+                                                                                                <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs select-none">
+                                                                                                    {u.name?.[0]}
+                                                                                                </div>
+                                                                                            )}
                                                                                         </div>
-                                                                                    )}
+                                                                                        <div className="font-bold text-sm text-gray-800">{u.name}</div>
+                                                                                    </div>
+                                                                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                                                                                        <div className="text-gray-500">打卡位置: <span className="text-gray-800">{locationName}</span></div>
+                                                                                        <div className="text-gray-500">打卡時間: <span className="text-gray-800 font-mono">{timeStr}</span></div>
+                                                                                        <div className="text-gray-500">打卡: <span className="font-bold text-blue-600">{typeText}</span></div>
+                                                                                        <div className="text-gray-500">狀態: <span className={`px-1.5 py-0.5 rounded ${statusClass} font-bold`}>{statusText}</span></div>
+                                                                                    </div>
                                                                                 </div>
-                                                                                <div className="font-bold text-sm text-gray-800">{u.name}</div>
-                                                                            </div>
-                                                                        ))}
+                                                                            );
+                                                                        })}
                                                                     </div>
                                                                 </div>
                                                             );
@@ -9501,6 +9684,7 @@
                                                                                 
                                                                                 let type = 'work';
                                                                                 let hours = 0;
+                                                                                let timeRangeStr = '';
                                                                                 
                                                                                 if (schedule) {
                                                                                     type = schedule.type;
@@ -9510,7 +9694,32 @@
                                                                                         let sDate = new Date(dateObj); sDate.setHours(sH, sM, 0, 0);
                                                                                         let eDate = new Date(dateObj); eDate.setHours(eH, eM, 0, 0);
                                                                                         if (eDate < sDate) eDate.setDate(eDate.getDate() + 1);
+                                                                                        
+                                                                                        // Default scheduled hours
                                                                                         hours = (eDate - sDate) / (1000 * 60 * 60);
+
+                                                                                        // Refine hours if leave start/end are specified (overlap calculation)
+                                                                                        if (r.leaveStartDate && r.leaveEndDate) {
+                                                                                            const lStart = new Date(r.leaveStartDate);
+                                                                                            const lEnd = new Date(r.leaveEndDate);
+
+                                                                                            // Calculate effective leave start/end for this day
+                                                                                            // This day's schedule: [sDate, eDate]
+                                                                                            // Leave range: [lStart, lEnd]
+                                                                                            
+                                                                                            const overlapStart = new Date(Math.max(sDate.getTime(), lStart.getTime()));
+                                                                                            const overlapEnd = new Date(Math.min(eDate.getTime(), lEnd.getTime()));
+                                                                                            
+                                                                                            if (overlapEnd > overlapStart) {
+                                                                                                hours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
+                                                                                                
+                                                                                                const fmt = (d) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                                                                                                timeRangeStr = `${fmt(overlapStart)}~${fmt(overlapEnd)}`;
+                                                                                            } else {
+                                                                                                // No overlap with working hours
+                                                                                                hours = 0;
+                                                                                            }
+                                                                                        }
                                                                                     }
                                                                                 } else {
                                                                                     if (nationalHolidays.includes(dateStr)) type = 'holiday';
@@ -9523,6 +9732,9 @@
                                                                                 }
                                                                                 
                                                                                 if (type === 'off' || type === 'holiday') return null;
+                                                                                // If calculated hours is 0 (e.g. leave time outside work hours), maybe skip or show 0?
+                                                                                // Usually if it's a work day but leave is outside work hours, it shouldn't count as leave hours.
+                                                                                if (hours <= 0) return null;
 
                                                                                 totalDays++;
                                                                                 totalHours += hours;
@@ -9531,6 +9743,7 @@
                                                                                     <div key={dateStr} className="flex items-center gap-2">
                                                                                         <span>{dateStr.replace(/-/g, '/')}</span>
                                                                                         {hours > 0 && <span>{hours.toFixed(1)} hr</span>}
+                                                                                        {timeRangeStr && <span className="text-gray-500 text-xs">({timeRangeStr})</span>}
                                                                                     </div>
                                                                                 );
                                                                             }).filter(Boolean);
