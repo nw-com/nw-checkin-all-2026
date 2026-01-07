@@ -5617,6 +5617,7 @@
             const [attendanceList, setAttendanceList] = useState([]);
             const [makeupRequests, setMakeupRequests] = useState([]);
             const [myMakeupRequests, setMyMakeupRequests] = useState([]);
+            const [myLeaves, setMyLeaves] = useState([]);
             const [leavesList, setLeavesList] = useState([]);
             const [schedulesList, setSchedulesList] = useState([]); // New state for leaves from 'leaves' collection
             const [myAttendance, setMyAttendance] = useState([]);
@@ -5811,6 +5812,21 @@
                      }
                  }
             }, [dbUser, companies, cadreCompany]);
+
+            useEffect(() => {
+                if (!dbUser || !dbUser.id) return;
+                
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                    where('userId', '==', dbUser.id)
+                );
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                    setMyLeaves(list);
+                });
+                return () => unsubscribe();
+            }, [dbUser]);
 
             useEffect(() => {
                 if (!dbUser || !dbUser.id) return;
@@ -8251,6 +8267,7 @@
                                                         const currentDate = new Date(year, month, d);
                                                         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                                                         const isToday = new Date().toDateString() === currentDate.toDateString();
+                                                        const isPastDateGrid = currentDate < new Date(new Date().setHours(0,0,0,0));
                                                         const isHoliday = holidays.includes(dateStr);
                                                         const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
                                                         const schedule = mySchedules[dateStr];
@@ -8287,7 +8304,9 @@
                                                                 return { s, e };
                                                             };
                                                             const listA = (myAttendance || []).filter(r => r.type === 'leave' && r.approvalStatus === 'approved');
-                                                            const listB = (leavesList || []).filter(r => r.userId === dbUser?.id && r.approvalStatus === 'approved');
+                                                            const listB = (leavesList && leavesList.length > 0) 
+                                                                ? leavesList.filter(r => r.userId === dbUser?.id && r.approvalStatus === 'approved')
+                                                                : (myLeaves || []).filter(r => r.approvalStatus === 'approved');
                                                             for (const l of [...listA, ...listB]) {
                                                                 const rng = parseRange(l);
                                                                 if (!rng) continue;
@@ -8296,7 +8315,60 @@
                                                             return false;
                                                         })();
 
-                                                            if (isApprovedLeaveOnDay) {
+                                                        const leaveInfo = (() => {
+                                                            const parseRange = (l) => {
+                                                                if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
+                                                                let s, e;
+                                                                if (l.leaveStartDate) {
+                                                                    const sd = String(l.leaveStartDate).replace(/\//g, '-');
+                                                                    s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                } else if (l.startDate) {
+                                                                    const sd = String(l.startDate).replace(/\//g, '-');
+                                                                    s = new Date(sd);
+                                                                } else if (l.leaveDate) {
+                                                                    const sd = String(l.leaveDate).replace(/\//g, '-');
+                                                                    s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                                }
+                                                                if (l.leaveEndDate) {
+                                                                    const ed = String(l.leaveEndDate).replace(/\//g, '-');
+                                                                    e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                } else if (l.endDate) {
+                                                                    const ed = String(l.endDate).replace(/\//g, '-');
+                                                                    e = new Date(ed);
+                                                                } else if (s) {
+                                                                    e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                                }
+                                                                if (!s || !e || isNaN(s) || isNaN(e)) return null;
+                                                                return { s, e };
+                                                            };
+                                                            const listA = (myAttendance || []).filter(r => r.type === 'leave' && r.approvalStatus === 'approved');
+                                                            const listB = (leavesList && leavesList.length > 0) 
+                                                                ? leavesList.filter(r => r.userId === dbUser?.id && r.approvalStatus === 'approved')
+                                                                : (myLeaves || []).filter(r => r.approvalStatus === 'approved');
+                                                            let totalHours = 0;
+                                                            for (const l of [...listA, ...listB]) {
+                                                                const rng = parseRange(l);
+                                                                if (!rng) continue;
+                                                                if (rng.s <= dayEnd && rng.e >= dayStart) {
+                                                                    let os = rng.s > dayStart ? rng.s : dayStart;
+                                                                    let oe = rng.e < dayEnd ? rng.e : dayEnd;
+                                                                    if (schedule && (schedule.type === 'work' || schedule.type === 'duty') && schedule.startTime && schedule.endTime) {
+                                                                        const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
+                                                                        const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
+                                                                        const ss = new Date(year, month, d, Number(sh) || 0, Number(sm) || 0, 0, 0);
+                                                                        const se = new Date(year, month, d, Number(eh) || 0, Number(em) || 0, 0, 0);
+                                                                        if (os < ss) os = ss;
+                                                                        if (oe > se) oe = se;
+                                                                    }
+                                                                    const hours = Math.max(0, (oe.getTime() - os.getTime()) / 3600000);
+                                                                    totalHours += hours;
+                                                                }
+                                                            }
+                                                            if (totalHours > 0) return { hours: Number(totalHours.toFixed(1)) };
+                                                            return null;
+                                                        })();
+
+                                                            if (leaveInfo) {
                                                                 cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
                                                             } else if (schedule) {
                                                                 if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
@@ -8306,7 +8378,8 @@
                                                             }
 
                                                     let attendanceStatus = null;
-                                                    if (schedule && (schedule.type === 'work' || schedule.type === 'duty') && !isApprovedLeaveOnDay) {
+                                                    let statusType = null;
+                                                    if (schedule && (schedule.type === 'work' || schedule.type === 'duty') && !leaveInfo) {
                                                         const dayRecords = myAttendance.filter(r => {
                                                             const t = r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
                                                             if (!t) return false;
@@ -8333,9 +8406,14 @@
                                                         if (isLate || isEarly) {
                                                             cellClass = 'bg-red-100 text-red-700 border border-red-200';
                                                             attendanceStatus = 'abnormal';
+                                                            statusType = 'late_or_early';
                                                         } else if (inTime && outTime) {
                                                             cellClass = 'bg-green-100 text-green-700 border border-green-200';
                                                             attendanceStatus = 'normal';
+                                                        } else if (!inTime && !outTime && isPastDateGrid) {
+                                                            cellClass = 'bg-red-100 text-red-700 border border-red-200';
+                                                            attendanceStatus = 'abnormal';
+                                                            statusType = 'absent';
                                                         }
                                                     }
 
@@ -8346,13 +8424,13 @@
                                                                     className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors cursor-pointer ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''} ${clockScheduleSelectedDate && clockScheduleSelectedDate.toDateString() === currentDate.toDateString() ? 'ring-2 ring-blue-500 z-10' : ''}`}
                                                                 >
                                                                     <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
-                                                            {isApprovedLeaveOnDay ? (
-                                                                <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">請假</span>
+                                                            {leaveInfo ? (
+                                                                <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">請假-{leaveInfo.hours} hr</span>
                                                             ) : schedule ? (
                                                                 <div className="flex flex-col items-center w-full">
                                                                     <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
                                                                         {attendanceStatus === 'normal' ? '正常' : 
-                                                                         attendanceStatus === 'abnormal' ? '異常' :
+                                                                         attendanceStatus === 'abnormal' ? (statusType === 'absent' ? '異常-曠職' : '異常') :
                                                                          schedule.type === 'work' ? '上班' : 
                                                                          schedule.type === 'duty' ? '值班' : 
                                                                          schedule.type === 'card' ? '卡班' : '特休'}
@@ -8407,11 +8485,47 @@
                                                 return tA - tB;
                                             });
                                             
-                                            const leave = myAttendance.find(l => {
-                                                if (l.type !== 'leave' || l.approvalStatus !== 'approved') return false;
-                                                const start = new Date(l.leaveStartDate || l.leaveDate);
-                                                return start.getFullYear() === year && start.getMonth() === month && start.getDate() === date;
-                                            });
+                                            const leave = (() => {
+                                                const parseRange = (l) => {
+                                                    if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
+                                                    let s, e;
+                                                    if (l.leaveStartDate) {
+                                                        const sd = String(l.leaveStartDate).replace(/\//g, '-');
+                                                        s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                    } else if (l.startDate) {
+                                                        const sd = String(l.startDate).replace(/\//g, '-');
+                                                        s = new Date(sd);
+                                                    } else if (l.leaveDate) {
+                                                        const sd = String(l.leaveDate).replace(/\//g, '-');
+                                                        s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                    }
+                                                    if (l.leaveEndDate) {
+                                                        const ed = String(l.leaveEndDate).replace(/\//g, '-');
+                                                        e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                    } else if (l.endDate) {
+                                                        const ed = String(l.endDate).replace(/\//g, '-');
+                                                        e = new Date(ed);
+                                                    } else if (s) {
+                                                        e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                    }
+                                                    if (!s || !e || isNaN(s) || isNaN(e)) return null;
+                                                    return { s, e };
+                                                };
+                                                const listA = (myAttendance || []).filter(r => r.type === 'leave' && r.approvalStatus === 'approved');
+                                                const listB = (leavesList && leavesList.length > 0) 
+                                                    ? leavesList.filter(r => r.userId === dbUser?.id && r.approvalStatus === 'approved')
+                                                    : (myLeaves || []).filter(r => r.approvalStatus === 'approved');
+                                                
+                                                const dayStart = new Date(year, month, date, 0, 0, 0);
+                                                const dayEnd = new Date(year, month, date, 23, 59, 59);
+
+                                                for (const l of [...listA, ...listB]) {
+                                                    const rng = parseRange(l);
+                                                    if (!rng) continue;
+                                                    if (rng.s <= dayEnd && rng.e >= dayStart) return l;
+                                                }
+                                                return null;
+                                            })();
                                             const isPastDate = clockScheduleSelectedDate < new Date(new Date().setHours(0,0,0,0));
 
                                             return (
@@ -8506,6 +8620,11 @@
                                                                         {(() => {
                                                                             const isWorkDay = schedule && (schedule.type === 'work' || schedule.type === 'duty');
                                                                             const hasIn = attendance.some(r => ['in', 'work_in', 'duty_in', 'late_in', 'card_in', 'outing_start'].includes(r.type));
+                                                                            
+                                                                            if (leave) {
+                                                                                return <div className="w-full text-sm p-2 rounded-lg border shadow-sm bg-gray-100 text-gray-700 flex items-center justify-center">請假</div>;
+                                                                            }
+
                                                                             if (!hasIn && isPastDate && isWorkDay) {
                                                                                 const locs = availableClockInLocations || [];
                                                                                 const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
@@ -8577,8 +8696,13 @@
                                                                         ))}
                                                                         {(() => {
                                                                             const isWorkDay = schedule && (schedule.type === 'work' || schedule.type === 'duty');
-                                                                            const hasOut = attendance.some(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'outing_end', 'leave_early'].includes(r.type));
-                                                                            if (!hasOut && isPastDate && isWorkDay) {
+                                            const hasOut = attendance.some(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'outing_end', 'leave_early'].includes(r.type));
+                                            
+                                            if (leave) {
+                                                return <div className="w-full text-sm p-2 rounded-lg border shadow-sm bg-gray-100 text-gray-700 flex items-center justify-center">請假</div>;
+                                            }
+
+                                            if (!hasOut && isPastDate && isWorkDay && !leave) {
                                                                                 const locs = availableClockInLocations || [];
                                                                                 const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
                                                                                 const defaultTime = schedule?.endTime || '18:00';
@@ -8617,18 +8741,19 @@
                                                                                 <div className="w-full">
                                                                                     {latestIn ? (
                                                                                         latestIn.status === 'pending' ? (
-                                                                                            <button disabled className="w-full py-3 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-200 cursor-not-allowed flex items-center justify-center">
+                                                                                            <button disabled className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold border border-gray-200 cursor-not-allowed flex items-center justify-center">
                                                                                                 <ClipboardList className="w-5 h-5 mr-2" />
-                                                                                                已申請送出
+                                                                                                已送出資料
                                                                                             </button>
                                                                                         ) : latestIn.status === 'approved' ? (
                                                                                             <div className="flex items-center justify-center p-4 bg-green-50 rounded-xl border border-green-200 text-green-700 font-bold">
                                                                                                 核准 {latestIn.startTime || ''}
                                                                                             </div>
                                                                                         ) : (
-                                                                                            <div className="flex items-center justify-center p-4 bg-red-50 rounded-xl border border-red-200 text-red-700 font-bold">
-                                                                                                您的申請已駁回
-                                                                                            </div>
+                                                                                            <button disabled className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold border border-gray-200 cursor-not-allowed flex items-center justify-center">
+                                                                                                <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                                已送出資料
+                                                                                            </button>
                                                                                         )
                                                                                     ) : (
                                                                                         <button
@@ -8652,18 +8777,19 @@
                                                                                 <div className="w-full">
                                                                                     {latestOut ? (
                                                                                         latestOut.status === 'pending' ? (
-                                                                                            <button disabled className="w-full py-3 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-200 cursor-not-allowed flex items-center justify-center">
+                                                                                            <button disabled className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold border border-gray-200 cursor-not-allowed flex items-center justify-center">
                                                                                                 <ClipboardList className="w-5 h-5 mr-2" />
-                                                                                                已申請送出
+                                                                                                已送出資料
                                                                                             </button>
                                                                                         ) : latestOut.status === 'approved' ? (
                                                                                             <div className="flex items-center justify-center p-4 bg-green-50 rounded-xl border border-green-200 text-green-700 font-bold">
                                                                                                 核准 {latestOut.endTime || ''}
                                                                                             </div>
                                                                                         ) : (
-                                                                                            <div className="flex items-center justify-center p-4 bg-red-50 rounded-xl border border-red-200 text-red-700 font-bold">
-                                                                                                您的申請已駁回
-                                                                                            </div>
+                                                                                            <button disabled className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold border border-gray-200 cursor-not-allowed flex items-center justify-center">
+                                                                                                <ClipboardList className="w-5 h-5 mr-2" />
+                                                                                                已送出資料
+                                                                                            </button>
                                                                                         )
                                                                                     ) : (
                                                                                         <button
@@ -9433,10 +9559,10 @@
                                                                                     <div className="flex-1 min-w-0">
                                                                                         <div className="font-bold text-gray-800">{req.userName}</div>
                                                                                         <div className="text-xs font-bold text-gray-700 mt-1">
-                                                                                            申請補打卡: {req.date} ({req.scheduleType === 'work' ? '上班' : '值班'}) · {req.target === 'out' ? '下班' : '上班'}
+                                                                                            補{req.target === 'out' ? '下班' : '上班'}打卡: {req.date} ({req.target === 'out' ? '下班' : '上班'})
                                                                                         </div>
                                                                                         <div className="text-xs text-gray-600 mt-0.5">
-                                                                                            時段: {req.startTime} - {req.endTime}
+                                                                                            補卡時間: {req.target === 'out' ? req.endTime : req.startTime}
                                                                                         </div>
                                                                                         <div className="text-[11px] text-gray-600 mt-0.5">
                                                                                             打卡位置: {req.checkInLocationName || '-'}
@@ -9483,7 +9609,8 @@
                                                                                 <div className="mt-3 flex gap-2">
                                                                                     <button
                                                                                         onClick={async () => {
-                                                                                            if (!confirm(`確認核准 ${req.userName} 的補打卡申請？\n系統將自動補入 ${req.date} 的上下班打卡紀錄。`)) return;
+                                                                                            const targetText = req.target === 'out' ? '下班' : '上班';
+                                                                                            if (!confirm(`確認核准 ${req.userName} 的補打卡申請？\n系統將自動補入 ${req.date} 的${targetText}打卡紀錄。`)) return;
                                                                                             try {
                                                                                                 const batch = writeBatch(db);
                                                                                                 
@@ -9495,37 +9622,37 @@
                                                                                                     approvedAt: serverTimestamp()
                                                                                                 });
 
-                                                                                                // 2. Create In Record
-                                                                                                const inTime = new Date(`${req.date}T${req.startTime}:00`);
-                                                                                                const inRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
-                                                                                                batch.set(inRef, {
-                                                                                                    userId: req.userId,
-                                                                                                    userName: req.userName,
-                                                                                                    companyId: req.userCompanyId,
-                                                                                                    type: req.scheduleType === 'duty' ? 'duty_in' : 'work_in',
-                                                                                                    checkInTime: inTime.toISOString(),
-                                                                                                    timestamp: inTime,
-                                                                                                    createdAt: serverTimestamp(),
-                                                                                                    modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
-                                                                                                });
-
-                                                                                                // 3. Create Out Record
-                                                                                                const outTime = new Date(`${req.date}T${req.endTime}:00`);
-                                                                                                if (outTime < inTime) {
-                                                                                                    outTime.setDate(outTime.getDate() + 1);
+                                                                                                // 2. Create Record based on target
+                                                                                                if (req.target !== 'out') {
+                                                                                                    const inTime = new Date(`${req.date}T${req.startTime}:00`);
+                                                                                                    const inRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                                    batch.set(inRef, {
+                                                                                                        userId: req.userId,
+                                                                                                        userName: req.userName,
+                                                                                                        companyId: req.userCompanyId,
+                                                                                                        type: req.scheduleType === 'duty' ? 'duty_in' : 'work_in',
+                                                                                                        checkInTime: inTime.toISOString(),
+                                                                                                        timestamp: inTime,
+                                                                                                        createdAt: serverTimestamp(),
+                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
+                                                                                                    });
                                                                                                 }
 
-                                                                                                const outRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
-                                                                                                batch.set(outRef, {
-                                                                                                    userId: req.userId,
-                                                                                                    userName: req.userName,
-                                                                                                    companyId: req.userCompanyId,
-                                                                                                    type: req.scheduleType === 'duty' ? 'duty_out' : 'work_out',
-                                                                                                    checkInTime: outTime.toISOString(),
-                                                                                                    timestamp: outTime,
-                                                                                                    createdAt: serverTimestamp(),
-                                                                                                    modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
-                                                                                                });
+                                                                                                if (req.target === 'out') {
+                                                                                                    const outTime = new Date(`${req.date}T${req.endTime}:00`);
+                                                                                                    
+                                                                                                    const outRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                                    batch.set(outRef, {
+                                                                                                        userId: req.userId,
+                                                                                                        userName: req.userName,
+                                                                                                        companyId: req.userCompanyId,
+                                                                                                        type: req.scheduleType === 'duty' ? 'duty_out' : 'work_out',
+                                                                                                        checkInTime: outTime.toISOString(),
+                                                                                                        timestamp: outTime,
+                                                                                                        createdAt: serverTimestamp(),
+                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
+                                                                                                    });
+                                                                                                }
 
                                                                                                 await batch.commit();
                                                                                                 alert('已核准並補入打卡紀錄');
@@ -9601,13 +9728,20 @@
                                                                         
                                                                         const typeMap = {
                                                                             'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                            'work_in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                            'duty_in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                            'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                            'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
                                                                             'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                            'work_out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                            'duty_out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                            'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                            'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                            'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
                                                                             'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
                                                                             'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
                                                                             'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
-                                                                            'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' },
-                                                                            'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
-                                                                            'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' }
+                                                                            'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' }
                                                                         };
                                                                         const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
                                                                         
@@ -9648,17 +9782,17 @@
                                                                                     </div>
                                                                                 </div>
                                                                                 <div className="mt-3 flex gap-2">
-                                                                                     <button 
+                                                                                    <button 
                                                                                         onClick={() => handleQuickApprove(r)}
-                                                                                        className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                                                                                        className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
                                                                                     >
                                                                                         核准
                                                                                     </button>
                                                                                     <button 
                                                                                         onClick={() => handleQuickReject(r)}
-                                                                                        className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                                        className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
                                                                                     >
-                                                                                        駁回
+                                                                                        拒絕
                                                                                     </button>
                                                                                 </div>
                                                                             </div>
@@ -9712,13 +9846,20 @@
                                                                                 {(function(){
                                                     const typeMap = {
                                                         'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                        'work_in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                        'duty_in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                        'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                        'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
                                                         'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                        'work_out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                        'duty_out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                        'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                        'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                        'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
                                                         'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
                                                         'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
                                                         'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
-                                                        'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' },
-                                                        'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
-                                                        'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' }
+                                                        'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' }
                                                     };
                                                     const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
                                                     
@@ -9839,13 +9980,13 @@
                                                                     <div className="flex gap-3 border-t border-gray-100 pt-3">
                                                                         <button 
                                                                             onClick={() => handleQuickReject(r)}
-                                                                            className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
                                                                         >
-                                                                            駁回
+                                                                            拒絕
                                                                         </button>
                                                                         <button 
                                                                             onClick={() => handleQuickApprove(r)}
-                                                                            className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
                                                                         >
                                                                             核准
                                                                         </button>
@@ -10173,13 +10314,13 @@
                                                                     <div className="flex gap-3 border-t border-gray-100 pt-3">
                                                                         <button 
                                                                             onClick={() => handleUpdateLeaveStatus('rejected', r)}
-                                                                            className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
                                                                         >
-                                                                            駁回
+                                                                            拒絕
                                                                         </button>
                                                                         <button 
                                                                             onClick={() => handleUpdateLeaveStatus('approved', r)}
-                                                                            className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
                                                                         >
                                                                             核准
                                                                         </button>
@@ -10487,13 +10628,13 @@
                                                                     <div className="flex gap-3 border-t border-gray-100 pt-3">
                                                                         <button 
                                                                             onClick={() => handleUpdateSignatureStatus(sig.id, 'rejected')}
-                                                                            className="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
                                                                         >
-                                                                            駁回
+                                                                            拒絕
                                                                         </button>
                                                                         <button 
                                                                             onClick={() => handleUpdateSignatureStatus(sig.id, 'approved')}
-                                                                            className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
                                                                         >
                                                                             核准
                                                                         </button>
@@ -11133,7 +11274,7 @@
                     {showMakeupEditModal && editingMakeupRequest && (
                         <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowMakeupEditModal(false); setEditingMakeupRequest(null); }}>
                             <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-xl animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                                <h3 className="text-xl font-bold text-gray-800 mb-4">編輯補打卡申請</h3>
+                                <h3 className="text-xl font-bold text-gray-800 mb-4">編輯補{editingMakeupRequest?.target === 'out' ? '下班' : '上班'}打卡申請</h3>
                                 <div className="space-y-4">
                                     <div>
                                         <div className="text-xs font-bold text-gray-500 mb-1">打卡位置</div>
@@ -11148,25 +11289,28 @@
                                             ))}
                                         </select>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <div className="text-xs font-bold text-gray-500 mb-1">上班時間</div>
-                                            <input
-                                                type="time"
-                                                value={makeupEditForm.startTime || ''}
-                                                onChange={(e) => setMakeupEditForm(prev => ({ ...prev, startTime: e.target.value }))}
-                                                className="w-full px-3 py-2 border rounded-xl text-sm"
-                                            />
-                                        </div>
-                                        <div>
-                                            <div className="text-xs font-bold text-gray-500 mb-1">下班時間</div>
-                                            <input
-                                                type="time"
-                                                value={makeupEditForm.endTime || ''}
-                                                onChange={(e) => setMakeupEditForm(prev => ({ ...prev, endTime: e.target.value }))}
-                                                className="w-full px-3 py-2 border rounded-xl text-sm"
-                                            />
-                                        </div>
+                                    <div>
+                                        {editingMakeupRequest?.target === 'out' ? (
+                                            <>
+                                                <div className="text-xs font-bold text-gray-500 mb-1">補下班打卡時間</div>
+                                                <input
+                                                    type="time"
+                                                    value={makeupEditForm.endTime || ''}
+                                                    onChange={(e) => setMakeupEditForm(prev => ({ ...prev, endTime: e.target.value }))}
+                                                    className="w-full px-3 py-2 border rounded-xl text-sm"
+                                                />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="text-xs font-bold text-gray-500 mb-1">補上班打卡時間</div>
+                                                <input
+                                                    type="time"
+                                                    value={makeupEditForm.startTime || ''}
+                                                    onChange={(e) => setMakeupEditForm(prev => ({ ...prev, startTime: e.target.value }))}
+                                                    className="w-full px-3 py-2 border rounded-xl text-sm"
+                                                />
+                                            </>
+                                        )}
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
@@ -12385,6 +12529,23 @@
 
                                                 if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
                                                 return start <= dayEnd && end >= dayStart;
+                                            });
+                                        }
+                                        if (!hasApprovedLeave && cadreSignatures) {
+                                            hasApprovedLeave = cadreSignatures.some(sig => {
+                                                if (sig.userId !== cadreMapSelectedUserId) return false;
+                                                if (sig.type !== '請假') return false; 
+                                                if (sig.status !== 'approved') return false;
+                                                
+                                                const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
+                                                let match;
+                                                while ((match = regex.exec(sig.content || '')) !== null) {
+                                                    const y = parseInt(match[1]);
+                                                    const m = parseInt(match[2]) - 1;
+                                                    const da = parseInt(match[3]);
+                                                    if (y === targetYear && m === targetMonth && da === day) return true;
+                                                }
+                                                return false;
                                             });
                                         }
                                         
