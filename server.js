@@ -2,7 +2,11 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+console.log("Starting server script...");
+
 const port = 8080;
+const LOG_REQUESTS = process.env.LOG_REQUESTS === '1';
+const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -23,11 +27,15 @@ const mimeTypes = {
   '.ico': 'image/x-icon'
 };
 
-http.createServer((req, res) => {
-  console.log(`Request: ${req.url}`);
+const server = http.createServer((req, res) => {
+  // Log requests only when enabled, and skip known noisy paths
+  const urlPath = req.url.split('?')[0];
+  if (LOG_REQUESTS && !SILENT_PATHS.has(urlPath)) {
+    console.log(`Request: ${urlPath}`);
+  }
 
   // Handle URL parameters (ignore them for file serving)
-  const urlPath = req.url.split('?')[0];
+  // const urlPath = req.url.split('?')[0];
   
   let filePath = '.' + urlPath;
   if (filePath === './') {
@@ -41,7 +49,9 @@ http.createServer((req, res) => {
   // Check if file exists
   fs.access(absolutePath, fs.constants.F_OK, (err) => {
       if (err) {
-          console.log(`File not found: ${absolutePath}`);
+          if (LOG_REQUESTS && !SILENT_PATHS.has(urlPath)) {
+            console.log(`File not found: ${absolutePath}`);
+          }
           res.writeHead(404);
           res.end('404 File Not Found');
           return;
@@ -76,7 +86,12 @@ http.createServer((req, res) => {
         }
       });
   });
+});
 
-}).listen(port);
+server.on('error', (e) => {
+  console.error('Server error:', e);
+});
 
-console.log(`Server running at http://localhost:${port}/`);
+server.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}/`);
+});
