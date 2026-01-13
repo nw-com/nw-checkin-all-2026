@@ -899,6 +899,17 @@
         </div>
     </div>
 
+    <div id="logout-modal" class="fixed inset-0 bg-black/50 z-50 hidden justify-center items-center">
+        <div class="bg-white rounded-xl p-6 w-[320px]">
+            <div class="text-slate-800 font-semibold mb-3">確認登出</div>
+            <div class="text-slate-600 text-sm mb-6">是否要登出系統？</div>
+            <div class="flex justify-end gap-3">
+                <button id="logout-cancel" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">取消</button>
+                <button id="logout-confirm" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">登出</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let employees = JSON.parse(localStorage.getItem('security_employees') || '[]');
         let units = JSON.parse(localStorage.getItem('security_units') || '[]');
@@ -940,24 +951,13 @@
             const avatarDiv = document.getElementById('nav-user-avatar');
             if (avatarDiv) {
                 avatarDiv.addEventListener('click', async () => {
-                    if (!firebase || !firebase.auth) return;
-                    const ok = confirm('確認要登出？');
-                    if (!ok) return;
-                    try {
-                        await firebase.auth().signOut();
-                        renderAuthUser(null);
-                        const nameEl = document.getElementById('nav-user-name');
-                        const avatar = document.getElementById('nav-user-avatar');
-                        if (nameEl) nameEl.textContent = '未登入';
-                        if (avatar) {
-                            avatar.style.backgroundImage = '';
-                            avatar.textContent = '';
-                        }
-                    } catch (e) {
-                        alert('登出失敗');
-                    }
+                    openLogoutModal();
                 });
             }
+            const btnCancel = document.getElementById('logout-cancel');
+            const btnConfirm = document.getElementById('logout-confirm');
+            if (btnCancel) btnCancel.addEventListener('click', closeLogoutModal);
+            if (btnConfirm) btnConfirm.addEventListener('click', doLogout);
         };
 
         function normalizeEmployee(emp) {
@@ -1553,6 +1553,37 @@
                 nameEl.textContent = '未登入';
                 avatarDiv.style.backgroundImage = '';
                 avatarDiv.textContent = '';
+            }
+        }
+
+        function openLogoutModal() {
+            const m = document.getElementById('logout-modal');
+            if (!m) return;
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+        }
+        function closeLogoutModal() {
+            const m = document.getElementById('logout-modal');
+            if (!m) return;
+            m.classList.add('hidden');
+            m.classList.remove('flex');
+        }
+        async function doLogout() {
+            if (!firebase || !firebase.auth) return;
+            try {
+                await firebase.auth().signOut();
+                renderAuthUser(null);
+                const nameEl = document.getElementById('nav-user-name');
+                const avatar = document.getElementById('nav-user-avatar');
+                if (nameEl) nameEl.textContent = '未登入';
+                if (avatar) {
+                    avatar.style.backgroundImage = '';
+                    avatar.textContent = '';
+                }
+            } catch (e) {
+                alert('登出失敗');
+            } finally {
+                closeLogoutModal();
             }
         }
         function goCalc(id) {
