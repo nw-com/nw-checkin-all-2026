@@ -1791,7 +1791,7 @@
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
-            const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '', status: '在職' });
+            const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '', status: '在職', startDate: '', resignDate: '' });
 
             // Sorting State
             const [roleSort, setRoleSort] = useState({ key: null, direction: 'asc' });
@@ -3127,7 +3127,7 @@
                                 帳號列表
                             </h3>
                             <div className="mb-4 flex gap-2">
-                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職', startDate:'', resignDate:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                 <button onClick={handleExportUsers} className="bg-green-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-700">匯出</button>
                                 <label className="bg-blue-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-blue-700 cursor-pointer flex items-center">
                                     匯入
@@ -3135,7 +3135,7 @@
                                 </label>
                             </div>
                             <div className="h-[calc(100vh-280px)] overflow-y-auto overflow-x-auto no-scrollbar">
-                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_80px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1750px] text-left">
+                                <div className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_160px_140px_1fr] gap-2 px-3 py-2 text-[11px] font-bold text-gray-500 whitespace-nowrap min-w-[1750px] text-left">
                                     <div>角色</div>
                                     <div>大頭照</div>
                                     <div>職稱</div>
@@ -3188,7 +3188,7 @@
                                         };
                                         return getRolePriority(a) - getRolePriority(b);
                                     }).map(u => (
-                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_80px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1750px]">
+                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_160px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1750px]">
                                             <div className="font-bold text-gray-700">
                                                 {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
                                             </div>
@@ -3233,9 +3233,17 @@
                                                     return text.length > 10 ? text.substring(0, 10) + '...' : text;
                                                 })()}
                                             </div>
-                                            <div className="text-gray-700">{u.status || '在職'}</div>
+                                            <div className="text-gray-700">
+                                                <div className={`px-2 py-0.5 rounded text-xs w-fit mb-1 ${u.status === '離職' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                    {u.status || '在職'}
+                                                </div>
+                                                <div className="text-[10px] text-gray-500">
+                                                    {u.startDate && <div>入: {u.startDate}</div>}
+                                                    {u.resignDate && <div>離: {u.resignDate}</div>}
+                                                </div>
+                                            </div>
                                             <div className="flex gap-2 justify-start">
-                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '', status: u.status || '在職' }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '', status: u.status || '在職', startDate: u.startDate || '', resignDate: u.resignDate || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
                                             </div>
                                             <div className="text-gray-700">{u.updatedByName ? `${u.updatedByName} ${formatDateTime(u.updatedAt)}` : '-'}</div>
@@ -3284,6 +3292,16 @@
                                                 <option value="在職">在職</option>
                                                 <option value="離職">離職</option>
                                             </select>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">在職起始時間</label>
+                                                    <input type="date" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.startDate || ''} onChange={e=>setModalUser(prev=>({...prev, startDate: e.target.value}))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">離職起始時間</label>
+                                                    <input type="date" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.resignDate || ''} onChange={e=>setModalUser(prev=>({...prev, resignDate: e.target.value}))} />
+                                                </div>
+                                            </div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">所屬公司</label>
                                             <div className="space-y-2 border border-gray-200 rounded-2xl p-3 max-h-40 overflow-y-auto bg-gray-50">
                                                 {['admin', 'manager'].includes(modalUser.role) && (
@@ -3445,7 +3463,7 @@
                                             {userError && <div className="text-xs text-red-600">{userError}</div>}
                                             <div className="flex justify-end gap-2 mt-4">
                                                 <button onClick={()=>{ setShowAddModal(false); setEditingUserId(null); }} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId && !userDataToSave.password) { delete userDataToSave.password; } if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                                <button disabled={userSaving} onClick={async()=>{ try { setUserError(''); setUserSaving(true); if (!user) { setUserError('沒有登入權限，請先登入'); return; } const userDataToSave = { ...modalUser, communityId: (modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '', companyId: (modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '', status: modalUser.status || '在職' }; if (editingUserId && !userDataToSave.password) { delete userDataToSave.password; } if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職', startDate:'', resignDate:'' }); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                     </div>
                                 </div>
@@ -7103,10 +7121,20 @@
                                     const data = { id: snap.docs[0].id, ...snap.docs[0].data() };
                                     data.status = data.status || '在職';
                                     if (data.status === '離職') {
-                                        await signOut(auth);
-                                        setDbUser(null);
-                                        setView('login');
-                                        return;
+                                        const today = new Date();
+                                        today.setHours(0,0,0,0);
+                                        let shouldBlock = true;
+                                        if (data.resignDate) {
+                                            const rDate = new Date(data.resignDate);
+                                            // If resign date is in the future, allow login
+                                            if (rDate > today) shouldBlock = false;
+                                        }
+                                        if (shouldBlock) {
+                                            await signOut(auth);
+                                            setDbUser(null);
+                                            setView('login');
+                                            return;
+                                        }
                                     }
                                     const comm = communities.find(c => c.id === data.communityId);
                                     data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
@@ -7375,7 +7403,17 @@
                             
                             const userDoc = snapshot.docs[0].data();
                             if ((userDoc.status || '在職') === '離職') {
-                                throw new Error('此帳號已離職，無法登入');
+                                const today = new Date();
+                                today.setHours(0,0,0,0);
+                                let shouldBlock = true;
+                                if (userDoc.resignDate) {
+                                    const rDate = new Date(userDoc.resignDate);
+                                    // If resign date is in the future, allow login
+                                    if (rDate > today) shouldBlock = false;
+                                }
+                                if (shouldBlock) {
+                                    throw new Error('此帳號已離職，無法登入');
+                                }
                             }
                             if (!userDoc.email) {
                                 throw new Error('此帳號資料異常(無Email)，請聯繫管理員');
@@ -7408,8 +7446,18 @@
                     }
                     userData.status = userData.status || '在職';
                     if (userData.status === '離職') {
-                        await signOut(auth);
-                        throw new Error('此帳號已離職，無法登入');
+                        const today = new Date();
+                        today.setHours(0,0,0,0);
+                        let shouldBlock = true;
+                        if (userData.resignDate) {
+                            const rDate = new Date(userData.resignDate);
+                            // If resign date is in the future, allow login
+                            if (rDate > today) shouldBlock = false;
+                        }
+                        if (shouldBlock) {
+                            await signOut(auth);
+                            throw new Error('此帳號已離職，無法登入');
+                        }
                     }
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
@@ -7820,7 +7868,10 @@
                     phone: user.phone || '',
                     email: user.email || '',
                     companyId: user.companyId || '',
-                    companyIds: user.companyIds || []
+                    companyIds: user.companyIds || [],
+                    status: user.status || '在職',
+                    startDate: user.startDate || '',
+                    resignDate: user.resignDate || ''
                 });
                 setIsEditUserModalOpen(true);
             };
@@ -11427,8 +11478,17 @@
                                                                     <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-red-100 text-red-600'}`}>
                                                                         {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
                                                                     </span>
+                                                                    {u.status === '離職' ? (
+                                                                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">離職</span>
+                                                                    ) : (
+                                                                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-600">在職</span>
+                                                                    )}
                                                                 </div>
                                                                 <div className="text-xs text-gray-500">{u.title || '未設定職稱'}</div>
+                                                                <div className="flex gap-2 mt-1 text-[10px] text-gray-400">
+                                                                    {u.startDate && <span>入: {u.startDate}</span>}
+                                                                    {u.resignDate && <span>離: {u.resignDate}</span>}
+                                                                </div>
                                                             </div>
                                                             <div className="text-right text-xs text-gray-500 flex flex-col items-end gap-1">
                                                                 <div>{u.email}</div>
@@ -13594,6 +13654,37 @@
                                             onChange={e => setEditUserForm({ ...editUserForm, email: e.target.value })}
                                             className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
                                         />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">狀態</label>
+                                        <select
+                                            value={editUserForm.status}
+                                            onChange={e => setEditUserForm({ ...editUserForm, status: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                        >
+                                            <option value="在職">在職</option>
+                                            <option value="離職">離職</option>
+                                        </select>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">在職起始時間</label>
+                                            <input
+                                                type="date"
+                                                value={editUserForm.startDate}
+                                                onChange={e => setEditUserForm({ ...editUserForm, startDate: e.target.value })}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">離職起始時間</label>
+                                            <input
+                                                type="date"
+                                                value={editUserForm.resignDate}
+                                                onChange={e => setEditUserForm({ ...editUserForm, resignDate: e.target.value })}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="mt-6 flex justify-end gap-2">

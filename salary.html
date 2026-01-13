@@ -81,6 +81,7 @@
                                 <tr>
                                     <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">所屬公司/社區</th>
                                     <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">姓名</th>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">狀態/日期</th>
                                     <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">薪資</th>
                                     <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">保險</th>
                                     <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">銀行</th>
@@ -704,10 +705,17 @@
                     </div>
 
                     <div id="emp-basic" class="space-y-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div>
                                 <label class="block mb-2 text-slate-700 font-medium">員工編號</label>
                                 <input id="f-code" type="text" placeholder="輸入員工編號" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">狀態</label>
+                                <select id="f-status" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white">
+                                    <option value="在職">在職</option>
+                                    <option value="離職">離職</option>
+                                </select>
                             </div>
                             <div>
                                 <label class="block mb-2 text-slate-700 font-medium">所屬公司/社區</label>
@@ -758,6 +766,17 @@
                             <div>
                                 <label class="block mb-2 text-slate-700 font-medium">緊急聯絡人關係</label>
                                 <input id="f-em-relation" type="text" placeholder="例如：父、母、配偶" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 pt-4 mt-2">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">在職起始時間</label>
+                                <input id="f-start-date" type="date" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">離職起始時間</label>
+                                <input id="f-resign-date" type="date" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                <p class="text-xs text-slate-400 mt-1">※ 設定為離職且日期已過時，該員將無法登入系統</p>
                             </div>
                         </div>
                     </div>
@@ -994,6 +1013,8 @@
                 role: emp.role || '',
                 companyId: emp.companyId || '',
                 communityId: emp.communityId || '',
+                startDate: emp.startDate || '',
+                resignDate: emp.resignDate || '',
                 source: emp.source || 'local'
             };
         }
@@ -1004,6 +1025,25 @@
                 firebase.initializeApp(window.FIREBASE_CONFIG);
             }
             return firebase.firestore();
+        }
+
+        async function updateSystemUser(id, data) {
+            const db = getFirestoreDb();
+            if (!db) return;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+            try {
+                await db.collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('users')
+                    .doc(id)
+                    .update(data);
+                console.log('System user updated:', id);
+            } catch (e) {
+                console.error('Error updating system user:', e);
+                // alert('更新系統資料失敗: ' + e.message); // Optional: silent fail or alert
+            }
         }
 
         async function fetchSystemCollection(collectionName) {
@@ -1091,7 +1131,9 @@
                             unitId: existingNorm && existingNorm.unitId ? existingNorm.unitId : sysUnitId,
                             role: u.role || '',
                             companyId: u.companyId || '',
-                            communityId: u.communityId || ''
+                            communityId: u.communityId || '',
+                            startDate: u.startDate || (existingNorm ? existingNorm.startDate : ''),
+                            resignDate: u.resignDate || (existingNorm ? existingNorm.resignDate : '')
                         });
                     })
                     .filter(Boolean);
@@ -1274,8 +1316,12 @@
             const bankBranchInput = document.getElementById('f-bank-branch');
             const bankAccountInput = document.getElementById('f-bank-account');
             const bankAccountNameInput = document.getElementById('f-bank-account-name');
+            const startDateInput = document.getElementById('f-start-date');
+            const resignDateInput = document.getElementById('f-resign-date');
+            const statusInput = document.getElementById('f-status');
 
             codeInput.value = emp.code || '';
+            if (statusInput) statusInput.value = emp.status || '在職';
             nameInput.value = emp.name || '';
             nameInput.readOnly = emp.source === 'system';
             emailInput.value = emp.email || '';
@@ -1291,6 +1337,8 @@
             bankBranchInput.value = emp.bankBranch || '';
             bankAccountInput.value = emp.bankAccount || '';
             bankAccountNameInput.value = emp.bankAccountName || (emp.name || '');
+            startDateInput.value = emp.startDate || '';
+            resignDateInput.value = emp.resignDate || '';
 
             document.getElementById('f-unit').value = emp.unitId || '';
 
@@ -1316,6 +1364,8 @@
         function cancelEdit() {
             editingEmpId = null;
             document.getElementById('f-code').value = '';
+            const statusInput = document.getElementById('f-status');
+            if (statusInput) statusInput.value = '在職';
             const nameInput = document.getElementById('f-name');
             nameInput.value = '';
             nameInput.readOnly = false;
@@ -1332,6 +1382,8 @@
             document.getElementById('f-bank-branch').value = '';
             document.getElementById('f-bank-account').value = '';
             document.getElementById('f-bank-account-name').value = '';
+            document.getElementById('f-start-date').value = '';
+            document.getElementById('f-resign-date').value = '';
             document.getElementById('f-unit').value = '';
             document.getElementById('f-base').value = 28590;
             document.getElementById('f-license').value = 0;
@@ -1367,9 +1419,12 @@
             const bankBranch = document.getElementById('f-bank-branch').value;
             const bankAccount = document.getElementById('f-bank-account').value;
             const bankAccountName = document.getElementById('f-bank-account-name').value || name;
+            const startDate = document.getElementById('f-start-date').value;
+            const resignDate = document.getElementById('f-resign-date').value;
 
             const unitId = document.getElementById('f-unit').value;
-            const status = editingEmpId ? (employees.find(e => e.id === editingEmpId)?.status || '在職') : '在職';
+            const statusInput = document.getElementById('f-status');
+            const status = statusInput ? statusInput.value : '在職';
             const baseSalary = Number(document.getElementById('f-base').value);
             const licenseBonus = Number(document.getElementById('f-license').value);
             const laborIns = Number(document.getElementById('f-labor').value);
@@ -1421,10 +1476,20 @@
                         bankBranch,
                         bankAccount,
                         bankAccountName,
+                        startDate,
+                        resignDate,
                         unitId
                     };
                     if (current.source !== 'system') next.name = name;
                     employees[idx] = normalizeEmployee(next);
+
+                    if (current.source === 'system') {
+                        updateSystemUser(current.id, { 
+                            status: next.status,
+                            startDate: next.startDate, 
+                            resignDate: next.resignDate 
+                        });
+                    }
                 }
             } else {
                 const emp = normalizeEmployee({
@@ -1457,6 +1522,8 @@
                     bankBranch,
                     bankAccount,
                     bankAccountName,
+                    startDate,
+                    resignDate,
                     source: 'local'
                 });
                 employees.push(emp);
@@ -1492,13 +1559,33 @@
                     const totalSalary = emp.baseSalary + emp.licenseBonus + (emp.professionalBonus || 0) + (emp.awardBonus || 0) + (emp.otherBonus || 0);
                     const totalIns = (emp.laborIns || 0) + (emp.healthIns || 0) + (emp.groupIns || 0);
                     const bankName = emp.bankName || getBankNameByCode(emp.bankCode) || '-';
+                    
+                    let statusDisplay = '';
+                    if (emp.status === '離職') {
+                        statusDisplay = `
+                            <div class="flex flex-col">
+                                <span class="px-2 py-0.5 rounded text-xs bg-red-100 text-red-600 w-fit mb-1">離職</span>
+                                <span class="text-xs text-slate-500">離: ${emp.resignDate || '-'}</span>
+                                <span class="text-xs text-slate-400">入: ${emp.startDate || '-'}</span>
+                            </div>
+                        `;
+                    } else {
+                        statusDisplay = `
+                            <div class="flex flex-col">
+                                <span class="px-2 py-0.5 rounded text-xs bg-green-100 text-green-600 w-fit mb-1">在職</span>
+                                <span class="text-xs text-slate-500">入: ${emp.startDate || '-'}</span>
+                            </div>
+                        `;
+                    }
 
                     return `
                     <tr class="hover:bg-slate-50 transition-colors">
                         <td class="px-6 py-4 text-slate-700">${unitName}</td>
                         <td class="px-6 py-4 font-medium cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'basic')">
                             ${emp.name}
-                            ${emp.status === '離職' ? '<span class="ml-2 px-2 py-0.5 rounded text-xs bg-red-100 text-red-600">離職</span>' : ''}
+                        </td>
+                        <td class="px-6 py-4 cursor-pointer" onclick="startEditEmp('${emp.id}', 'basic')">
+                            ${statusDisplay}
                         </td>
                         <td class="px-6 py-4 text-slate-700 cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'salary')">NT$ ${totalSalary.toLocaleString()}</td>
                         <td class="px-6 py-4 text-slate-700 cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'ins')">NT$ ${totalIns.toLocaleString()}</td>
