@@ -184,6 +184,10 @@
             CheckSquare
         } from 'lucide-react';
 
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
+        }
+
         // --- Firebase Configuration ---
         // 如果您在本地打開此檔案，請在此處填入您的 Firebase Config
         const manualConfig = null; 
@@ -386,9 +390,14 @@
                         mapInstanceRef.current = new google.maps.Map(mapRef.current, {
                             center: location,
                             zoom: 17,
-                            disableDefaultUI: true,
+                            disableDefaultUI: false,
                             zoomControl: true,
-                            gestureHandling: 'greedy' // Allow single finger pan
+                            mapTypeControl: true,
+                            streetViewControl: false,
+                            fullscreenControl: false,
+                            rotateControl: false,
+                            scaleControl: false,
+                            gestureHandling: 'greedy'
                         });
                         
                         mapInstanceRef.current.addListener('dragend', () => {
@@ -733,8 +742,13 @@
                         const map = new google.maps.Map(mapRef.current, {
                             center: mapCenter,
                             zoom: 17,
-                            disableDefaultUI: true,
+                            disableDefaultUI: false,
                             zoomControl: true,
+                            mapTypeControl: true,
+                            streetViewControl: false,
+                            fullscreenControl: false,
+                            rotateControl: false,
+                            scaleControl: false,
                         });
 
                         // User Marker
@@ -1097,8 +1111,13 @@
                     const mapInstance = new google.maps.Map(mapRef.current, {
                         center: wsLocation || location,
                         zoom: 17,
-                        disableDefaultUI: true,
+                        disableDefaultUI: false,
                         zoomControl: true,
+                        mapTypeControl: true,
+                        streetViewControl: false,
+                        fullscreenControl: false,
+                        rotateControl: false,
+                        scaleControl: false,
                     });
 
                     if (location) {
@@ -1772,7 +1791,7 @@
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
-            const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '' });
+            const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '', status: '在職' });
 
             // Sorting State
             const [roleSort, setRoleSort] = useState({ key: null, direction: 'asc' });
@@ -3108,7 +3127,7 @@
                                 帳號列表
                             </h3>
                             <div className="mb-4 flex gap-2">
-                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                 <button onClick={handleExportUsers} className="bg-green-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-700">匯出</button>
                                 <label className="bg-blue-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-blue-700 cursor-pointer flex items-center">
                                     匯入
@@ -3216,7 +3235,7 @@
                                             </div>
                                             <div className="text-gray-700">{u.status || '在職'}</div>
                                             <div className="flex gap-2 justify-start">
-                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '' }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '', status: u.status || '在職' }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
                                             </div>
                                             <div className="text-gray-700">{u.updatedByName ? `${u.updatedByName} ${formatDateTime(u.updatedAt)}` : '-'}</div>
@@ -3260,6 +3279,11 @@
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.phone} onChange={e=>setModalUser(prev=>({...prev, phone: e.target.value}))} />
                                             <label className="block text-xs font-bold text-gray-500 uppercase">密碼</label>
                                             <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.password || ''} onChange={e=>setModalUser(prev=>({...prev, password: e.target.value}))} placeholder={editingUserId ? "若不修改請留空" : "預設: 123456"} />
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">狀況</label>
+                                            <select className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.status || '在職'} onChange={e=>setModalUser(prev=>({...prev, status: e.target.value}))}>
+                                                <option value="在職">在職</option>
+                                                <option value="離職">離職</option>
+                                            </select>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">所屬公司</label>
                                             <div className="space-y-2 border border-gray-200 rounded-2xl p-3 max-h-40 overflow-y-auto bg-gray-50">
                                                 {['admin', 'manager'].includes(modalUser.role) && (
@@ -3429,6 +3453,27 @@
                         </div>
 
                         </>
+                        )}
+
+                        {subtab === 'system' && hasSubPermission('settings', 'system') && (
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                <CheckSquare className="w-5 h-5 mr-2 text-red-600" />
+                                核薪按鈕
+                            </h3>
+                            <div className="text-sm text-gray-600 mb-4">
+                                在此區塊放置核薪相關操作按鈕。
+                            </div>
+                            <button
+                                onClick={() => {
+                                    const w = window.open('/salary.html', '_blank');
+                                    if (w) w.opener = null;
+                                }}
+                                className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700"
+                            >
+                                核薪
+                            </button>
+                        </div>
                         )}
 
                         {subtab === 'community' && hasSubPermission('settings', 'community') && (
@@ -5317,28 +5362,52 @@
                                                                 );
                                                             }
 
-                                                            const parts = (r.location || '').split(',');
-                                                            let mapImgUrl = null;
-                        if (parts.length === 2) {
-                            const lat = parts[0];
-                            const lng = parts[1];
-                            if (currentUser && currentUser.avatarUrl) {
-                                const iconUrl = encodeURIComponent(currentUser.avatarUrl);
-                                mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=icon:${iconUrl}%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
-                            } else {
-                                mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
-                            }
-                        }
+                                                            const loc = (function(){
+                                                                const raw = r.location;
+                                                                if (!raw) return null;
+                                                                if (typeof raw === 'string') {
+                                                                    const parts = raw.split(',');
+                                                                    if (parts.length >= 2) {
+                                                                        const lat = parseFloat((parts[0] || '').trim());
+                                                                        const lng = parseFloat((parts[1] || '').trim());
+                                                                        if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                    }
+                                                                    return null;
+                                                                }
+                                                                if (Array.isArray(raw) && raw.length >= 2) {
+                                                                    const lat = parseFloat(raw[0]);
+                                                                    const lng = parseFloat(raw[1]);
+                                                                    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                    return null;
+                                                                }
+                                                                if (typeof raw === 'object') {
+                                                                    const lat = parseFloat(raw.lat ?? raw.latitude);
+                                                                    const lng = parseFloat(raw.lng ?? raw.longitude);
+                                                                    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                }
+                                                                return null;
+                                                            })();
+
+                                                            const fallbackMapImgUrl = loc
+                                                                ? `https://maps.googleapis.com/maps/api/staticmap?center=${loc.lat},${loc.lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${loc.lat},${loc.lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`
+                                                                : null;
+
+                                                            let mapImgUrl = fallbackMapImgUrl;
+                                                            if (loc && currentUser && currentUser.avatarUrl && /^https?:\/\//i.test(currentUser.avatarUrl)) {
+                                                                const iconUrl = encodeURIComponent(currentUser.avatarUrl);
+                                                                const withIcon = `https://maps.googleapis.com/maps/api/staticmap?center=${loc.lat},${loc.lng}&zoom=15&size=100x100&maptype=roadmap&markers=icon:${iconUrl}%7C${loc.lat},${loc.lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                                if (withIcon.length <= 1800) mapImgUrl = withIcon;
+                                                            }
                                                             return (
                                                                 <div className="flex gap-2">
                                                                     <div className="flex gap-2">
                                                                         <div className="flex flex-col gap-2">
                                                                             <button 
                                                                                 onClick={() => {
-                                                                                    if (parts.length === 2) {
+                                                                                    if (loc) {
                                                                                         setMapPreviewTarget({
-                                                                                            lat: parseFloat(parts[0]),
-                                                                                            lng: parseFloat(parts[1]),
+                                                                                            lat: loc.lat,
+                                                                                            lng: loc.lng,
                                                                                             name: currentUser.name + ' - ' + (r.address || '打卡位置'),
                                                                                             radius: 10
                                                                                         });
@@ -5349,7 +5418,16 @@
                                                                                 className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
                                                                             >
                                                                                 {mapImgUrl ? (
-                                                                                    <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
+                                                                                    <img
+                                                                                        src={mapImgUrl}
+                                                                                        className="w-full h-full object-cover"
+                                                                                        alt="地圖"
+                                                                                        onError={(e) => {
+                                                                                            if (fallbackMapImgUrl && e.currentTarget.src !== fallbackMapImgUrl) {
+                                                                                                e.currentTarget.src = fallbackMapImgUrl;
+                                                                                            }
+                                                                                        }}
+                                                                                    />
                                                                                 ) : (
                                                                                     <MapPin className="w-5 h-5" />
                                                                                 )}
@@ -7014,37 +7092,33 @@
                     setLoading(false);
                     clearTimeout(timer);
                     if (u) {
-                        let restored = null;
-                        try {
-                            const until = parseInt(localStorage.getItem('remember_until') || '0', 10);
-                            const stored = localStorage.getItem('remember_user');
-                            if (until && until > Date.now() && stored) {
-                                restored = JSON.parse(stored);
-                            }
-                        } catch {}
-                        if (restored) {
-                            setDbUser(restored);
-                            setView('dashboard');
-                        } else {
-                            (async () => {
-                                try {
-                                    const q = query(
-                                        collection(db, 'artifacts', appId, 'public', 'data', 'users'),
-                                        where('email', '==', u.email || '')
-                                    );
-                                    const snap = await getDocs(q);
-                                    if (!snap.empty) {
-                                        const data = { id: snap.docs[0].id, ...snap.docs[0].data() };
-                                        const comm = communities.find(c => c.id === data.communityId);
-                                        data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
-                                        setDbUser(data);
-                                        setView('dashboard');
-                                    } else {
-                                        setView('dashboard');
+                        (async () => {
+                            try {
+                                const q = query(
+                                    collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+                                    where('email', '==', u.email || '')
+                                );
+                                const snap = await getDocs(q);
+                                if (!snap.empty) {
+                                    const data = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                                    data.status = data.status || '在職';
+                                    if (data.status === '離職') {
+                                        await signOut(auth);
+                                        setDbUser(null);
+                                        setView('login');
+                                        return;
                                     }
-                                } catch {}
-                            })();
-                        }
+                                    const comm = communities.find(c => c.id === data.communityId);
+                                    data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
+                                    setDbUser(data);
+                                    setView('dashboard');
+                                } else {
+                                    setView('dashboard');
+                                }
+                            } catch {
+                                setView('dashboard');
+                            }
+                        })();
                     } else {
                         setDbUser(null);
                         setView('login');
@@ -7300,6 +7374,9 @@
                             }
                             
                             const userDoc = snapshot.docs[0].data();
+                            if ((userDoc.status || '在職') === '離職') {
+                                throw new Error('此帳號已離職，無法登入');
+                            }
                             if (!userDoc.email) {
                                 throw new Error('此帳號資料異常(無Email)，請聯繫管理員');
                             }
@@ -7326,8 +7403,13 @@
                         const name = emailToUse.split('@')[0];
                         const defaultRole = 'staff';
                         const defaultCommunity = 'HQ';
-                        const docRef = await addDoc(baseUserRef, { name, email: emailToUse, role: defaultRole, communityId: defaultCommunity });
-                        userData = { id: docRef.id, name, email: emailToUse, role: defaultRole, communityId: defaultCommunity };
+                        const docRef = await addDoc(baseUserRef, { name, email: emailToUse, role: defaultRole, communityId: defaultCommunity, status: '在職' });
+                        userData = { id: docRef.id, name, email: emailToUse, role: defaultRole, communityId: defaultCommunity, status: '在職' };
+                    }
+                    userData.status = userData.status || '在職';
+                    if (userData.status === '離職') {
+                        await signOut(auth);
+                        throw new Error('此帳號已離職，無法登入');
                     }
                     const comm = communities.find(c => c.id === userData.communityId);
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
@@ -10230,25 +10312,54 @@
                                                                             <div className="flex gap-2 items-end">
                                                                                 <div className="flex flex-col gap-2">
                                                                                     {(function(){
-                                                                                        const parts = (r.location || '').split(',');
-                                                                                        let mapImgUrl = null;
-                                                                                        if (parts.length === 2) {
-                                                                                            const lat = parts[0];
-                                                                                            const lng = parts[1];
-                                                                                            if (user && user.avatarUrl) {
-                                                                                                const iconUrl = encodeURIComponent(user.avatarUrl);
-                                                                                                mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=icon:${iconUrl}%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
-                                                                                            } else {
-                                                                                                mapImgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                                                        const loc = (function(){
+                                                                                            const raw = r.location;
+                                                                                            if (!raw) return null;
+                                                                                            if (typeof raw === 'string') {
+                                                                                                const parts = raw.split(',');
+                                                                                                if (parts.length >= 2) {
+                                                                                                    const lat = parseFloat((parts[0] || '').trim());
+                                                                                                    const lng = parseFloat((parts[1] || '').trim());
+                                                                                                    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                                                }
+                                                                                                return null;
+                                                                                            }
+                                                                                            if (Array.isArray(raw) && raw.length >= 2) {
+                                                                                                const lat = parseFloat(raw[0]);
+                                                                                                const lng = parseFloat(raw[1]);
+                                                                                                if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                                                return null;
+                                                                                            }
+                                                                                            if (typeof raw === 'object') {
+                                                                                                const lat = parseFloat(raw.lat ?? raw.latitude);
+                                                                                                const lng = parseFloat(raw.lng ?? raw.longitude);
+                                                                                                if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                                            }
+                                                                                            return null;
+                                                                                        })();
+
+                                                                                        const fallbackMapImgUrl = loc
+                                                                                            ? `https://maps.googleapis.com/maps/api/staticmap?center=${loc.lat},${loc.lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${loc.lat},${loc.lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`
+                                                                                            : null;
+
+                                                                                        let mapImgUrl = fallbackMapImgUrl;
+                                                                                        if (loc && Array.isArray(usersList)) {
+                                                                                            const iconOwner = usersList.find(u => u.id === r.userId) || null;
+                                                                                            const iconSrc = (iconOwner && iconOwner.avatarUrl && /^https?:\/\//i.test(iconOwner.avatarUrl)) ? iconOwner.avatarUrl : null;
+                                                                                            if (iconSrc) {
+                                                                                                const iconUrl = encodeURIComponent(iconSrc);
+                                                                                                const withIcon = `https://maps.googleapis.com/maps/api/staticmap?center=${loc.lat},${loc.lng}&zoom=15&size=100x100&maptype=roadmap&markers=icon:${iconUrl}%7C${loc.lat},${loc.lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                                                                if (withIcon.length <= 1800) mapImgUrl = withIcon;
                                                                                             }
                                                                                         }
+
                                                                                         return (
                                                                                             <button 
                                                                                                 onClick={() => {
-                                                                                                    if (parts.length === 2) {
+                                                                                                    if (loc) {
                                                                                                         setMapPreviewTarget({
-                                                                                                            lat: parseFloat(parts[0]),
-                                                                                                            lng: parseFloat(parts[1]),
+                                                                                                            lat: loc.lat,
+                                                                                                            lng: loc.lng,
                                                                                                             name: r.userName + ' - ' + (r.address || '打卡位置'),
                                                                                                             radius: 10
                                                                                                         });
@@ -10259,7 +10370,16 @@
                                                                                                 className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
                                                                                             >
                                                                                                 {mapImgUrl ? (
-                                                                                                    <img src={mapImgUrl} className="w-full h-full object-cover" alt="地圖" />
+                                                                                                    <img
+                                                                                                        src={mapImgUrl}
+                                                                                                        className="w-full h-full object-cover"
+                                                                                                        alt="地圖"
+                                                                                                        onError={(e) => {
+                                                                                                            if (fallbackMapImgUrl && e.currentTarget.src !== fallbackMapImgUrl) {
+                                                                                                                e.currentTarget.src = fallbackMapImgUrl;
+                                                                                                            }
+                                                                                                        }}
+                                                                                                    />
                                                                                                 ) : (
                                                                                                     <MapPin className="w-5 h-5" />
                                                                                                 )}
