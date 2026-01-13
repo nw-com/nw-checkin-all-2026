@@ -33,19 +33,31 @@
                 </div>
             </div>
             
-            <nav class="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200">
-                <button onclick="switchTab('schedule')" id="tab-schedule" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
-                    <i class="fas fa-calendar-check"></i> 排班核薪
-                </button>
-                <button onclick="switchTab('calc')" id="tab-calc" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
-                    <i class="fas fa-calculator"></i> 薪資計算
-                </button>
-                <button onclick="switchTab('list')" id="tab-list" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 bg-blue-600 text-white shadow-md">
-                    <i class="fas fa-users"></i> 員工管理
-                </button>
-                <button onclick="switchTab('settings')" id="tab-settings" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
-                    <i class="fas fa-gear"></i> 系統設定
-                </button>
+            <nav class="flex items-center bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center gap-2">
+                    <button onclick="switchTab('overview')" id="tab-overview" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 bg-blue-600 text-white shadow-md">
+                        <i class="fas fa-chart-line"></i> 總覽
+                    </button>
+                    <button onclick="switchTab('ledger')" id="tab-ledger" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-file-invoice-dollar"></i> 收支
+                    </button>
+                    <button onclick="switchTab('schedule')" id="tab-schedule" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-calendar-check"></i> 核薪
+                    </button>
+                    <button onclick="switchTab('calc')" id="tab-calc" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-calculator"></i> 計算
+                    </button>
+                    <button onclick="switchTab('list')" id="tab-list" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-users"></i> 員工
+                    </button>
+                    <button onclick="switchTab('settings')" id="tab-settings" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-gear"></i> 設定
+                    </button>
+                </div>
+                <div class="ml-auto flex items-center gap-3 pl-4 border-l border-slate-200">
+                    <span id="nav-user-name" class="text-slate-700 text-sm"></span>
+                    <div id="nav-user-avatar" class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-medium cursor-pointer" title="點擊登出"></div>
+                </div>
             </nav>
         </header>
         </div>
@@ -54,7 +66,7 @@
         <div class="p-4 md:p-8 h-[88%] overflow-y-auto">
         <main>
             <!-- Tab: Employee List -->
-            <div id="view-list">
+            <div id="view-list" class="hidden">
                 <!-- Table -->
                 <section class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                     <div class="p-4 border-b bg-slate-50 flex justify-between items-center sticky top-0 z-20">
@@ -79,6 +91,30 @@
                                 <!-- JS items here -->
                             </tbody>
                         </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Overview -->
+            <div id="view-overview">
+                <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 border-b pb-2 text-slate-700">
+                        <i class="fas fa-chart-line"></i> 總覽
+                    </h2>
+                    <div class="text-sm text-slate-600">
+                        總覽功能開發中...
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Ledger -->
+            <div id="view-ledger" class="hidden">
+                <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 border-b pb-2 text-slate-700">
+                        <i class="fas fa-file-invoice-dollar"></i> 收支明細
+                    </h2>
+                    <div class="text-sm text-slate-600">
+                        收支明細功能開發中...
                     </div>
                 </section>
             </div>
@@ -868,6 +904,7 @@
         let units = JSON.parse(localStorage.getItem('security_units') || '[]');
         let selectedEmpId = null;
         let editingEmpId = null;
+        let systemUsersCache = [];
 
         window.onload = async () => {
             // Ensure Firebase is initialized
@@ -882,8 +919,10 @@
                         unsubscribe();
                         if (user) {
                             console.log("User is signed in:", user.uid);
+                            renderAuthUser(user);
                         } else {
                             console.warn("No user signed in. System data may be inaccessible.");
+                            renderAuthUser(null);
                         }
                         resolve(user);
                     });
@@ -891,9 +930,34 @@
             }
 
             await refreshFromSystemData();
+            try {
+                const authUser = firebase && firebase.auth ? firebase.auth().currentUser : null;
+                renderSystemUserInNav(authUser);
+            } catch (e) {}
             renderList();
             renderSelect();
             if (typeof renderUnits === 'function') renderUnits();
+            const avatarDiv = document.getElementById('nav-user-avatar');
+            if (avatarDiv) {
+                avatarDiv.addEventListener('click', async () => {
+                    if (!firebase || !firebase.auth) return;
+                    const ok = confirm('確認要登出？');
+                    if (!ok) return;
+                    try {
+                        await firebase.auth().signOut();
+                        renderAuthUser(null);
+                        const nameEl = document.getElementById('nav-user-name');
+                        const avatar = document.getElementById('nav-user-avatar');
+                        if (nameEl) nameEl.textContent = '未登入';
+                        if (avatar) {
+                            avatar.style.backgroundImage = '';
+                            avatar.textContent = '';
+                        }
+                    } catch (e) {
+                        alert('登出失敗');
+                    }
+                });
+            }
         };
 
         function normalizeEmployee(emp) {
@@ -968,6 +1032,7 @@
                 fetchSystemCollection('companies'),
                 fetchSystemCollection('communities')
             ]);
+            systemUsersCache = Array.isArray(sysUsers) ? sysUsers : [];
 
             // Process Employees
             if (Array.isArray(sysUsers) && sysUsers.length > 0) {
@@ -1072,24 +1137,44 @@
 
         function switchTab(tab) {
             const listTab = document.getElementById('tab-list');
+            const overviewTab = document.getElementById('tab-overview');
+            const ledgerTab = document.getElementById('tab-ledger');
             const scheduleTab = document.getElementById('tab-schedule');
             const calcTab = document.getElementById('tab-calc');
             const settingsTab = document.getElementById('tab-settings');
             const listView = document.getElementById('view-list');
+            const overviewView = document.getElementById('view-overview');
+            const ledgerView = document.getElementById('view-ledger');
             const scheduleView = document.getElementById('view-schedule');
             const calcView = document.getElementById('view-calc');
             const settingsView = document.getElementById('view-settings');
 
-            const allTabs = [listTab, scheduleTab, calcTab, settingsTab].filter(Boolean);
+            const allTabs = [listTab, overviewTab, ledgerTab, scheduleTab, calcTab, settingsTab].filter(Boolean);
             allTabs.forEach(t => {
                 t.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
                 t.classList.add('hover:bg-slate-100', 'text-slate-600');
             });
 
             listView.classList.add('hidden');
+            overviewView.classList.add('hidden');
+            ledgerView.classList.add('hidden');
             scheduleView.classList.add('hidden');
             calcView.classList.add('hidden');
             settingsView.classList.add('hidden');
+
+            if (tab === 'overview') {
+                overviewTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                overviewTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                overviewView.classList.remove('hidden');
+                return;
+            }
+
+            if (tab === 'ledger') {
+                ledgerTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                ledgerTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                ledgerView.classList.remove('hidden');
+                return;
+            }
 
             if (tab === 'schedule') {
                 scheduleTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
@@ -1417,6 +1502,59 @@
             select.value = current;
         }
 
+        function extractAvatarUrl(u) {
+            if (!u || typeof u !== 'object') return '';
+            return u.photoURL || u.avatarUrl || u.avatar || u.photo || u.imageUrl || '';
+        }
+
+        function renderSystemUserInNav(authUser) {
+            const nameEl = document.getElementById('nav-user-name');
+            const avatarDiv = document.getElementById('nav-user-avatar');
+            if (!nameEl || !avatarDiv) return;
+            if (!Array.isArray(systemUsersCache) || systemUsersCache.length === 0) return;
+            let match = null;
+            const authEmail = authUser && authUser.email ? String(authUser.email).toLowerCase() : '';
+            const authName = authUser && authUser.displayName ? String(authUser.displayName) : '';
+            if (authEmail) {
+                match = systemUsersCache.find(u => String(u.email || '').toLowerCase() === authEmail) || null;
+            }
+            if (!match && authName) {
+                match = systemUsersCache.find(u => String(u.name || '') === authName) || null;
+            }
+            if (!match) return;
+            const sysName = match.name || '';
+            const sysAvatar = extractAvatarUrl(match);
+            if (sysName) nameEl.textContent = sysName;
+            if (sysAvatar) {
+                avatarDiv.style.backgroundImage = `url(${sysAvatar})`;
+                avatarDiv.style.backgroundSize = 'cover';
+                avatarDiv.style.backgroundPosition = 'center';
+                avatarDiv.textContent = '';
+            }
+        }
+        function renderAuthUser(user) {
+            const nameEl = document.getElementById('nav-user-name');
+            const avatarDiv = document.getElementById('nav-user-avatar');
+            if (!nameEl || !avatarDiv) return;
+            if (user) {
+                const name = user.displayName || (user.email ? String(user.email).split('@')[0] : '') || '使用者';
+                nameEl.textContent = name;
+                const photo = user.photoURL || '';
+                if (photo) {
+                    avatarDiv.style.backgroundImage = `url(${photo})`;
+                    avatarDiv.style.backgroundSize = 'cover';
+                    avatarDiv.style.backgroundPosition = 'center';
+                    avatarDiv.textContent = '';
+                } else {
+                    avatarDiv.style.backgroundImage = '';
+                    avatarDiv.textContent = String(name || 'U').slice(0, 1).toUpperCase();
+                }
+            } else {
+                nameEl.textContent = '未登入';
+                avatarDiv.style.backgroundImage = '';
+                avatarDiv.textContent = '';
+            }
+        }
         function goCalc(id) {
             switchTab('calc');
             document.getElementById('calc-select').value = id;
