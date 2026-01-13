@@ -991,6 +991,9 @@
                 bankAccount: (emp.bankAccount || '').toString(),
                 bankAccountName: (emp.bankAccountName || '').toString(),
                 unitId: emp.unitId || '',
+                role: emp.role || '',
+                companyId: emp.companyId || '',
+                communityId: emp.communityId || '',
                 source: emp.source || 'local'
             };
         }
@@ -1085,7 +1088,10 @@
                             bankAccount: existingNorm ? existingNorm.bankAccount : '',
                             bankAccountName: existingNorm ? existingNorm.bankAccountName : '',
                             
-                            unitId: existingNorm && existingNorm.unitId ? existingNorm.unitId : sysUnitId
+                            unitId: existingNorm && existingNorm.unitId ? existingNorm.unitId : sysUnitId,
+                            role: u.role || '',
+                            companyId: u.companyId || '',
+                            communityId: u.communityId || ''
                         });
                     })
                     .filter(Boolean);
@@ -1471,7 +1477,18 @@
             tbody.innerHTML = employees.length === 0 
                 ? '<tr><td colspan="6" class="text-center py-8 text-slate-400">尚無員工</td></tr>'
                 : employees.map(emp => {
-                    const unitName = units.find(u => u.id === emp.unitId)?.name || emp.unitId || '-';
+                    // Determine display unit based on role
+                    let displayUnitId = emp.unitId;
+                    const role = emp.role;
+                    if (['admin', 'manager', 'hr', 'property', 'officer'].includes(role)) {
+                        displayUnitId = emp.companyId;
+                    } else if (['gm', 'secretary', 'clean', 'mech', 'guard', 'dayGuard', 'nightGuard'].includes(role)) {
+                        displayUnitId = emp.communityId;
+                    }
+                    // Fallback
+                    if (!displayUnitId) displayUnitId = emp.unitId || emp.communityId || emp.companyId;
+
+                    const unitName = units.find(u => u.id === displayUnitId)?.name || displayUnitId || '-';
                     const totalSalary = emp.baseSalary + emp.licenseBonus + (emp.professionalBonus || 0) + (emp.awardBonus || 0) + (emp.otherBonus || 0);
                     const totalIns = (emp.laborIns || 0) + (emp.healthIns || 0) + (emp.groupIns || 0);
                     const bankName = emp.bankName || getBankNameByCode(emp.bankCode) || '-';
