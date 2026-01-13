@@ -2161,7 +2161,9 @@
                         '手機號碼': u.phone || '',
                         '所屬公司': companyNames,
                         '服務社區': communityNames,
-                        '狀況': u.status || '在職'
+                        '狀況': u.status || '在職',
+                        '在職起始時間': u.startDate || '',
+                        '離職起始時間': u.resignDate || ''
                      };
                 });
                 const ws = XLSX.utils.json_to_sheet(data);
@@ -2235,6 +2237,8 @@
                                 companyIds: companyIds,
                                 communityIds: communityIds,
                                 status: (row['狀況'] || '在職').toString().trim(),
+                                startDate: (row['在職起始時間'] || '').toString().trim(),
+                                resignDate: (row['離職起始時間'] || '').toString().trim(),
                                 companyId: companyIds.length > 0 ? companyIds[0] : '',
                                 communityId: communityIds.length > 0 ? communityIds[0] : ''
                             };
@@ -4370,6 +4374,15 @@
                 return 0;
             });
 
+            const lastRecord = useMemo(() => {
+                const sorted = [...sourceHistory].sort((a, b) => {
+                    const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                    const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                    return tb - ta;
+                });
+                return sorted[0];
+            }, [sourceHistory]);
+
             const getAvailableLocations = () => {
                  if (!currentUser) return [];
 
@@ -4568,42 +4581,59 @@
                 }
             }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup, mode]);
 
-            const lastRecord = sourceHistory[0];
-            // Auto-Reset Logic: Determine if still "Working" based on Shift Type
+            // Auto-Reset Logic: Determine if still "Working" within the shift window
             const isWorking = useMemo(() => {
-                if (!lastRecord || lastRecord.type !== 'in') return false;
-
-                // 1. Get Record Time
-                const seconds = lastRecord.timestamp?.seconds || (lastRecord.createdAt?.seconds) || (Date.now() / 1000);
-                const recordTime = new Date(seconds * 1000);
+                // 1. Determine current shift window (day: 00:00~23:59, night: 12:00~11:59 next day)
+                const y = currentTime.getFullYear();
+                const m = String(currentTime.getMonth() + 1).padStart(2, '0');
+                const d = String(currentTime.getDate()).padStart(2, '0');
+                const todayStr = `${y}-${m}-${d}`;
+                const scheduleToday = mySchedules[todayStr];
+                const isNightShift = !!(scheduleToday && (scheduleToday.startTime === '12:00' || scheduleToday.crossDay === true));
                 
-                // 2. Get Schedule for Record Date (to determine shift type)
-                const y = recordTime.getFullYear();
-                const m = String(recordTime.getMonth() + 1).padStart(2, '0');
-                const d = String(recordTime.getDate()).padStart(2, '0');
-                const recordDateStr = `${y}-${m}-${d}`;
-                
-                const schedule = mySchedules[recordDateStr];
-                // Night Shift: startTime 12:00 or crossDay=true
-                const isNightShiftRecord = schedule && (schedule.startTime === '12:00' || schedule.crossDay === true);
-
-                // 3. Calculate Reset Deadline
-                const resetTime = new Date(recordTime);
-                resetTime.setHours(0, 0, 0, 0); // Start of the record day
-                
-                if (isNightShiftRecord) {
-                    // Night Shift: Reset at 12:00 PM (Noon) on the NEXT day
-                    resetTime.setDate(resetTime.getDate() + 1);
-                    resetTime.setHours(12, 0, 0, 0);
+                let windowStart = new Date(currentTime);
+                let windowEnd = new Date(currentTime);
+                if (isNightShift) {
+                    if (windowStart.getHours() >= 12) {
+                        windowStart.setHours(12, 0, 0, 0);
+                    } else {
+                        windowStart.setDate(windowStart.getDate() - 1);
+                        windowStart.setHours(12, 0, 0, 0);
+                    }
+                    windowEnd = new Date(windowStart);
+                    windowEnd.setDate(windowEnd.getDate() + 1);
+                    windowEnd.setHours(11, 59, 59, 999);
                 } else {
-                    // General: Reset at 00:00 AM (Midnight) on the NEXT day
-                    resetTime.setDate(resetTime.getDate() + 1);
-                    resetTime.setHours(0, 0, 0, 0);
+                    windowStart.setHours(0, 0, 0, 0);
+                    windowEnd.setHours(23, 59, 59, 999);
                 }
 
-                // 4. Compare with Current Time
-                return currentTime < resetTime;
-            }, [lastRecord, mySchedules, currentTime]);
+                // 2. Get records within window, sorted by time asc
+                const recordsInWindow = sourceHistory
+                    .filter(r => {
+                        const seconds = r.timestamp?.seconds || r.createdAt?.seconds || 0;
+                        const t = new Date(seconds * 1000);
+                        return t >= windowStart && t <= windowEnd;
+                    })
+                    .sort((a, b) => {
+                        const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                        const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                        return ta - tb;
+                    });
+
+                // 3. If no 'in' in window -> not working
+                const lastInIndex = (() => {
+                    for (let i = recordsInWindow.length - 1; i >= 0; i--) {
+                        if (recordsInWindow[i].type === 'in') return i;
+                    }
+                    return -1;
+                })();
+                if (lastInIndex === -1) return false;
+
+                // 4. If has 'out' after last 'in' -> not working; otherwise working
+                const hasOutAfterIn = recordsInWindow.slice(lastInIndex + 1).some(r => r.type === 'out');
+                return !hasOutAfterIn;
+            }, [sourceHistory, mySchedules, currentTime]);
 
             const isOutingActive = useMemo(() => {
                 if (!lastRecord || !['outing_start','outing_arrive'].includes(lastRecord.type)) return false;
@@ -4691,7 +4721,7 @@
                 }
 
                 return isWorking 
-                    ? { type: 'out', text: '下班簽退', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' }
+                    ? { type: 'out', text: '下班打卡', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' }
                     : { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
             };
 
@@ -5712,7 +5742,23 @@
                                             })()}
                                         </div>
                                         <div>
-                                            <div className="text-sm font-bold text-gray-800">{log.userName}</div>
+                                            <div className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                                                {log.userName}
+                                                {(function(){
+                                                    const u = users.find(user => user.id === log.userId);
+                                                    if (u) {
+                                                        const isResigned = u.status === '離職';
+                                                        return (
+                                                            <div className="flex items-center gap-1">
+                                                                {isResigned && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded border border-gray-200">離職</span>}
+                                                                {u.startDate && <span className="text-[10px] text-gray-400 hidden sm:inline-block" title="在職起始">In: {u.startDate}</span>}
+                                                                {u.resignDate && <span className="text-[10px] text-gray-400 hidden sm:inline-block" title="離職起始">Out: {u.resignDate}</span>}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+                                            </div>
                                             <div className="text-xs text-gray-400">
                                                 {log.userRole} · {(function(){
                                                     const typeMap = {
