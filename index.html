@@ -1597,6 +1597,64 @@
                                     )}
                                 </select>
                             </div>
+                            
+                            {(form.type && form.type.includes('請假')) && (
+                                <div className="grid grid-cols-1 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">請假日期</label>
+                                        <input 
+                                            type="date" 
+                                            value={form.leaveDate || ''} 
+                                            onChange={e => setForm({ ...form, leaveDate: e.target.value })} 
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500 transition-shadow"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">開始時間</label>
+                                            <input 
+                                                type="time" 
+                                                value={form.leaveStartTime || ''} 
+                                                onChange={e => setForm({ ...form, leaveStartTime: e.target.value })} 
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500 transition-shadow"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">結束時間</label>
+                                            <input 
+                                                type="time" 
+                                                value={form.leaveEndTime || ''} 
+                                                onChange={e => setForm({ ...form, leaveEndTime: e.target.value })} 
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500 transition-shadow"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">請假事由</label>
+                                        <select 
+                                            value={form.leaveReason || ''} 
+                                            onChange={e => setForm({ ...form, leaveReason: e.target.value })} 
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500 transition-shadow"
+                                        >
+                                            <option value="">選擇事由</option>
+                                            <option value="事假">事假</option>
+                                            <option value="病假">病假</option>
+                                            <option value="公出">公出</option>
+                                            <option value="婚喪假">婚喪假</option>
+                                            <option value="其他">其他</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">說明</label>
+                                        <textarea 
+                                            value={form.note || ''} 
+                                            onChange={e => setForm({ ...form, note: e.target.value })} 
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-sm min-h-[80px] outline-none focus:ring-2 focus:ring-orange-500 resize-none transition-shadow"
+                                            placeholder="請輸入說明..."
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 mb-1">內容說明</label>
@@ -3161,6 +3219,12 @@
                                         const allowedRoles = ['admin', 'hr', 'cadre', 'staff'];
                                         return allowedRoles.includes(u.role);
                                     }).sort((a, b) => {
+                                        // Status Sort: '離職' at bottom
+                                        const statusA = a.status || '在職';
+                                        const statusB = b.status || '在職';
+                                        if (statusA === '離職' && statusB !== '離職') return 1;
+                                        if (statusA !== '離職' && statusB === '離職') return -1;
+
                                         // Company Sort
                                         const getCompanyName = (u) => {
                                             const cid = (u.companyIds && u.companyIds.length > 0) ? u.companyIds[0] : u.companyId;
@@ -3192,7 +3256,7 @@
                                         };
                                         return getRolePriority(a) - getRolePriority(b);
                                     }).map(u => (
-                                        <div key={u.id} className="grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_160px_140px_1fr] gap-2 items-center p-3 bg-gray-50 rounded-2xl text-xs whitespace-nowrap min-w-[1750px]">
+                                        <div key={u.id} className={`grid grid-cols-[100px_60px_100px_100px_220px_100px_120px_150px_250px_160px_140px_1fr] gap-2 items-center p-3 rounded-2xl text-xs whitespace-nowrap min-w-[1750px] ${u.status === '離職' ? 'bg-red-100' : 'bg-gray-50'}`}>
                                             <div className="font-bold text-gray-700">
                                                 {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
                                             </div>
@@ -3690,8 +3754,9 @@
         };
 
         // Leave Request Modal
-        const LeaveRequestModal = ({ isOpen, onClose, onSubmit, loading, defaultCompany, initialData }) => {
+        const LeaveRequestModal = ({ isOpen, onClose, onSubmit, loading, defaultCompany, initialData, users = [] }) => {
             const [company, setCompany] = useState(defaultCompany || '所屬公司');
+            const [userId, setUserId] = useState('');
             const [reason, setReason] = useState('病假');
             const [customReason, setCustomReason] = useState('');
             
@@ -3711,6 +3776,8 @@
 
             useEffect(() => {
                 if (isOpen) {
+                    const initUserId = initialData?.userId || (users.length > 0 ? users[0].id : '');
+                    setUserId(initUserId);
                     if (initialData) {
                         setCompany(defaultCompany || '所屬公司'); // Company usually doesn't change
                         if (['病假', '事假'].includes(initialData.leaveReason)) {
@@ -3742,7 +3809,7 @@
                         setPreviewPhotoUrl(null);
                     }
                 }
-            }, [isOpen, initialData, defaultCompany]);
+            }, [isOpen, initialData, defaultCompany, users]);
             
             if (!isOpen) return null;
 
@@ -3756,6 +3823,7 @@
 
                 onSubmit({
                     id: initialData?.id, // Pass ID if editing
+                    userId,
                     company,
                     reason: reason === '其他' ? customReason : reason,
                     startDate,
@@ -3784,6 +3852,20 @@
                         <div className="p-6">
                             <h3 className="text-xl font-bold mb-4">{initialData ? '編輯請假申請' : '請假申請'}</h3>
                             <form onSubmit={handleSubmit} className="space-y-4">
+                                {users.length > 0 && (
+                                    <div>
+                                        <label className="block text-sm font-bold mb-1">請假人員</label>
+                                        <select 
+                                            value={userId}
+                                            onChange={(e) => setUserId(e.target.value)}
+                                            className="w-full p-2 border rounded-xl"
+                                        >
+                                            {users.map(u => (
+                                                <option key={u.id} value={u.id}>{u.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
                                 <div>
                                     <label className="block text-sm font-bold mb-1">所屬公司</label>
                                     <input 
@@ -6239,9 +6321,23 @@
             }, [dbUser]);
 
             const handleAddSignature = async () => {
-                if (!signatureForm.content.trim()) {
-                    setSignatureError('請輸入內容');
-                    return;
+                let content = signatureForm.content || '';
+                if (signatureForm.type && signatureForm.type.includes('請假')) {
+                    const date = signatureForm.leaveDate || '';
+                    if (!date) {
+                        setSignatureError('請輸入請假日期');
+                        return;
+                    }
+                    const hasTimes = signatureForm.leaveStartTime && signatureForm.leaveEndTime;
+                    const timeRange = hasTimes ? `${signatureForm.leaveStartTime}-${signatureForm.leaveEndTime}` : '';
+                    const reason = signatureForm.leaveReason || '請假';
+                    const note = signatureForm.note || '';
+                    content = `請假 ${date} ${timeRange} 事由:${reason} 說明:${note}`.trim();
+                } else {
+                    if (!content.trim()) {
+                        setSignatureError('請輸入內容');
+                        return;
+                    }
                 }
                 setSignatureLoading(true);
                 try {
@@ -6250,7 +6346,7 @@
                         userName: dbUser.name,
                         userAvatar: dbUser.avatarUrl || '',
                         type: signatureForm.type,
-                        content: signatureForm.content,
+                        content,
                         status: 'pending',
                         createdAt: serverTimestamp(),
                         responses: []
@@ -7754,14 +7850,15 @@
                         alert('請假申請已更新');
                     } else {
                         // Create new leave record in 'leaves' collection
+                        const submitUser = (leaveData.userId && Array.isArray(usersList)) ? (usersList.find(u => u.id === leaveData.userId) || dbUser) : dbUser;
                         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaves'), {
-                            userId: dbUser.id,
-                            userName: dbUser.name,
-                            userRole: dbUser.role,
-                            companyId: dbUser.companyId || '',
-                            companyName: dbUser.companyName || '',
-                            communityId: dbUser.communityId || '',
-                            checkInLocationName: dbUser.communityName || '',
+                            userId: submitUser.id,
+                            userName: submitUser.name,
+                            userRole: submitUser.role,
+                            companyId: submitUser.companyId || '',
+                            companyName: submitUser.companyName || '',
+                            communityId: submitUser.communityId || '',
+                            checkInLocationName: submitUser.communityName || '',
                             type: 'leave',
                             timestamp: serverTimestamp(),
                             createdAt: serverTimestamp(),
@@ -8355,7 +8452,8 @@
 
                                         const companyUsers = usersList.filter(u => 
                                             ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id)) && 
-                                            finalTargetRoles.includes(u.role)
+                                            finalTargetRoles.includes(u.role) &&
+                                            (u.status || '在職') !== '離職'
                                         );
                                         
                                         if (companyUsers.length === 0) return <div className="text-xs text-gray-400">尚無人員</div>;
@@ -8363,8 +8461,70 @@
                                         return companyUsers.map(u => {
                                             const isSelected = cadreMapSelectedUserId === u.id;
                                             
-                                            // Get Today's Schedule and Records
                                             const schedule = todaySchedules[u.id];
+
+                                            const nowCheck = new Date();
+                                            const year = nowCheck.getFullYear();
+                                            const month = nowCheck.getMonth();
+                                            const day = nowCheck.getDate();
+                                            const dayStart = new Date(year, month, day, 0, 0, 0);
+                                            const dayEnd = new Date(year, month, day, 23, 59, 59);
+
+                                            const todayLeaveInfo = (() => {
+                                                const parseRange = (l) => {
+                                                    if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
+                                                    let s, e;
+                                                    if (l.leaveStartDate) {
+                                                        const sd = String(l.leaveStartDate).replace(/\//g, '-');
+                                                        s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                    } else if (l.startDate) {
+                                                        const sd = String(l.startDate).replace(/\//g, '-');
+                                                        s = new Date(sd);
+                                                    } else if (l.leaveDate) {
+                                                        const sd = String(l.leaveDate).replace(/\//g, '-');
+                                                        s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                    }
+                                                    if (l.leaveEndDate) {
+                                                        const ed = String(l.leaveEndDate).replace(/\//g, '-');
+                                                        e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                    } else if (l.endDate) {
+                                                        const ed = String(l.endDate).replace(/\//g, '-');
+                                                        e = new Date(ed);
+                                                    } else if (s) {
+                                                        e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                                    }
+                                                    if (!s || !e || isNaN(s) || isNaN(e)) return null;
+                                                    return { s, e };
+                                                };
+                                                const listA = (attendanceList || []).filter(r => r.userId === u.id && r.type === 'leave' && r.approvalStatus === 'approved');
+                                                const listB = (leavesList && leavesList.length > 0) 
+                                                    ? leavesList.filter(r => r.userId === u.id && r.approvalStatus === 'approved')
+                                                    : [];
+                                                let totalHours = 0;
+                                                for (const l of [...listA, ...listB]) {
+                                                    const rng = parseRange(l);
+                                                    if (!rng) continue;
+                                                    if (rng.s <= dayEnd && rng.e >= dayStart) {
+                                                        let os = rng.s > dayStart ? rng.s : dayStart;
+                                                        let oe = rng.e < dayEnd ? rng.e : dayEnd;
+                                                        if (schedule && (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.startTime && schedule.endTime) {
+                                                            const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
+                                                            const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
+                                                            const ss = new Date(year, month, day, Number(sh) || 0, Number(sm) || 0, 0, 0);
+                                                            const se = new Date(year, month, day, Number(eh) || 0, Number(em) || 0, 0, 0);
+                                                            if (os < ss) os = ss;
+                                                            if (oe > se) oe = se;
+                                                        }
+                                                        const hours = Math.max(0, (oe.getTime() - os.getTime()) / 3600000);
+                                                        totalHours += hours;
+                                                    }
+                                                }
+                                                if (totalHours > 0) {
+                                                    return { hours: Number(totalHours.toFixed(1)) };
+                                                }
+                                                return null;
+                                            })();
+
                                             const userRecords = (attendanceList || []).filter(r => {
                                                 if (r.userId !== u.id) return false;
                                                 const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
@@ -8480,7 +8640,7 @@
                                                         )}
                                                     </div>
                                                     <span className={`text-[10px] font-medium max-w-[48px] truncate ${bgColorClass.includes('bg-gray-800') ? 'text-white' : (isSelected ? 'text-red-600 font-bold' : 'text-gray-600')}`}>
-                                                        {u.name}
+                                                        {todayLeaveInfo ? `請假-${todayLeaveInfo.hours}hr` : u.name}
                                                     </span>
                                                 </div>
                                             );
@@ -9406,6 +9566,20 @@
                                         <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
                                         <span className="text-red-600 font-bold">{cadreCompany}</span>
                                     </div>
+                                    
+                                    {cadreSubtab === 'leave' && hasSubPermission('cadre', 'leave') && (
+                                        <div className="mb-4">
+                                            <button
+                                                className="w-full px-3 py-3 bg-orange-100 text-orange-700 rounded-xl text-xs font-bold hover:bg-orange-200 transition-colors border border-orange-200"
+                                                onClick={() => {
+                                                    setEditingCadreLeave(null);
+                                                    setShowCadreLeaveModal(true);
+                                                }}
+                                            >
+                                                手動請假
+                                            </button>
+                                        </div>
+                                    )}
 
                                     {cadreSubtab === 'map' && hasSubPermission('cadre', 'map') && (
                                         <div>
@@ -12062,6 +12236,13 @@
                         onClose={() => { setShowCadreLeaveModal(false); setEditingCadreLeave(null); }}
                         defaultCompany={cadreCompany || '所屬公司'}
                         initialData={editingCadreLeave}
+                        users={(function(){
+                            const targetCompany = companies.find(c => c.name === cadreCompany);
+                            const companyUserIds = targetCompany ? usersList
+                                .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
+                                .map(u => u.id) : [];
+                            return usersList.filter(u => companyUserIds.includes(u.id));
+                        })()}
                         onSubmit={async (data) => {
                             setCadreLeaveLoading(true);
                             try {
@@ -13169,6 +13350,9 @@
                                                                                 
                                                                                 const h = Math.max(0, (oe - os) / 3600000);
                                                                                 leaveHours += h;
+                                                                                if (h > 0) {
+                                                                                    cellContent = `請假-${Number(h.toFixed(1))}hr`;
+                                                                                }
                                                                             }
                                                                         }
                                                                     } else if (isV) {
@@ -13373,61 +13557,80 @@
                                         const hasOuting = records.some(r => (r.type || '').startsWith('outing'));
                                         const hasDuty = records.some(r => (r.type || '').startsWith('late'));
                                         
-                                        // Check for approved leaves from both attendance records and leaves collection
-                                        let hasApprovedLeave = records.some(r => (r.type || '') === 'leave' && r.status === 'approved');
-                                        if (!hasApprovedLeave && userLeaveRequests) {
-                                            hasApprovedLeave = userLeaveRequests.some(l => {
-                                                if (l.approvalStatus !== 'approved') return false;
-                                                
-                                                let start, end;
-                                                // Handle Firestore Timestamp or String
-                                                if (l.startDate && typeof l.startDate === 'object' && l.startDate.seconds) {
-                                                    start = new Date(l.startDate.seconds * 1000);
-                                                } else {
-                                                    // Handle "YYYY-MM-DD HH:mm" or "YYYY-MM-DD" string
-                                                    if (typeof l.startDate === 'string') {
-                                                        const dateStr = l.startDate.replace(/\//g, '-');
-                                                        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                                                            const [y, m, d] = dateStr.split('-').map(Number);
-                                                            start = new Date(y, m - 1, d, 0, 0, 0);
-                                                        } else {
-                                                            start = new Date(dateStr);
-                                                        }
-                                                    } else {
-                                                        start = new Date(l.startDate);
-                                                    }
+                                        let hasApprovedLeave = false;
+                                        let leaveHoursForDay = 0;
+                                        
+                                        const getLeaveRange = (l) => {
+                                            let s;
+                                            let e;
+                                            
+                                            const parseDate = (d, t) => {
+                                                if (!d) return null;
+                                                if (typeof d === 'object' && d.seconds) {
+                                                    return new Date(d.seconds * 1000);
                                                 }
+                                                if (d instanceof Date) return d;
                                                 
-                                                if (l.endDate && typeof l.endDate === 'object' && l.endDate.seconds) {
-                                                    end = new Date(l.endDate.seconds * 1000);
-                                                } else {
-                                                    // Handle "YYYY-MM-DD HH:mm" or "YYYY-MM-DD" string
-                                                    if (typeof l.endDate === 'string') {
-                                                        const dateStr = l.endDate.replace(/\//g, '-');
-                                                        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                                                            const [y, m, d] = dateStr.split('-').map(Number);
-                                                            end = new Date(y, m - 1, d, 23, 59, 59);
-                                                        } else {
-                                                            end = new Date(dateStr);
-                                                        }
-                                                    } else {
-                                                        end = new Date(l.endDate);
-                                                    }
+                                                const sd = String(d).replace(/\//g, '-');
+                                                if (sd.includes('T') || sd.includes(' ')) {
+                                                    return new Date(sd.replace('T', ' '));
                                                 }
-
-                                                if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
-                                                return start <= dayEnd && end >= dayStart;
-                                            });
+                                                if (t) return new Date(sd + 'T' + t);
+                                                return new Date(sd);
+                                            };
+                                            
+                                            if (l.leaveStartDate) {
+                                                s = parseDate(l.leaveStartDate, l.leaveStartTime || '00:00');
+                                            } else if (l.startDate) {
+                                                s = parseDate(l.startDate);
+                                            } else if (l.leaveDate) {
+                                                s = parseDate(l.leaveDate, l.leaveTime || '00:00');
+                                            }
+                                            
+                                            if (l.leaveEndDate) {
+                                                e = parseDate(l.leaveEndDate, l.leaveEndTime || '23:59');
+                                            } else if (l.endDate) {
+                                                e = parseDate(l.endDate);
+                                            } else if (s) {
+                                                e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                            }
+                                            
+                                            if (s && e && e < s) {
+                                                e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
+                                            }
+                                            
+                                            return { s, e };
+                                        };
+                                        
+                                        let leaveObj = null;
+                                        
+                                        if (Array.isArray(leavesList) && leavesList.length > 0) {
+                                            const uLeaves = leavesList.filter(l => l.userId === cadreMapSelectedUserId && l.approvalStatus === 'approved');
+                                            leaveObj = uLeaves.find(l => {
+                                                const { s, e } = getLeaveRange(l);
+                                                if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                                return s <= dayEnd && e >= dayStart;
+                                            }) || null;
                                         }
-                                        if (!hasApprovedLeave && cadreSignatures) {
-                                            hasApprovedLeave = cadreSignatures.some(sig => {
-                                                if (sig.userId !== cadreMapSelectedUserId) return false;
-                                                if (sig.type !== '請假') return false; 
-                                                if (sig.status !== 'approved') return false;
+                                        
+                                        if (!leaveObj && Array.isArray(userLeaveRequests) && userLeaveRequests.length > 0) {
+                                            leaveObj = userLeaveRequests.find(l => {
+                                                if (l.approvalStatus !== 'approved') return false;
+                                                const { s, e } = getLeaveRange(l);
+                                                if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                                return s <= dayEnd && e >= dayStart;
+                                            }) || null;
+                                        }
+                                        
+                                        if (!leaveObj && Array.isArray(cadreSignatures) && cadreSignatures.length > 0) {
+                                            const sig = cadreSignatures.find(s => {
+                                                if (s.userId !== cadreMapSelectedUserId) return false;
+                                                if (s.type !== '請假') return false;
+                                                if (s.status !== 'approved') return false;
                                                 
                                                 const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
                                                 let match;
-                                                while ((match = regex.exec(sig.content || '')) !== null) {
+                                                while ((match = regex.exec(s.content || '')) !== null) {
                                                     const y = parseInt(match[1]);
                                                     const m = parseInt(match[2]) - 1;
                                                     const da = parseInt(match[3]);
@@ -13435,6 +13638,73 @@
                                                 }
                                                 return false;
                                             });
+                                            
+                                            if (sig) {
+                                                const tmp = {
+                                                    leaveReason: '請假',
+                                                    startDate: new Date(targetYear, targetMonth, day),
+                                                    endDate: new Date(targetYear, targetMonth, day)
+                                                };
+                                                const timeRegex = /(\d{1,2}:\d{2})\s*[~-]\s*(\d{1,2}:\d{2})/;
+                                                const timeMatch = (sig.content || '').match(timeRegex);
+                                                if (timeMatch) {
+                                                    tmp.leaveStartTime = timeMatch[1];
+                                                    tmp.leaveEndTime = timeMatch[2];
+                                                    tmp.leaveDate = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                                    const [sh, sm] = timeMatch[1].split(':').map(Number);
+                                                    const [eh, em] = timeMatch[2].split(':').map(Number);
+                                                    tmp.startDate.setHours(sh, sm, 0, 0);
+                                                    tmp.endDate.setHours(eh, em, 0, 0);
+                                                } else {
+                                                    tmp.startDate.setHours(0, 0, 0, 0);
+                                                    tmp.endDate.setHours(23, 59, 59, 999);
+                                                }
+                                                leaveObj = tmp;
+                                            }
+                                        }
+                                        
+                                        if (leaveObj && leaveObj.leaveReason !== '公出') {
+                                            const { s, e } = getLeaveRange(leaveObj);
+                                            if (s && e && !isNaN(s) && !isNaN(e)) {
+                                                let os = s > dayStart ? s : dayStart;
+                                                let oe = e < dayEnd ? e : dayEnd;
+                                                
+                                                if (schedule && (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.startTime && schedule.endTime) {
+                                                    const [sh, sm] = String(schedule.startTime).split(':').map(Number);
+                                                    const [eh, em] = String(schedule.endTime).split(':').map(Number);
+                                                    
+                                                    let ss = new Date(dayStart);
+                                                    ss.setHours(sh, sm, 0, 0);
+                                                    let se = new Date(dayStart);
+                                                    se.setHours(eh, em, 0, 0);
+                                                    if (se < ss) se.setDate(se.getDate() + 1);
+                                                    
+                                                    if (os < ss) os = ss;
+                                                    if (oe > se) oe = se;
+                                                } else {
+                                                    // Fallback to default workday window if no schedulable window is available
+                                                    const defStart = new Date(dayStart);
+                                                    defStart.setHours(9, 0, 0, 0);
+                                                    const defEnd = new Date(dayStart);
+                                                    defEnd.setHours(17, 30, 0, 0);
+                                                    // Only apply fallback clamp when leave spans a large portion of the day
+                                                    const spanHours = Math.max(0, (oe - os) / 3600000);
+                                                    if (spanHours >= 12) {
+                                                        if (os < defStart) os = defStart;
+                                                        if (oe > defEnd) oe = defEnd;
+                                                    }
+                                                }
+                                                
+                                                const h = Math.max(0, (oe - os) / 3600000);
+                                                leaveHoursForDay = h;
+                                                if (h > 0) {
+                                                    hasApprovedLeave = true;
+                                                }
+                                            }
+                                        }
+                                        
+                                        if (!hasApprovedLeave) {
+                                            hasApprovedLeave = records.some(r => (r.type || '') === 'leave' && r.status === 'approved');
                                         }
                                         
                                         const inTimeStr = firstIn ? new Date(firstIn.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
@@ -13474,7 +13744,7 @@
                                         
                                         // 檢查曠職：若班表為上班/值班，且完全沒有打卡紀錄，且無核准請假
                                         if (!hasApprovedLeave) {
-                                            const todayDate = new Date();
+                                        const todayDate = new Date();
                                             todayDate.setHours(0,0,0,0);
                                             const targetDayDate = new Date(targetYear, targetMonth, day);
                                             
@@ -13522,11 +13792,18 @@
                                         }
 
                                         if (status !== '特休' && status !== '假日') {
-                                            if (hasApprovedLeave) status = '請假';
+                                            if (hasApprovedLeave) {
+                                                if (leaveHoursForDay > 0) {
+                                                    const displayHours = Number(leaveHoursForDay.toFixed(1));
+                                                    status = `請假-${displayHours}hr`;
+                                                } else {
+                                                    status = '請假';
+                                                }
+                                            }
                                         }
-
+                                        
                                         let statusClass = 'text-gray-700';
-                                        if (status === '請假') statusClass = 'text-gray-900'; // 請假顯示黑字
+                                        if (status && status.startsWith('請假')) statusClass = 'text-gray-900';
 
                                         // 處理備註：異常 + 外出/卡班
                                         let finalRemarks = remarks;
@@ -13548,6 +13825,8 @@
                                             </>
                                         );
 
+                                        const isLeaveStatus = status && status.startsWith('請假');
+                                        
                                         dayRows.push({
                                             dateNum: day,
                                             week: weekMap[dayOfWeek],
@@ -13561,7 +13840,7 @@
                                             status,
                                             statusClass,
                                             isHoliday: status === '假日',
-                                            isLeave: status === '請假'
+                                            isLeave: isLeaveStatus
                                         });
                                     }
 
