@@ -4045,7 +4045,8 @@
                 date: '',
                 time: '',
                 reason: '',
-                locationName: ''
+                locationName: '',
+                shift: 'day'
             });
 
             useEffect(() => {
@@ -4063,7 +4064,8 @@
                         date: dateStr,
                         time: timeStr,
                         reason: '',
-                        locationName: record.checkInLocationName || record.address || ''
+                        locationName: record.checkInLocationName || record.address || '',
+                        shift: record.isNightShift ? 'night' : 'day'
                     });
                 }
             }, [record, isOpen]);
@@ -4155,6 +4157,36 @@
                                     />
                                 </div>
                             </div>
+
+                            {mode === 'edit' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">班別</label>
+                                    <div className="inline-flex text-[11px] font-bold rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, shift: 'day' })}
+                                            className={`px-2 py-1 ${
+                                                formData.shift !== 'night'
+                                                    ? 'bg-blue-600 text-white'
+                                                    : 'text-gray-600 bg-gray-50'
+                                            }`}
+                                        >
+                                            日班
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, shift: 'night' })}
+                                            className={`px-2 py-1 ${
+                                                formData.shift === 'night'
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'text-gray-600 bg-gray-50'
+                                            }`}
+                                        >
+                                            夜班
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
                             {mode === 'request' && (
                                 <div>
@@ -4373,7 +4405,7 @@
                 if (currentUser.title && currentUser.title.includes('幹部')) return true;
                 // 3. Check Role Name (using passed roles prop)
                 const roleObj = (roles || []).find(r => r.id === currentUser.role);
-                if (roleObj && (roleObj.name.includes('幹部') || roleObj.name.includes('人事') || roleObj.name.includes('系統管理員'))) return true;
+                if (roleObj && (roleObj.name.includes('幹部') || roleObj.name.includes('人事') || roleObj.name.includes('系統管理員') || roleObj.name.includes('物業'))) return true;
                 
                 return false;
             }, [currentUser, roles]);
@@ -4582,37 +4614,70 @@
                  
                  if (isCompanyGroup) {
                      const allCompanies = (companies || []).map(c => ({ ...c, type: 'company' }));
-                     const userCompany = allCompanies.find(c => c.id === currentUser.companyId);
+                     const allCommunities = (communities || []).map(c => ({ 
+                         ...c, 
+                         type: 'community',
+                         lat: c.coordLat,
+                         lng: c.coordLng
+                     }));
+
+                     let resultLocations = [];
+                     const userCompany = allCompanies.find(c => String(c.id) === String(currentUser.companyId));
                      
                      if (userCompany) {
                          const isTaipei = userCompany.name.includes('台北');
                          const isTaoyuan = userCompany.name.includes('桃園');
                          
                          if (isTaipei) {
-                            return allCompanies
+                            resultLocations = allCompanies
                                 .filter(c => c.name.includes('台北') || c.name.includes('桃園'))
                                 .sort((a, b) => {
+                                    // Prioritize user's own company
+                                    if (String(a.id) === String(userCompany.id)) return -1;
+                                    if (String(b.id) === String(userCompany.id)) return 1;
+
                                     if (a.name.includes('台北')) return -1;
                                     if (b.name.includes('台北')) return 1;
                                     return 0;
                                 });
                         } else if (isTaoyuan) {
-                            return allCompanies
+                            resultLocations = allCompanies
                                 .filter(c => c.name.includes('台北') || c.name.includes('桃園'))
                                 .sort((a, b) => {
+                                    if (String(a.id) === String(userCompany.id)) return -1;
+                                    if (String(b.id) === String(userCompany.id)) return 1;
+
                                     if (a.name.includes('桃園')) return -1;
                                     if (b.name.includes('桃園')) return 1;
                                     return 0;
                                 });
                         } else {
-                             return allCompanies.sort((a, b) => {
-                                 if (a.id === userCompany.id) return -1;
-                                 if (b.id === userCompany.id) return 1;
-                                 return 0;
-                             });
-                         }
+                            resultLocations = allCompanies.sort((a, b) => {
+                                if (String(a.id) === String(userCompany.id)) return -1;
+                                if (String(b.id) === String(userCompany.id)) return 1;
+                                return 0;
+                            });
+                        }
+                     } else {
+                         // Fallback: Sort Taipei first, then Taoyuan, then others
+                         resultLocations = allCompanies.sort((a, b) => {
+                             const isTaipeiA = a.name.includes('台北');
+                             const isTaipeiB = b.name.includes('台北');
+                             const isTaoyuanA = a.name.includes('桃園');
+                             const isTaoyuanB = b.name.includes('桃園');
+                             
+                             if (isTaipeiA && !isTaipeiB) return -1;
+                             if (!isTaipeiA && isTaipeiB) return 1;
+                             
+                             if (isTaoyuanA && !isTaoyuanB) return -1;
+                             if (!isTaoyuanA && isTaoyuanB) return 1;
+                             
+                             return 0;
+                         });
                      }
-                     return allCompanies;
+
+                     // Add all communities for selection
+                     return [...resultLocations, ...allCommunities];
                  } else {
                      const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
                      const userComms = (communities || []).filter(c => userCommIds.includes(c.id)).map(c => ({ 
@@ -5248,9 +5313,14 @@
                             ) : (
                                 filteredHistory.map((r, idx) => {
                                     const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
-                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                    const dateObj = new Date(seconds * 1000);
+                                    const timeStr = dateObj.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                     const typeConfig = getTypeLabel(r.type);
                                     const isLeave = r.type === 'leave';
+                                    
+                                    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                                    const schedule = mySchedules[dateStr];
+                                    const isNightShiftDisplay = !!(r.isNightShift || (schedule && (schedule.startTime === '12:00' || schedule.crossDay === true)));
                                     
                                     return (
                                         <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -5277,6 +5347,11 @@
                                                                 {typeConfig.text}
                                                                 {['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address) ? ` ${r.checkInLocationName || r.address}` : ''}
                                                             </span>
+                                                            {isNightShiftDisplay && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">
+                                                                    夜班
+                                                                </span>
+                                                            )}
                                                             {isLeave && (
                                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ml-1 ${
                                                                     r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' : 
@@ -6235,7 +6310,7 @@
             const [signatureForm, setSignatureForm] = useState({ type: '', content: '' });
             const [signatureLoading, setSignatureLoading] = useState(false);
             const [showManualClockModal, setShowManualClockModal] = useState(false);
-            const [manualClockForm, setManualClockForm] = useState({ userId: '', locationName: '', type: 'in', date: '', time: '' });
+            const [manualClockForm, setManualClockForm] = useState({ userId: '', locationName: '', type: 'in', date: '', time: '', shift: 'day' });
 
             useEffect(() => {
                 if (signatureTypes.length > 0 && !signatureForm.type) {
@@ -6857,6 +6932,7 @@
                         timestamp: newDate,
                         checkInLocationName: formData.locationName || null,
                         address: formData.locationName || null,
+                        isNightShift: formData.shift === 'night',
                         updatedAt: serverTimestamp()
                     });
                     
@@ -7402,12 +7478,12 @@
                 if (shouldFetchAllAttendance) {
                     // Removed dateLimit filter to allow fetching records with malformed timestamp (Map instead of Timestamp)
                     // This ensures records that were incorrectly saved (previous bug) can still be retrieved.
-                    // We use limit(2000) to prevent fetching too much data, which should cover more than a month of active records.
-                    
+                    // We use limit(2) to prevent fetching too much data, as requested by user.
+
                     const qAll = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), 
                         orderBy('timestamp', 'desc'),
-                        limit(2000)
+                        limit(2)
                     );
                     
                     unsubscribes.push(onSnapshot(qAll, 
@@ -8641,6 +8717,7 @@
                                                         else if (schedule.type === 'duty' || schedule.type === 'card') bgColorClass = 'bg-yellow-50'; // 值班日 -> 淺黃色
                                                         else if (schedule.type === 'off') bgColorClass = 'bg-stone-200'; // 公休日 -> 棕色
                                                         else if (schedule.type === 'leave') bgColorClass = 'bg-orange-100'; // 請假日 -> 淺橘色
+                                                        else if (schedule.type === 'comp_leave') bgColorClass = 'bg-indigo-100'; // 補休 -> 淺靛色
                                                     }
                                                 }
                                             }
@@ -10152,6 +10229,33 @@
                                                                             ))}
                                                                         </select>
                                                                     </div>
+                                                                    <div>
+                                                                        <label className="block text-xs font-bold text-gray-500 mb-1">班別</label>
+                                                                        <div className="inline-flex text-[11px] font-bold rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setManualClockForm(prev => ({ ...prev, shift: 'day' }))}
+                                                                                className={`px-2 py-1 ${
+                                                                                    manualClockForm.shift !== 'night'
+                                                                                        ? 'bg-blue-600 text-white'
+                                                                                        : 'text-gray-600 bg-gray-50'
+                                                                                }`}
+                                                                            >
+                                                                                日班
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setManualClockForm(prev => ({ ...prev, shift: 'night' }))}
+                                                                                className={`px-2 py-1 ${
+                                                                                    manualClockForm.shift === 'night'
+                                                                                        ? 'bg-indigo-600 text-white'
+                                                                                        : 'text-gray-600 bg-gray-50'
+                                                                                }`}
+                                                                            >
+                                                                                夜班
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
                                                                     <div className="grid grid-cols-2 gap-2">
                                                                         <div>
                                                                             <label className="block text-xs font-bold text-gray-500 mb-1">打卡日期</label>
@@ -10195,6 +10299,7 @@
                                                                                         checkInLocationName: manualClockForm.locationName || '',
                                                                                         checkInTime: dt.toISOString(),
                                                                                         timestamp: dt,
+                                                                                        isNightShift: manualClockForm.shift === 'night',
                                                                                         createdAt: serverTimestamp()
                                                                                     });
                                                                                     setToast('已新增手動打卡');
@@ -10529,7 +10634,12 @@
                                                         } else {
                                                             seconds = Date.now() / 1000;
                                                         }
-                                                        const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                        const recordDateObj = new Date(seconds * 1000);
+                                                        const timeStr = recordDateObj.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                        
+                                                        const dateStr = `${recordDateObj.getFullYear()}-${String(recordDateObj.getMonth() + 1).padStart(2,'0')}-${String(recordDateObj.getDate()).padStart(2,'0')}`;
+                                                        const schedule = schedulesList.find(s => s.userId === r.userId && s.date === dateStr);
+                                                        const isNightShiftDisplay = !!(r.isNightShift || (schedule && (schedule.startTime === '12:00' || schedule.crossDay === true)));
                                                         
                                                         return (
                                                             <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -10578,9 +10688,16 @@
                                                     }
 
                                                     return (
-                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${config.class}`}>
-                                                            {finalText}
-                                                        </span>
+                                                        <>
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${config.class}`}>
+                                                                {finalText}
+                                                            </span>
+                                                            {isNightShiftDisplay && (
+                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">
+                                                                    夜班
+                                                                </span>
+                                                            )}
+                                                        </>
                                                     );
                                                 })()}
                                                                                 {r.modification?.status === 'approved' && (
@@ -13580,18 +13697,39 @@
                                     ];
                                     
                                     const dayRows = [];
+                                    const getLogicalDayDate = (recordDate, isNight) => {
+                                        const d = new Date(recordDate);
+                                        if (isNight && d.getHours() < 12) {
+                                            d.setDate(d.getDate() - 1);
+                                        }
+                                        return d;
+                                    };
                                     for (let day = 1; day <= daysInMonth; day++) {
                                         const dayStart = new Date(targetYear, targetMonth, day, 0, 0, 0);
                                         const dayEnd = new Date(targetYear, targetMonth, day, 23, 59, 59);
                                         const records = monthRecords.filter(r => {
-                                            const t = new Date((r.timestamp?.seconds || 0) * 1000);
-                                            return t >= dayStart && t <= dayEnd;
+                                            const rawDate = new Date((r.timestamp?.seconds || 0) * 1000);
+                                            const isNight = !!r.isNightShift;
+                                            const logicalDate = getLogicalDayDate(rawDate, isNight);
+                                            return logicalDate >= dayStart && logicalDate <= dayEnd;
                                         });
                                         
-                                        const ins = records.filter(r => r.type === 'in').sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                                        const outs = records.filter(r => r.type === 'out').sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                                        const firstIn = ins[0];
-                                        const lastOut = outs.length > 0 ? outs[outs.length - 1] : null;
+                                        const sortByTimestamp = (a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0);
+                                        const getFirstInLastOut = recs => {
+                                            const ins = recs.filter(r => r.type === 'in').sort(sortByTimestamp);
+                                            const outs = recs.filter(r => r.type === 'out').sort(sortByTimestamp);
+                                            return {
+                                                firstIn: ins[0],
+                                                lastOut: outs.length > 0 ? outs[outs.length - 1] : null
+                                            };
+                                        };
+                                        
+                                        const dayRecords = records.filter(r => !r.isNightShift);
+                                        const nightRecords = records.filter(r => r.isNightShift);
+                                        
+                                        const { firstIn, lastOut } = getFirstInLastOut(records);
+                                        const { firstIn: firstInDay, lastOut: lastOutDay } = getFirstInLastOut(dayRecords);
+                                        const { firstIn: firstInNight, lastOut: lastOutNight } = getFirstInLastOut(nightRecords);
                                         
                                         const hasOuting = records.some(r => (r.type || '').startsWith('outing'));
                                         const hasDuty = records.some(r => (r.type || '').startsWith('late'));
@@ -13746,9 +13884,24 @@
                                             hasApprovedLeave = records.some(r => (r.type || '') === 'leave' && r.status === 'approved');
                                         }
                                         
-                                        const inTimeStr = firstIn ? new Date(firstIn.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-                                        const outTimeStr = lastOut ? new Date(lastOut.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-                                        const locationStr = firstIn ? (firstIn.checkInLocationName || firstIn.address || '-') : '-';
+                                        const formatTime = tsSeconds => new Date(tsSeconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                        const makeTimeInfo = (first, last) => {
+                                            const inStr = first ? formatTime(first.timestamp.seconds) : '-';
+                                            let outStr = last ? formatTime(last.timestamp.seconds) : '-';
+                                            if (last && last.isNightShift) {
+                                                const rawOutDate = new Date(last.timestamp.seconds * 1000);
+                                                const outDay = rawOutDate.getDate();
+                                                if (outDay !== day) {
+                                                    outStr = `${outStr}(跨日)`;
+                                                }
+                                            }
+                                            const locStr = first ? (first.checkInLocationName || first.address || '-') : '-';
+                                            return { inStr, outStr, locStr };
+                                        };
+                                        
+                                        const allTimeInfo = makeTimeInfo(firstIn, lastOut);
+                                        const dayTimeInfo = makeTimeInfo(firstInDay, lastOutDay);
+                                        const nightTimeInfo = makeTimeInfo(firstInNight, lastOutNight);
                                         
                                         const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
                                         const schedule = userSchedules[dateStr] || null;
@@ -13821,6 +13974,7 @@
                                             else if (schedule.type === 'off') status = '特休';
                                             else if (schedule.type === 'leave') status = '請假';
                                             else if (schedule.type === 'holiday') status = '假日';
+                                            else if (schedule.type === 'comp_leave') status = '補休';
 
                                             if (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') {
                                                 scheduleInStr = schedule.startTime ? `${schedule.startTime}:00` : '-';
@@ -13866,21 +14020,61 @@
 
                                         const isLeaveStatus = status && status.startsWith('請假');
                                         
-                                        dayRows.push({
-                                            dateNum: day,
-                                            week: weekMap[dayOfWeek],
-                                            inTimeStr,
-                                            outTimeStr,
-                                            locationStr,
-                                            scheduleInStr,
-                                            scheduleOutStr,
-                                            workStr,
-                                            remarks: remarkContent,
-                                            status,
-                                            statusClass,
-                                            isHoliday: status === '假日',
-                                            isLeave: isLeaveStatus
-                                        });
+                                        const hasDayAndNight = dayRecords.length > 0 && nightRecords.length > 0;
+                                        const baseLocationStr = allTimeInfo.locStr;
+                                        
+                                        if (hasDayAndNight) {
+                                            dayRows.push({
+                                                dateNum: day,
+                                                week: weekMap[dayOfWeek],
+                                                inTimeStr: dayTimeInfo.inStr,
+                                                outTimeStr: dayTimeInfo.outStr,
+                                                locationStr: dayTimeInfo.locStr || baseLocationStr,
+                                                scheduleInStr,
+                                                scheduleOutStr,
+                                                workStr,
+                                                remarks: remarkContent,
+                                                status,
+                                                statusClass,
+                                                isHoliday: status === '假日',
+                                                isLeave: isLeaveStatus
+                                            });
+                                            
+                                            dayRows.push({
+                                                dateNum: day,
+                                                week: weekMap[dayOfWeek],
+                                                inTimeStr: nightTimeInfo.inStr,
+                                                outTimeStr: nightTimeInfo.outStr,
+                                                locationStr: nightTimeInfo.locStr || baseLocationStr,
+                                                scheduleInStr,
+                                                scheduleOutStr,
+                                                workStr: '',
+                                                remarks: remarkContent,
+                                                status,
+                                                statusClass,
+                                                isHoliday: status === '假日',
+                                                isLeave: isLeaveStatus
+                                            });
+                                        } else {
+                                            const useTimeInfo = dayRecords.length > 0 ? dayTimeInfo : nightTimeInfo;
+                                            const finalTimeInfo = (dayRecords.length === 0 && nightRecords.length === 0) ? allTimeInfo : useTimeInfo;
+                                            
+                                            dayRows.push({
+                                                dateNum: day,
+                                                week: weekMap[dayOfWeek],
+                                                inTimeStr: finalTimeInfo.inStr,
+                                                outTimeStr: finalTimeInfo.outStr,
+                                                locationStr: finalTimeInfo.locStr || baseLocationStr,
+                                                scheduleInStr,
+                                                scheduleOutStr,
+                                                workStr,
+                                                remarks: remarkContent,
+                                                status,
+                                                statusClass,
+                                                isHoliday: status === '假日',
+                                                isLeave: isLeaveStatus
+                                            });
+                                        }
                                     }
 
                                     
@@ -13911,7 +14105,7 @@
                                                             <div className="px-3 py-2">{row.week}</div>
                                                             <div className="px-3 py-2 text-xs truncate" title={row.locationStr}>{row.locationStr}</div>
                                                             <div className="px-3 py-2">
-                                                                {(!row.isHoliday && !row.isLeave && row.status !== '特休' && row.status !== '假日') ? (
+                                                                {(!row.isHoliday && !row.isLeave && row.status !== '特休' && row.status !== '假日' && row.status !== '補休') ? (
                                                                     <>
                                                                         <div className="text-gray-500 text-xs">班表 : {row.scheduleInStr}</div>
                                                                         <div className="text-gray-500 text-xs">打卡 : {row.inTimeStr}</div>
@@ -13923,7 +14117,7 @@
                                                                 )}
                                                             </div>
                                                             <div className="px-3 py-2">
-                                                                {(!row.isHoliday && !row.isLeave && row.status !== '特休' && row.status !== '假日') ? (
+                                                                {(!row.isHoliday && !row.isLeave && row.status !== '特休' && row.status !== '假日' && row.status !== '補休') ? (
                                                                     <>
                                                                         <div className="text-gray-500 text-xs">班表 : {row.scheduleOutStr}</div>
                                                                         <div className="text-gray-500 text-xs">打卡 : {row.outTimeStr}</div>
@@ -13934,7 +14128,7 @@
                                                                     )
                                                                 )}
                                                             </div>
-                                                            <div className="px-3 py-2">{(row.status === '特休' || row.status === '假日' || row.isHoliday || row.isLeave) ? '' : row.workStr}</div>
+                                                            <div className="px-3 py-2">{(row.status === '特休' || row.status === '假日' || row.status === '補休' || row.isHoliday || row.isLeave) ? '' : row.workStr}</div>
                                                             <div className={`px-3 py-2 font-bold ${row.statusClass}`}>{row.status}</div>
                                                             <div className="px-3 py-2">{row.remarks}</div>
                                                         </div>
@@ -14107,9 +14301,15 @@
                                     >
                                         假日
                                     </button>
+                                    <button
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'comp_leave' }))}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'comp_leave' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    >
+                                        補休
+                                    </button>
                                 </div>
 
-                                {(!['off','leave','holiday'].includes(scheduleForm.type)) && (
+                                {(!['off','leave','holiday','comp_leave'].includes(scheduleForm.type)) && (
                                     <div className="space-y-4 mb-6">
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">上班時間</label>
