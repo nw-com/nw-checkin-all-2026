@@ -4263,7 +4263,7 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work' }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work', isNightShift = false, setIsNightShift }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [toast, setToast] = useState(''); // Add toast state to StaffDashboard
             const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -5150,15 +5150,43 @@
                                         <span className="font-bold text-sm">
                                             {checkInLocation?.id === 'custom' ? '自定義地點' : (checkInLocation?.name || '定位中...')}
                                         </span>
+                                        {availableLocations.length > 1 && (
+                                            <button 
+                                                onClick={() => setShowLocationSelector(true)}
+                                                className="text-xs bg-gray-100 px-3 py-1.5 rounded-lg text-gray-600 font-bold hover:bg-gray-200"
+                                            >
+                                                更換
+                                            </button>
+                                        )}
                                     </div>
-                                    {availableLocations.length > 1 && (
-                                        <button 
-                                            onClick={() => setShowLocationSelector(true)}
-                                            className="text-xs bg-gray-100 px-3 py-1.5 rounded-lg text-gray-600 font-bold hover:bg-gray-200"
-                                        >
-                                            更換
-                                        </button>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {typeof setIsNightShift === 'function' && (
+                                            <div className="flex text-[11px] font-bold rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsNightShift(false)}
+                                                    className={`px-2 py-1 ${
+                                                        !isNightShift
+                                                            ? 'bg-blue-600 text-white'
+                                                            : 'text-gray-600 bg-gray-50'
+                                                    }`}
+                                                >
+                                                    日班
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsNightShift(true)}
+                                                    className={`px-2 py-1 ${
+                                                        isNightShift
+                                                            ? 'bg-indigo-600 text-white'
+                                                            : 'text-gray-600 bg-gray-50'
+                                                    }`}
+                                                >
+                                                    夜班
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 
                                 {checkInLocation?.id === 'custom' && (
@@ -5220,7 +5248,7 @@
                             ) : (
                                 filteredHistory.map((r, idx) => {
                                     const seconds = r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000;
-                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                     const typeConfig = getTypeLabel(r.type);
                                     const isLeave = r.type === 'leave';
                                     
@@ -5285,7 +5313,7 @@
                                                                             if (r.modification.status === 'approved' && r.modification.originalTimestamp) {
                                                                                 const ot = r.modification.originalTimestamp;
                                                                                 const s = ot.seconds || (ot instanceof Date ? ot.getTime()/1000 : 0);
-                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                                                             }
                                                                             return timeStr;
                                                                         })()}
@@ -5860,7 +5888,7 @@
                                     </div>
                                     <div className="text-right">
                                         <div className="text-xs font-mono text-gray-600">
-                                            {log.timestamp && log.timestamp.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit' }) : '--:--'}
+                                            {log.timestamp && log.timestamp.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' }) : '--:--:--'}
                                         </div>
                                         {log.type === 'in' && <div className="flex items-center justify-end text-[10px] text-green-500 gap-0.5 mt-0.5"><CheckCircle className="w-2 h-2"/> 正常</div>}
                                     </div>
@@ -8689,6 +8717,8 @@
                                         setMapPreviewTarget={setMapPreviewTarget}
                                         setPreviewImageUrl={setPreviewImageUrl}
                                         roles={roles}
+                                        isNightShift={isNightShift}
+                                        setIsNightShift={setIsNightShift}
                                     />
                                 </ErrorBoundary>
                             </div>
@@ -8732,6 +8762,8 @@
                                         roles={roles}
                                         hideHeaderInfo={true}
                                         mode="work"
+                                        isNightShift={isNightShift}
+                                        setIsNightShift={setIsNightShift}
                                     />
                                 )}
                                 {clockSubtab === 'out' && hasSubPermission('clock', 'out') && (
@@ -8750,6 +8782,8 @@
                                         roles={roles}
                                         hideHeaderInfo={true}
                                         mode="outing"
+                                        isNightShift={isNightShift}
+                                        setIsNightShift={setIsNightShift}
                                     />
                                 )}
                                 {clockSubtab === 'card' && hasSubPermission('clock', 'card') && (
@@ -8768,6 +8802,8 @@
                                         roles={roles}
                                         hideHeaderInfo={true}
                                         mode="card"
+                                        isNightShift={isNightShift}
+                                        setIsNightShift={setIsNightShift}
                                     />
                                 )}
                                 {clockSubtab === 'leave' && hasSubPermission('clock', 'leave') && (
@@ -8776,8 +8812,8 @@
                                         onClockIn={handleClockIn}
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         onLeaveSubmit={handleLeaveSubmit}
-                                    attendanceHistory={[]}
-                                    timeOffset={timeOffset}
+                                        attendanceHistory={[]}
+                                        timeOffset={timeOffset}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -8787,6 +8823,8 @@
                                         roles={roles}
                                         hideHeaderInfo={true}
                                         mode="leave"
+                                        isNightShift={isNightShift}
+                                        setIsNightShift={setIsNightShift}
                                     />
                                 )}
                                 {clockSubtab === 'schedule' && (
@@ -9606,7 +9644,8 @@
                                                         const companyMembers = usersList.filter(u => 
                                                             ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || 
                                                             String(u.companyId) === String(targetCompany.id)) &&
-                                                            finalTargetRoles.includes(u.role)
+                                                            finalTargetRoles.includes(u.role) &&
+                                                            (u.status === '在職' || !u.status)
                                                         );
                                                         
                                                         companyUsers = companyMembers.map(u => {
@@ -10393,7 +10432,7 @@
                                                                         
                                                                         const rDate = new Date(seconds * 1000);
                                                                         const dateStr = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
-                                                                        const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                        const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                                                         const modifiedTime = r.modification?.time || '無修改時間';
                                                                         
                                                                         const typeMap = {
@@ -10490,7 +10529,7 @@
                                                         } else {
                                                             seconds = Date.now() / 1000;
                                                         }
-                                                        const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                        const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                                         
                                                         return (
                                                             <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -10564,7 +10603,7 @@
                                                                                             if (r.modification.status === 'approved' && r.modification.originalTimestamp) {
                                                                                                 const ot = r.modification.originalTimestamp;
                                                                                                 const s = ot.seconds || (ot instanceof Date ? ot.getTime()/1000 : 0);
-                                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                                                                             }
                                                                                             return timeStr;
                                                                                         })()}
@@ -11475,7 +11514,7 @@
                                                                                     } else {
                                                                                         seconds = Date.now() / 1000;
                                                                                     }
-                                                                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                                                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                                                                     const isIn = r.type === 'in';
                                                                                     return (
                                                                                         <div key={r.id} className="flex items-center gap-3">
