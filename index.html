@@ -4562,9 +4562,6 @@
                 const scheduleNight = !!(scheduleToday && (scheduleToday.startTime === '12:00' || scheduleToday.crossDay === true));
 
                 let defaultNight = scheduleNight;
-                if (['admin', 'hr', 'property', 'cadre'].includes(currentUser.role)) {
-                    defaultNight = false;
-                }
 
                 let windowStart = new Date(currentTime);
                 let windowEnd = new Date(currentTime);
@@ -6361,6 +6358,96 @@
             const [fetchError, setFetchError] = useState('');
             const [isOnline, setIsOnline] = useState(navigator.onLine);
             const [activeTab, setActiveTab] = useState(() => localStorage.getItem('last_active_tab') || 'home');
+            const [overviewSubtab, setOverviewSubtab] = useState('district');
+            const [overviewMeetingDate, setOverviewMeetingDate] = useState(new Date());
+            const [overviewMeetingSelectedDate, setOverviewMeetingSelectedDate] = useState(new Date());
+            const [overviewMeetingModalOpen, setOverviewMeetingModalOpen] = useState(false);
+            const [overviewMeetingForm, setOverviewMeetingForm] = useState({
+                communityId: '',
+                type: '例會',
+                date: '',
+                time: '',
+                participants: [],
+                leaderId: '',
+                description: ''
+            });
+            const [overviewMeetings, setOverviewMeetings] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('overviewMeetings');
+                    let meetings = saved ? JSON.parse(saved) : [];
+                    
+                    // Restore specifically lost meeting: 2026/01/17 20:00
+                    const lostDate = '2026-01-17';
+                    const lostTime = '20:00';
+                    const exists = meetings.some(m => m.date === lostDate && m.time === lostTime);
+                    
+                    if (!exists) {
+                        meetings.push({
+                            id: 'restored_lost_meeting',
+                            companyName: '台北公司', 
+                            communityId: '',
+                            type: '例會',
+                            date: lostDate,
+                            time: lostTime,
+                            participants: [],
+                            leaderId: '',
+                            description: '補回遺失的例會'
+                        });
+                    }
+                    return meetings;
+                } catch (e) {
+                    return [];
+                }
+            });
+
+            useEffect(() => {
+                localStorage.setItem('overviewMeetings', JSON.stringify(overviewMeetings));
+            }, [overviewMeetings]);
+            const [meetingReminder, setMeetingReminder] = useState(null);
+
+            useEffect(() => {
+                if (!dbUser) {
+                    setMeetingReminder(null);
+                    return;
+                }
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                const todayKey = `${y}-${m}-${d}`;
+                const meetings = Array.isArray(overviewMeetings) ? overviewMeetings : [];
+                let target = null;
+                const currentUserId = dbUser.id != null ? String(dbUser.id) : null;
+                if (!currentUserId) {
+                    setMeetingReminder(null);
+                    return;
+                }
+                for (let i = 0; i < meetings.length; i++) {
+                    const meet = meetings[i];
+                    if (!meet || meet.date !== todayKey) continue;
+                    const leaderId = meet.leaderId != null ? String(meet.leaderId) : null;
+                    const participantIds = Array.isArray(meet.participants) ? meet.participants.map(v => String(v)) : [];
+                    const isLeader = leaderId === currentUserId;
+                    const isParticipant = participantIds.includes(currentUserId);
+                    if (!isLeader && !isParticipant) continue;
+                    const key = `meetingReminderClosed_${dbUser.id}_${meet.id}_${todayKey}`;
+                    let count = 0;
+                    try {
+                        const stored = localStorage.getItem(key);
+                        if (stored != null) {
+                            const parsed = parseInt(stored, 10);
+                            if (!isNaN(parsed)) count = parsed;
+                        }
+                    } catch {}
+                    if (count < 2) {
+                        target = meet;
+                        break;
+                    }
+                }
+                setMeetingReminder(target);
+            }, [dbUser, overviewMeetings]);
+            const [overviewMeetingCompany, setOverviewMeetingCompany] = useState('台北公司');
+            const [overviewMeetingDatesByCompany, setOverviewMeetingDatesByCompany] = useState({});
             const [clockSubtab, setClockSubtab] = useState('work');
             const [clockScheduleDate, setClockScheduleDate] = useState(new Date()); // New State for Clock Tab Schedule
             const [clockScheduleSelectedDate, setClockScheduleSelectedDate] = useState(new Date()); // New State for Selected Date in Clock Schedule
@@ -6419,7 +6506,6 @@
             const [clockType, setClockType] = useState('in');
             const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
             const [timeOffset, setTimeOffset] = useState(0);
-            const [dateTime, setDateTime] = useState('');
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
             const [showCommunityPortal, setShowCommunityPortal] = useState(false);
@@ -7346,17 +7432,6 @@
             }, []);
 
             useEffect(() => {
-                const update = () => {
-                    const now = new Date(Date.now() + timeOffset);
-                    const timeStr = now.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    const dateStr = now.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-                    setDateTime(`${dateStr}    ${timeStr}`);
-                };
-                update();
-                const t = setInterval(update, 1000);
-                return () => clearInterval(t);
-            }, [timeOffset]);
-            useEffect(() => {
                 const deleteAdmin = async () => {
                     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('email', '==', 'admin@sys.com'));
                     const snap = await getDocs(q);
@@ -7381,6 +7456,9 @@
             
             const switchTab = (tab) => {
                 setActiveTab(tab);
+                if (tab === 'overview') {
+                    setOverviewSubtab('district');
+                }
                 if (tab === 'settings') {
                     setSettingsSubtab('general');
                 }
@@ -7389,6 +7467,159 @@
                 }
                 if (tab === 'cadre') {
                     setCadreSubtab('map');
+                }
+            };
+
+            const handleOverviewMeetingCompanyChange = (name) => {
+                if (name === overviewMeetingCompany) return;
+                setOverviewMeetingDatesByCompany(prev => {
+                    const prevKey = overviewMeetingCompany || 'default';
+                    const updated = { ...prev, [prevKey]: overviewMeetingDate };
+                    const nextDate = updated[name] || overviewMeetingDate;
+                    setOverviewMeetingDate(nextDate);
+                    return updated;
+                });
+                setOverviewMeetingCompany(name);
+            };
+
+            const changeOverviewMeetingMonth = (delta) => {
+                setOverviewMeetingDatesByCompany(prev => {
+                    const key = overviewMeetingCompany || 'default';
+                    const baseDate = prev[key] || overviewMeetingDate;
+                    const nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + delta, 1);
+                    const updated = { ...prev, [key]: nextDate };
+                    setOverviewMeetingDate(nextDate);
+                    setOverviewMeetingSelectedDate(nextDate);
+                    return updated;
+                });
+            };
+
+            const openOverviewMeetingModal = () => {
+                const d = overviewMeetingSelectedDate || overviewMeetingDate || new Date();
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${day}`;
+                setOverviewMeetingForm({
+                    communityId: '',
+                    type: '例會',
+                    date: dateStr,
+                    time: '',
+                    participants: [],
+                    leaderId: '',
+                    description: ''
+                });
+                setOverviewMeetingModalOpen(true);
+            };
+
+            const handleOverviewMeetingFormChange = (field, value) => {
+                setOverviewMeetingForm(prev => ({
+                    ...prev,
+                    [field]: value
+                }));
+            };
+
+            const handleOverviewMeetingParticipantToggle = (userId, isChecked) => {
+                setOverviewMeetingForm(prev => {
+                    let nextParticipants = Array.isArray(prev.participants) ? [...prev.participants] : [];
+                    if (isChecked) {
+                        if (!nextParticipants.includes(userId)) {
+                            nextParticipants.push(userId);
+                        }
+                    } else {
+                        nextParticipants = nextParticipants.filter(id => id !== userId);
+                    }
+                    const nextLeader = nextParticipants.includes(prev.leaderId) ? prev.leaderId : '';
+                    return {
+                        ...prev,
+                        participants: nextParticipants,
+                        leaderId: nextLeader
+                    };
+                });
+            };
+
+            const handleSaveOverviewMeeting = () => {
+                if (!overviewMeetingForm.date) return;
+                
+                if (overviewMeetingForm.id) {
+                    setOverviewMeetings(prev => prev.map(m => {
+                        if (m.id === overviewMeetingForm.id) {
+                            return {
+                                ...m,
+                                companyName: overviewMeetingCompany,
+                                communityId: overviewMeetingForm.communityId,
+                                type: overviewMeetingForm.type,
+                                date: overviewMeetingForm.date,
+                                time: overviewMeetingForm.time,
+                                participants: overviewMeetingForm.participants,
+                                leaderId: overviewMeetingForm.leaderId,
+                                description: overviewMeetingForm.description
+                            };
+                        }
+                        return m;
+                    }));
+                } else {
+                    const newItem = {
+                        id: Date.now().toString(),
+                        companyName: overviewMeetingCompany,
+                        communityId: overviewMeetingForm.communityId,
+                        type: overviewMeetingForm.type,
+                        date: overviewMeetingForm.date,
+                        time: overviewMeetingForm.time,
+                        participants: overviewMeetingForm.participants,
+                        leaderId: overviewMeetingForm.leaderId,
+                        description: overviewMeetingForm.description,
+                        creatorId: dbUser?.id,
+                        creatorName: dbUser?.name || '未記錄'
+                    };
+                    setOverviewMeetings(prev => [...prev, newItem]);
+                }
+                setOverviewMeetingModalOpen(false);
+            };
+
+             const handleCloseMeetingReminder = () => {
+                 if (!dbUser || !meetingReminder) {
+                     setMeetingReminder(null);
+                     return;
+                 }
+                 const today = new Date();
+                 const y = today.getFullYear();
+                 const m = String(today.getMonth() + 1).padStart(2, '0');
+                 const d = String(today.getDate()).padStart(2, '0');
+                 const todayKey = `${y}-${m}-${d}`;
+                 const key = `meetingReminderClosed_${dbUser.id}_${meetingReminder.id}_${todayKey}`;
+                 let count = 0;
+                 try {
+                     const stored = localStorage.getItem(key);
+                     if (stored != null) {
+                         const parsed = parseInt(stored, 10);
+                         if (!isNaN(parsed)) count = parsed;
+                     }
+                 } catch {}
+                 const next = count >= 2 ? 2 : count + 1;
+                 try {
+                     localStorage.setItem(key, String(next));
+                 } catch {}
+                 setMeetingReminder(null);
+             };
+
+            const handleEditOverviewMeeting = (meeting) => {
+                setOverviewMeetingForm({
+                    id: meeting.id,
+                    communityId: meeting.communityId || '',
+                    type: meeting.type || '例會',
+                    date: meeting.date,
+                    time: meeting.time,
+                    participants: meeting.participants || [],
+                    leaderId: meeting.leaderId || '',
+                    description: meeting.description || ''
+                });
+                setOverviewMeetingModalOpen(true);
+            };
+
+            const handleDeleteOverviewMeeting = (meetingId) => {
+                if (confirm('確定要刪除此例會嗎？')) {
+                    setOverviewMeetings(prev => prev.filter(m => m.id !== meetingId));
                 }
             };
 
@@ -8503,8 +8734,9 @@
                                 </div>
                             )}
                             {activeTab === 'overview' && (
-                                <div className="w-full flex justify-center">
-                                    <div className="text-4xl font-bold text-black">{dateTime}</div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setOverviewSubtab('district')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>例會</button>
+                                    <button onClick={() => setOverviewSubtab('general')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>概況</button>
                                 </div>
                             )}
                             {activeTab === 'clock' && (
@@ -8939,6 +9171,24 @@
                     </div>
 
                     {/* Main Content Area - Mobile Container */}
+                    {meetingReminder && (
+                        <div className="fixed inset-0 z-40 flex items-end justify-center pointer-events-none">
+                            <div className="w-full max-w-xs mb-6 px-4 pointer-events-auto">
+                                <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-3 text-xs space-y-1">
+                                    <div className="font-bold text-gray-800">例會提醒</div>
+                                    <div className="text-gray-700">
+                                        今天 {meetingReminder.time || ''} 有 {meetingReminder.type || '例會'}
+                                    </div>
+                                    <button 
+                                        onClick={handleCloseMeetingReminder}
+                                        className="mt-2 w-full bg-gray-800 hover:bg-gray-900 text-white text-xs py-1.5 rounded-xl transition-colors"
+                                    >
+                                        我知道了
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <main className={`absolute left-0 right-0 overflow-y-auto ${(activeTab === 'cadre') ? 'top-[24vh] h-[68vh]' : 'top-[16vh] h-[76vh]'}`}>
                         <div className={`w-full max-w-md mx-auto px-4 py-4 ${activeTab === 'cadre' ? 'pb-20' : ''}`}>
                         
@@ -8968,21 +9218,251 @@
 
                         {activeTab === 'overview' && hasPermission('overview') && (
                             <div className="space-y-6 mb-6">
-                                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                                    <h2 className="text-lg font-bold text-gray-800 mb-4">總覽</h2>
-                                    <div className="space-y-4">
-                                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">各社區概況</h3>
-                                        {communities.map(c => (
-                                            <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                                <span className="text-sm font-bold text-gray-700">{c.name}</span>
-                                                <div className="flex gap-2 text-[10px] font-bold">
-                                                    <span className="bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-2xl">正常 98%</span>
-                                                    <span className="bg-red-50 text-red-600 px-2 py-1 rounded-2xl">異常 2%</span>
+                                {overviewSubtab === 'general' && (
+                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                        <h2 className="text-lg font-bold text-gray-800 mb-4">總覽</h2>
+                                        <div className="space-y-4">
+                                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">各社區概況</h3>
+                                            {communities.map(c => (
+                                                <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                                    <span className="text-sm font-bold text-gray-700">{c.name}</span>
+                                                    <div className="flex gap-2 text-[10px] font-bold">
+                                                        <span className="bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-2xl">正常 98%</span>
+                                                        <span className="bg-red-50 text-red-600 px-2 py-1 rounded-2xl">異常 2%</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+                                {overviewSubtab === 'district' && (
+                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                        <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                            <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                            <span className="text-red-600 font-bold">{overviewMeetingCompany}</span>
+                                        </div>
+                                        <div className="flex items-center justify-center mb-4">
+                                            <button 
+                                                onClick={() => changeOverviewMeetingMonth(-1)}
+                                                className="p-1 rounded-full hover:bg-gray-100"
+                                            >
+                                                <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                            </button>
+                                            <span className="font-bold text-gray-800 text-lg mx-3">
+                                                {overviewMeetingDate.getFullYear()}年 {overviewMeetingDate.getMonth() + 1}月
+                                            </span>
+                                            <button 
+                                                onClick={() => changeOverviewMeetingMonth(1)}
+                                                className="p-1 rounded-full hover:bg-gray-100"
+                                            >
+                                                <ChevronRight className="w-5 h-5 text-gray-600" />
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                            {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                                <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                            ))}
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {(() => {
+                                                const year = overviewMeetingDate.getFullYear();
+                                                const month = overviewMeetingDate.getMonth();
+                                                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                                const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                                const days = [];
+
+                                                const meetingDatesSet = new Set(
+                                                    overviewMeetings
+                                                        .filter(meet => 
+                                                            meet.companyName === overviewMeetingCompany && 
+                                                            (meet.type === '例會' || meet.type === '臨時會')
+                                                        )
+                                                        .map(meet => meet.date)
+                                                );
+                                                // Taiwan National Holidays (2025-2026)
+                                                const holidays = [
+                                                    '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', 
+                                                    '2025-02-28', 
+                                                    '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', 
+                                                    '2025-05-01', 
+                                                    '2025-05-30', '2025-05-31', '2025-06-01', 
+                                                    '2025-10-04', '2025-10-05', '2025-10-06', 
+                                                    '2025-10-10', '2025-10-11', '2025-10-12', 
+                                                    '2025-12-25', 
+
+                                                    '2026-01-01', 
+                                                    '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', 
+                                                    '2026-02-27', '2026-02-28', '2026-03-01', 
+                                                    '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', 
+                                                    '2026-05-01', 
+                                                    '2026-06-19', '2026-06-20', '2026-06-21', 
+                                                    '2026-09-25', '2026-09-26', '2026-09-27', 
+                                                    '2026-10-09', '2026-10-10', '2026-10-11', 
+                                                    '2026-12-25', 
+                                                ];
+
+                                                // Empty cells
+                                                for (let i = 0; i < firstDayOfWeek; i++) {
+                                                    days.push(<div key={`empty-${i}`} className="h-10"></div>);
+                                                }
+
+                                                // Days
+                                                for (let d = 1; d <= daysInMonth; d++) {
+                                                    const currentDate = new Date(year, month, d);
+                                                    const isSelected =
+                                                        overviewMeetingSelectedDate &&
+                                                        overviewMeetingSelectedDate.getFullYear() === currentDate.getFullYear() &&
+                                                        overviewMeetingSelectedDate.getMonth() === currentDate.getMonth() &&
+                                                        overviewMeetingSelectedDate.getDate() === currentDate.getDate();
+                                                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                                    const isToday = new Date().toDateString() === currentDate.toDateString();
+                                                    const isHoliday = holidays.includes(dateStr);
+                                                    const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                                    const hasMeeting = meetingDatesSet.has(dateStr);
+
+                                                    let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                                    
+                                                    if (isToday) {
+                                                        cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                                    } else if (hasMeeting) {
+                                                        cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                                    } else if (isSelected) {
+                                                        cellClass = 'bg-red-50 text-red-600 border border-red-200';
+                                                    }
+
+                                                    days.push(
+                                                        <div 
+                                                            key={d} 
+                                                            className={`rounded-xl flex items-center justify-center cursor-pointer transition-colors ${cellClass}`}
+                                                            style={{ aspectRatio: '2 / 1' }}
+                                                            onClick={() => setOverviewMeetingSelectedDate(currentDate)}
+                                                        >
+                                                            <span className={`text-sm font-bold ${isToday ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>
+                                                                {d}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                }
+                                                return days;
+                                            })()}
+                                        </div>
+                                        <div className="mt-4 p-4 rounded-xl bg-gray-50 border border-gray-100 text-sm text-left">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <div className="font-bold text-gray-800 text-sm">
+                                                    當日例會
+                                                </div>
+                                                <button
+                                                    onClick={openOverviewMeetingModal}
+                                                    className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700"
+                                                >
+                                                    + 新增
+                                                </button>
+                                            </div>
+                                            {(function() {
+                                                if (!overviewMeetingSelectedDate) {
+                                                    return (
+                                                        <div className="text-gray-400 text-xs">
+                                                            請點選上方日曆中的日期以查看當日例會內容。
+                                                        </div>
+                                                    );
+                                                }
+                                                const y = overviewMeetingSelectedDate.getFullYear();
+                                                const m = String(overviewMeetingSelectedDate.getMonth() + 1).padStart(2, '0');
+                                                const day = String(overviewMeetingSelectedDate.getDate()).padStart(2, '0');
+                                                const weekdayNames = ['日', '一', '二', '三', '四', '五', '六'];
+                                                const w = weekdayNames[overviewMeetingSelectedDate.getDay()];
+                                                const dateKey = `${y}-${m}-${day}`;
+                                                const items = overviewMeetings.filter(meet => meet.companyName === overviewMeetingCompany && meet.date === dateKey);
+                                                if (items.length === 0) {
+                                                    return (
+                                                        <div>
+                                                            <div className="font-bold text-gray-800 mb-1">
+                                                                {`${y}年${m}月${day}日 (${w})`} · {overviewMeetingCompany} 例會
+                                                            </div>
+                                                            <div className="text-xs text-gray-500 italic">
+                                                                目前尚未設定此日期的例會內容。
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                const company = companies.find(c => c.name === overviewMeetingCompany);
+                                                const companyId = company ? company.id : null;
+                                                const availableCommunities = companyId
+                                                    ? communities.filter(comm => {
+                                                        const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                                        return ids.some(id => String(id) === String(companyId));
+                                                    })
+                                                    : [];
+                                                const communityMap = {};
+                                                availableCommunities.forEach(comm => {
+                                                    communityMap[comm.id] = comm;
+                                                });
+                                                const userMap = {};
+                                                usersList.forEach(u => {
+                                                    userMap[u.id] = u;
+                                                });
+                                                return (
+                                                    <div className="space-y-3">
+                                                        <div className="font-bold text-gray-800">
+                                                            {`${y}年${m}月${day}日 (${w})`} · {overviewMeetingCompany} 例會
+                                                        </div>
+                                                        {items.map(item => {
+                                                            const community = communityMap[item.communityId];
+                                                            const leader = userMap[item.leaderId];
+                                                            const participants = (item.participants || []).map(pid => userMap[pid]).filter(Boolean);
+                                                            const canEdit = dbUser?.id === item.creatorId || dbUser?.role === 'admin';
+                                                            return (
+                                                                <div key={item.id} className="p-3 rounded-xl bg-white border border-gray-200 text-xs space-y-1 relative group">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <div className="font-bold text-gray-800">
+                                                                            {item.type || '例會'}
+                                                                        </div>
+                                                                        <div className="text-gray-500">
+                                                                            {item.time || '未設定時間'}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="text-gray-700">
+                                                                        社區：{community ? community.name : '未指定'}
+                                                                    </div>
+                                                                    <div className="text-gray-700">
+                                                                        主導：{leader ? leader.name : '未指定'}
+                                                                    </div>
+                                                                    <div className="text-gray-700">
+                                                                        參加：{participants.length > 0 ? participants.map(p => p.name).join('、') : '未指定'}
+                                                                    </div>
+                                                                    {item.description && (
+                                                                        <div className="text-gray-600 whitespace-pre-wrap">
+                                                                            {item.description}
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="text-gray-400 text-[10px] pt-1 border-t border-gray-100 mt-1">
+                                                                        建立 : {item.creatorName || '未記錄'}
+                                                                    </div>
+                                                                    {canEdit && (
+                                                                        <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
+                                                                            <button 
+                                                                                onClick={() => handleEditOverviewMeeting(item)}
+                                                                                className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 py-1 rounded transition-colors"
+                                                                            >
+                                                                                編輯
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleDeleteOverviewMeeting(item.id)}
+                                                                                className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 py-1 rounded transition-colors"
+                                                                            >
+                                                                                刪除
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -10057,11 +10537,21 @@
                                                                 return R * c;
                                                             };
 
-                                                            const totalCompanyUsers = companyUsers ? companyUsers.length : 0;
+                                                            const companyUserIds = (companyUsers || []).map(u => u.id);
+                                                            const companyUserIdsSet = new Set(companyUserIds);
+                                                            const scheduledUserIds = new Set();
+                                                            (schedulesList || []).forEach(s => {
+                                                                if (!['work', 'duty'].includes(s.type)) return;
+                                                                if (s.date !== cadreRecordDate) return;
+                                                                if (!companyUserIdsSet.has(s.userId)) return;
+                                                                scheduledUserIds.add(s.userId);
+                                                            });
+                                                            const expectedCount = scheduledUserIds.size;
+
                                                             let normalCount = 0;
                                                             let abnormalCount = 0;
 
-                                                            const clockedInUsers = (companyUsers || []).map(u => {
+                                                            const clockedInUsers = (companyUsers || []).filter(u => scheduledUserIds.has(u.id)).map(u => {
                                                                 const recs = attendanceList.filter(r => {
                                                                     const secs = r.timestamp?.seconds || r.createdAt?.seconds;
                                                                     if (!secs) return false;
@@ -10111,10 +10601,9 @@
                                                             }).filter(Boolean).sort((a, b) => b.secs - a.secs);
 
                                                             const clockedInCount = clockedInUsers.length;
-                                                            const notClockedInCount = totalCompanyUsers - clockedInCount;
-                                                            const companyUserIds = (companyUsers || []).map(u => u.id);
+
                                                             const leaveCount = (leavesList || []).filter(r => {
-                                                                if (!companyUserIds.includes(r.userId)) return false;
+                                                                if (!scheduledUserIds.has(r.userId)) return false;
                                                                 if (r.approvalStatus && r.approvalStatus !== 'approved') return false;
                                                                 const rDateStr = r.leaveStartDate ? r.leaveStartDate.split('T')[0] : (r.leaveDate || (() => {
                                                                     const d = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
@@ -10122,6 +10611,8 @@
                                                                 })());
                                                                 return rDateStr === cadreRecordDate;
                                                             }).length;
+
+                                                            const notClockedInCount = Math.max(0, expectedCount - leaveCount - clockedInCount);
 
                                                             if (clockedInUsers.length === 0 && notClockedInCount === 0) return null;
                                                             
@@ -10137,6 +10628,42 @@
                                                                     <div className="text-xs font-bold text-gray-500 mb-1">
                                                                         今日最新打卡紀錄
                                                                     </div>
+                                                                    <div className="text-xs font-bold text-gray-500 mb-1">
+                                                                        本日應上班 : {expectedCount}
+                                                                    </div>
+                                                                    {(function() {
+                                                                        if (scheduledUserIds.size === 0) return null;
+                                                                        const scheduledUsers = Array.from(scheduledUserIds).map(uid => {
+                                                                            const user = (companyUsers || []).find(u => u.id === uid);
+                                                                            if (!user) return null;
+                                                                            const sched = (schedulesList || []).find(s => s.userId === uid && s.date === cadreRecordDate && ['work', 'duty'].includes(s.type));
+                                                                            return { user, scheduleType: sched?.type || 'work' };
+                                                                        }).filter(Boolean).sort((a, b) => {
+                                                                            const an = a.user.name || '';
+                                                                            const bn = b.user.name || '';
+                                                                            return an.localeCompare(bn, 'zh-Hant');
+                                                                        });
+                                                                        return (
+                                                                            <div className="mt-1 mb-2 border border-gray-100 rounded-xl p-2 bg-gray-50">
+                                                                                <div className="text-xs font-bold text-gray-500 mb-1">
+                                                                                    今日上班/值班人員清單
+                                                                                </div>
+                                                                                <div className="flex flex-wrap gap-2">
+                                                                                    {scheduledUsers.map(({ user, scheduleType }) => (
+                                                                                        <div
+                                                                                            key={user.id}
+                                                                                            className="px-2 py-1 rounded-full border border-gray-200 text-[11px] bg-white text-gray-700 flex items-center gap-1"
+                                                                                        >
+                                                                                            <span className="font-bold">{user.name}</span>
+                                                                                            <span className={scheduleType === 'work' ? 'text-blue-600' : 'text-yellow-600'}>
+                                                                                                {scheduleType === 'work' ? '上班' : '值班'}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                     <div className="text-xs font-bold text-gray-500 mb-2 flex items-center flex-wrap gap-1">
                                                                         <span className="text-gray-800">已打卡 : {clockedInCount}</span>
                                                                         <span className="text-gray-400">(</span>
@@ -10146,7 +10673,7 @@
                                                                         <span className="text-gray-400">)</span>
                                                                         <span className="text-red-600 ml-1">未打卡 : {notClockedInCount}</span>
                                                                         <span className="text-gray-400">(</span>
-                                                                        <span className="text-red-600">異常 : {abnormalCount}</span>
+                                                                        <span className="text-red-600">異常 : {notClockedInCount}</span>
                                                                         <span className="text-gray-300">|</span>
                                                                         <span className="text-red-600">請假 : {leaveCount}</span>
                                                                         <span className="text-gray-400">)</span>
@@ -12241,6 +12768,41 @@
                         </div>
                     </main>
 
+                    {/* Overview Meeting Company Selection Bar - Only visible on Overview / District */}
+                    {activeTab === 'overview' && overviewSubtab === 'district' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2">
+                                    {['台北公司', '桃園公司'].map(name => {
+                                        const len = name.length;
+                                        let displayName = name;
+                                        if (len === 4) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 5) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 6) {
+                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
+                                        }
+
+                                        return (
+                                            <button 
+                                                key={name}
+                                                onClick={() => handleOverviewMeetingCompanyChange(name)}
+                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                    overviewMeetingCompany === name 
+                                                        ? 'bg-red-600 text-white' 
+                                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {displayName}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Cadre Company Selection Bar - Only visible on Cadre tab */}
                     {activeTab === 'cadre' && (
                         <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
@@ -14319,6 +14881,144 @@
                         title={signatureEditTarget ? '編輯電子簽呈' : '新增電子簽呈'}
                         confirmText={signatureEditTarget ? '儲存變更' : '送出申請'}
                     />
+
+                    {overviewMeetingModalOpen && (function() {
+                        const company = companies.find(c => c.name === overviewMeetingCompany);
+                        const companyId = company ? company.id : null;
+                        const availableCommunities = companyId
+                            ? communities.filter(comm => {
+                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const availableUsers = companyId
+                            ? usersList.filter(u => {
+                                const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const participantIds = overviewMeetingForm.participants || [];
+                        const participantUsers = availableUsers.filter(u => participantIds.includes(u.id));
+                        return (
+                            <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" onClick={() => setOverviewMeetingModalOpen(false)}>
+                                <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col" onClick={e => e.stopPropagation()}>
+                                    <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                                        <h3 className="text-lg font-bold text-gray-800">新增例會</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewMeetingModalOpen(false)}
+                                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <div className="p-6 space-y-4 text-sm flex-1 overflow-y-auto">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">社區名稱</label>
+                                            <select
+                                                value={overviewMeetingForm.communityId}
+                                                onChange={e => handleOverviewMeetingFormChange('communityId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇社區</option>
+                                                {availableCommunities.map(comm => (
+                                                    <option key={comm.id} value={comm.id}>{comm.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">會議項目</label>
+                                            <select
+                                                value={overviewMeetingForm.type}
+                                                onChange={e => handleOverviewMeetingFormChange('type', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="例會">例會</option>
+                                                <option value="臨時會">臨時會</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">日期</label>
+                                            <input
+                                                type="date"
+                                                value={overviewMeetingForm.date}
+                                                onChange={e => handleOverviewMeetingFormChange('date', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">時間</label>
+                                            <input
+                                                type="time"
+                                                value={overviewMeetingForm.time}
+                                                onChange={e => handleOverviewMeetingFormChange('time', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">參加人員（可複選）</label>
+                                            <div className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 max-h-48 overflow-y-auto space-y-2">
+                                                {availableUsers.map(u => {
+                                                    const checked = participantIds.includes(u.id);
+                                                    return (
+                                                        <label key={u.id} className="flex items-center gap-2 text-sm">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={e => handleOverviewMeetingParticipantToggle(u.id, e.target.checked)}
+                                                                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                                                            />
+                                                            <span>{u.name || u.email || u.phone || u.id}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
+                                            <select
+                                                value={overviewMeetingForm.leaderId || ''}
+                                                onChange={e => handleOverviewMeetingFormChange('leaderId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇主導人員</option>
+                                                {participantUsers.map(u => (
+                                                    <option key={u.id} value={u.id}>
+                                                        {u.name || u.email || u.phone || u.id}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">會議說明</label>
+                                            <textarea
+                                                value={overviewMeetingForm.description}
+                                                onChange={e => handleOverviewMeetingFormChange('description', e.target.value)}
+                                                rows={4}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewMeetingModalOpen(false)}
+                                            className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
+                                        >
+                                            取消
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveOverviewMeeting}
+                                            className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-200"
+                                        >
+                                            儲存
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {isEditUserModalOpen && (
                         <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setIsEditUserModalOpen(false)}>
