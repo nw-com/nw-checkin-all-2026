@@ -6362,6 +6362,12 @@
             const [overviewMeetingDate, setOverviewMeetingDate] = useState(new Date());
             const [overviewMeetingSelectedDate, setOverviewMeetingSelectedDate] = useState(new Date());
             const [overviewMeetingModalOpen, setOverviewMeetingModalOpen] = useState(false);
+            const [completeMeetingModalOpen, setCompleteMeetingModalOpen] = useState(false);
+            const [completeMeetingTarget, setCompleteMeetingTarget] = useState(null);
+            const [completeMeetingForm, setCompleteMeetingForm] = useState({
+                minutes: '',
+                photos: []
+            });
             const [overviewMeetingForm, setOverviewMeetingForm] = useState({
                 communityId: '',
                 type: '例會',
@@ -6415,39 +6421,170 @@
                 const m = String(today.getMonth() + 1).padStart(2, '0');
                 const d = String(today.getDate()).padStart(2, '0');
                 const todayKey = `${y}-${m}-${d}`;
-                const meetings = Array.isArray(overviewMeetings) ? overviewMeetings : [];
-                let target = null;
+                const baseMeetings = Array.isArray(overviewMeetings) ? overviewMeetings : [];
+                const districtMeetings = Array.isArray(overviewDistrictMeetings) ? overviewDistrictMeetings : [];
+                const activityMeetings = Array.isArray(overviewActivities) ? overviewActivities : [];
+                const presentationMeetings = Array.isArray(overviewPresentations) ? overviewPresentations : [];
+                const meetings = [...baseMeetings, ...districtMeetings, ...activityMeetings, ...presentationMeetings];
                 const currentUserId = dbUser.id != null ? String(dbUser.id) : null;
-                if (!currentUserId) {
+                const currentUserName = (dbUser.name || '').trim();
+                
+                if (!currentUserId && !currentUserName) {
                     setMeetingReminder(null);
                     return;
                 }
+
+                let newMeetingTarget = null;
+                let dayOfTarget = null;
+
                 for (let i = 0; i < meetings.length; i++) {
                     const meet = meetings[i];
-                    if (!meet || meet.date !== todayKey) continue;
+                    if (!meet) continue;
+                    
+                    const isToday = meet.date === todayKey;
+                    const isFuture = meet.date > todayKey;
+                    const isValidTypeForDayOf = meet.type === '例會' || meet.type === '臨時會';
+
+                    // Check relationship
                     const leaderId = meet.leaderId != null ? String(meet.leaderId) : null;
                     const participantIds = Array.isArray(meet.participants) ? meet.participants.map(v => String(v)) : [];
-                    const isLeader = leaderId === currentUserId;
-                    const isParticipant = participantIds.includes(currentUserId);
-                    if (!isLeader && !isParticipant) continue;
-                    const key = `meetingReminderClosed_${dbUser.id}_${meet.id}_${todayKey}`;
-                    let count = 0;
-                    try {
-                        const stored = localStorage.getItem(key);
-                        if (stored != null) {
-                            const parsed = parseInt(stored, 10);
-                            if (!isNaN(parsed)) count = parsed;
+
+                    let isRelated = false;
+                    if (currentUserId) {
+                        if (leaderId === currentUserId || participantIds.includes(currentUserId)) {
+                            isRelated = true;
                         }
-                    } catch {}
-                    if (count < 2) {
-                        target = meet;
-                        break;
+                    }
+
+                    if (!isRelated && currentUserName && Array.isArray(participantIds) && Array.isArray(usersList)) {
+                        const participantUsers = participantIds
+                            .map(pid => usersList.find(u => String(u.id) === pid))
+                            .filter(Boolean);
+                        if (participantUsers.some(u => (u.name || '').trim() === currentUserName)) {
+                            isRelated = true;
+                        }
+                        if (!isRelated && leaderId) {
+                            const leaderUser = usersList.find(u => String(u.id) === leaderId);
+                            if (leaderUser && (leaderUser.name || '').trim() === currentUserName) {
+                                isRelated = true;
+                            }
+                        }
+                    }
+
+                    if (!isRelated) continue;
+
+                    // 1. Check for New Meeting Notification (Priority 1)
+                    if (isToday || isFuture) {
+                        const ackKey = `meetingCreatedAck_${dbUser.id || currentUserId}_${meet.id}`;
+                        if (!localStorage.getItem(ackKey)) {
+                            newMeetingTarget = { ...meet, _notificationType: 'new' };
+                            break; // Found high priority, stop looking
+                        }
+                    }
+
+                    // 2. Check for Day-of Reminder (Priority 2) - only for 例會/臨時會
+                    if (isValidTypeForDayOf && isToday && !dayOfTarget) {
+                        const key = `meetingReminderClosed_${dbUser.id || currentUserId}_${meet.id}_${todayKey}`;
+                        let count = 0;
+                        try {
+                            const stored = localStorage.getItem(key);
+                            if (stored != null) {
+                                const parsed = parseInt(stored, 10);
+                                if (!isNaN(parsed)) count = parsed;
+                            }
+                        } catch {}
+                        if (count < 2) {
+                            dayOfTarget = { ...meet, _notificationType: 'day_of' };
+                        }
                     }
                 }
-                setMeetingReminder(target);
-            }, [dbUser, overviewMeetings]);
+
+                if (newMeetingTarget) {
+                    setMeetingReminder(newMeetingTarget);
+                } else if (dayOfTarget) {
+                    setMeetingReminder(dayOfTarget);
+                } else {
+                    setMeetingReminder(null);
+                }
+            }, [dbUser, overviewMeetings, overviewDistrictMeetings, overviewActivities, overviewPresentations, usersList]);
             const [overviewMeetingCompany, setOverviewMeetingCompany] = useState('台北公司');
             const [overviewMeetingDatesByCompany, setOverviewMeetingDatesByCompany] = useState({});
+
+            // District Meeting States
+            const [overviewDistrictMeetingCompany, setOverviewDistrictMeetingCompany] = useState('台北公司');
+            const [overviewDistrictMeetingDatesByCompany, setOverviewDistrictMeetingDatesByCompany] = useState({});
+            const [overviewDistrictMeetingDate, setOverviewDistrictMeetingDate] = useState(new Date());
+            const [overviewDistrictMeetingSelectedDate, setOverviewDistrictMeetingSelectedDate] = useState(new Date());
+            const [overviewDistrictMeetingModalOpen, setOverviewDistrictMeetingModalOpen] = useState(false);
+            const [overviewDistrictMeetingForm, setOverviewDistrictMeetingForm] = useState({
+                communityId: '',
+                type: '區大',
+                date: '',
+                time: '',
+                participants: [],
+                leaderId: '',
+                description: ''
+            });
+            const [overviewDistrictMeetings, setOverviewDistrictMeetings] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('overviewDistrictMeetings');
+                    return saved ? JSON.parse(saved) : [];
+                } catch (e) { return []; }
+            });
+            useEffect(() => {
+                localStorage.setItem('overviewDistrictMeetings', JSON.stringify(overviewDistrictMeetings));
+            }, [overviewDistrictMeetings]);
+
+            // Activity States
+            const [overviewActivityCompany, setOverviewActivityCompany] = useState('台北公司');
+            const [overviewActivityDatesByCompany, setOverviewActivityDatesByCompany] = useState({});
+            const [overviewActivityDate, setOverviewActivityDate] = useState(new Date());
+            const [overviewActivitySelectedDate, setOverviewActivitySelectedDate] = useState(new Date());
+            const [overviewActivityModalOpen, setOverviewActivityModalOpen] = useState(false);
+            const [overviewActivityForm, setOverviewActivityForm] = useState({
+                communityId: '',
+                type: '活動',
+                date: '',
+                time: '',
+                participants: [],
+                leaderId: '',
+                description: ''
+            });
+            const [overviewActivities, setOverviewActivities] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('overviewActivities');
+                    return saved ? JSON.parse(saved) : [];
+                } catch (e) { return []; }
+            });
+            useEffect(() => {
+                localStorage.setItem('overviewActivities', JSON.stringify(overviewActivities));
+            }, [overviewActivities]);
+
+            // Presentation States
+            const [overviewPresentationCompany, setOverviewPresentationCompany] = useState('台北公司');
+            const [overviewPresentationDatesByCompany, setOverviewPresentationDatesByCompany] = useState({});
+            const [overviewPresentationDate, setOverviewPresentationDate] = useState(new Date());
+            const [overviewPresentationSelectedDate, setOverviewPresentationSelectedDate] = useState(new Date());
+            const [overviewPresentationModalOpen, setOverviewPresentationModalOpen] = useState(false);
+            const [overviewPresentationForm, setOverviewPresentationForm] = useState({
+                communityId: '',
+                type: '簡報',
+                date: '',
+                time: '',
+                participants: [],
+                leaderId: '',
+                description: ''
+            });
+            const [overviewPresentations, setOverviewPresentations] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('overviewPresentations');
+                    return saved ? JSON.parse(saved) : [];
+                } catch (e) { return []; }
+            });
+            useEffect(() => {
+                localStorage.setItem('overviewPresentations', JSON.stringify(overviewPresentations));
+            }, [overviewPresentations]);
+
             const [clockSubtab, setClockSubtab] = useState('work');
             const [clockScheduleDate, setClockScheduleDate] = useState(new Date()); // New State for Clock Tab Schedule
             const [clockScheduleSelectedDate, setClockScheduleSelectedDate] = useState(new Date()); // New State for Selected Date in Clock Schedule
@@ -7577,11 +7714,377 @@
                 setOverviewMeetingModalOpen(false);
             };
 
+            // District Meeting Handlers
+            const handleOverviewDistrictMeetingCompanyChange = (name) => {
+                if (name === overviewDistrictMeetingCompany) return;
+                setOverviewDistrictMeetingDatesByCompany(prev => {
+                    const prevKey = overviewDistrictMeetingCompany || 'default';
+                    const updated = { ...prev, [prevKey]: overviewDistrictMeetingDate };
+                    const nextDate = updated[name] || overviewDistrictMeetingDate;
+                    setOverviewDistrictMeetingDate(nextDate);
+                    return updated;
+                });
+                setOverviewDistrictMeetingCompany(name);
+            };
+
+            const changeOverviewDistrictMeetingMonth = (delta) => {
+                setOverviewDistrictMeetingDatesByCompany(prev => {
+                    const key = overviewDistrictMeetingCompany || 'default';
+                    const baseDate = prev[key] || overviewDistrictMeetingDate;
+                    const nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + delta, 1);
+                    const updated = { ...prev, [key]: nextDate };
+                    setOverviewDistrictMeetingDate(nextDate);
+                    setOverviewDistrictMeetingSelectedDate(nextDate);
+                    return updated;
+                });
+            };
+
+            const openOverviewDistrictMeetingModal = () => {
+                const d = overviewDistrictMeetingSelectedDate || overviewDistrictMeetingDate || new Date();
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${day}`;
+                setOverviewDistrictMeetingForm({
+                    communityId: '',
+                    type: '區大',
+                    date: dateStr,
+                    time: '',
+                    participants: [],
+                    leaderId: '',
+                    description: ''
+                });
+                setOverviewDistrictMeetingModalOpen(true);
+            };
+
+            const handleOverviewDistrictMeetingFormChange = (field, value) => {
+                setOverviewDistrictMeetingForm(prev => ({ ...prev, [field]: value }));
+            };
+
+            const handleOverviewDistrictMeetingParticipantToggle = (userId, isChecked) => {
+                setOverviewDistrictMeetingForm(prev => {
+                    let nextParticipants = Array.isArray(prev.participants) ? [...prev.participants] : [];
+                    if (isChecked) {
+                        if (!nextParticipants.includes(userId)) nextParticipants.push(userId);
+                    } else {
+                        nextParticipants = nextParticipants.filter(id => id !== userId);
+                    }
+                    const nextLeader = nextParticipants.includes(prev.leaderId) ? prev.leaderId : '';
+                    return { ...prev, participants: nextParticipants, leaderId: nextLeader };
+                });
+            };
+
+            const handleSaveOverviewDistrictMeeting = () => {
+                if (!overviewDistrictMeetingForm.date) return;
+                if (overviewDistrictMeetingForm.id) {
+                    setOverviewDistrictMeetings(prev => prev.map(m => {
+                        if (m.id === overviewDistrictMeetingForm.id) {
+                            return {
+                                ...m,
+                                companyName: overviewDistrictMeetingCompany,
+                                communityId: overviewDistrictMeetingForm.communityId,
+                                type: overviewDistrictMeetingForm.type,
+                                date: overviewDistrictMeetingForm.date,
+                                time: overviewDistrictMeetingForm.time,
+                                participants: overviewDistrictMeetingForm.participants,
+                                leaderId: overviewDistrictMeetingForm.leaderId,
+                                description: overviewDistrictMeetingForm.description
+                            };
+                        }
+                        return m;
+                    }));
+                } else {
+                    const newItem = {
+                        id: Date.now().toString(),
+                        companyName: overviewDistrictMeetingCompany,
+                        communityId: overviewDistrictMeetingForm.communityId,
+                        type: overviewDistrictMeetingForm.type,
+                        date: overviewDistrictMeetingForm.date,
+                        time: overviewDistrictMeetingForm.time,
+                        participants: overviewDistrictMeetingForm.participants,
+                        leaderId: overviewDistrictMeetingForm.leaderId,
+                        description: overviewDistrictMeetingForm.description,
+                        creatorId: dbUser?.id,
+                        creatorName: dbUser?.name || '未記錄'
+                    };
+                    setOverviewDistrictMeetings(prev => [...prev, newItem]);
+                }
+                setOverviewDistrictMeetingModalOpen(false);
+            };
+
+            const handleEditOverviewDistrictMeeting = (meeting) => {
+                setOverviewDistrictMeetingForm({
+                    id: meeting.id,
+                    communityId: meeting.communityId || '',
+                    type: meeting.type || '區大',
+                    date: meeting.date,
+                    time: meeting.time,
+                    participants: meeting.participants || [],
+                    leaderId: meeting.leaderId || '',
+                    description: meeting.description || ''
+                });
+                setOverviewDistrictMeetingModalOpen(true);
+            };
+
+            const handleDeleteOverviewDistrictMeeting = (meetingId) => {
+                if (confirm('確定要刪除此區大嗎？')) {
+                    setOverviewDistrictMeetings(prev => prev.filter(m => m.id !== meetingId));
+                }
+            };
+
+            // Activity Handlers
+            const handleOverviewActivityCompanyChange = (name) => {
+                if (name === overviewActivityCompany) return;
+                setOverviewActivityDatesByCompany(prev => {
+                    const prevKey = overviewActivityCompany || 'default';
+                    const updated = { ...prev, [prevKey]: overviewActivityDate };
+                    const nextDate = updated[name] || overviewActivityDate;
+                    setOverviewActivityDate(nextDate);
+                    return updated;
+                });
+                setOverviewActivityCompany(name);
+            };
+
+            const changeOverviewActivityMonth = (delta) => {
+                setOverviewActivityDatesByCompany(prev => {
+                    const key = overviewActivityCompany || 'default';
+                    const baseDate = prev[key] || overviewActivityDate;
+                    const nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + delta, 1);
+                    const updated = { ...prev, [key]: nextDate };
+                    setOverviewActivityDate(nextDate);
+                    setOverviewActivitySelectedDate(nextDate);
+                    return updated;
+                });
+            };
+
+            const openOverviewActivityModal = () => {
+                const d = overviewActivitySelectedDate || overviewActivityDate || new Date();
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${day}`;
+                setOverviewActivityForm({
+                    communityId: '',
+                    type: '節日活動',
+                    date: dateStr,
+                    time: '',
+                    participants: [],
+                    leaderId: '',
+                    description: ''
+                });
+                setOverviewActivityModalOpen(true);
+            };
+
+            const handleOverviewActivityFormChange = (field, value) => {
+                setOverviewActivityForm(prev => ({ ...prev, [field]: value }));
+            };
+
+            const handleOverviewActivityParticipantToggle = (userId, isChecked) => {
+                setOverviewActivityForm(prev => {
+                    let nextParticipants = Array.isArray(prev.participants) ? [...prev.participants] : [];
+                    if (isChecked) {
+                        if (!nextParticipants.includes(userId)) nextParticipants.push(userId);
+                    } else {
+                        nextParticipants = nextParticipants.filter(id => id !== userId);
+                    }
+                    const nextLeader = nextParticipants.includes(prev.leaderId) ? prev.leaderId : '';
+                    return { ...prev, participants: nextParticipants, leaderId: nextLeader };
+                });
+            };
+
+            const handleSaveOverviewActivity = () => {
+                if (!overviewActivityForm.date) return;
+                if (overviewActivityForm.id) {
+                    setOverviewActivities(prev => prev.map(m => {
+                        if (m.id === overviewActivityForm.id) {
+                            return {
+                                ...m,
+                                companyName: overviewActivityCompany,
+                                communityId: overviewActivityForm.communityId,
+                                type: overviewActivityForm.type,
+                                date: overviewActivityForm.date,
+                                time: overviewActivityForm.time,
+                                participants: overviewActivityForm.participants,
+                                leaderId: overviewActivityForm.leaderId,
+                                description: overviewActivityForm.description
+                            };
+                        }
+                        return m;
+                    }));
+                } else {
+                    const newItem = {
+                        id: Date.now().toString(),
+                        companyName: overviewActivityCompany,
+                        communityId: overviewActivityForm.communityId,
+                        type: overviewActivityForm.type,
+                        date: overviewActivityForm.date,
+                        time: overviewActivityForm.time,
+                        participants: overviewActivityForm.participants,
+                        leaderId: overviewActivityForm.leaderId,
+                        description: overviewActivityForm.description,
+                        creatorId: dbUser?.id,
+                        creatorName: dbUser?.name || '未記錄'
+                    };
+                    setOverviewActivities(prev => [...prev, newItem]);
+                }
+                setOverviewActivityModalOpen(false);
+            };
+
+            const handleEditOverviewActivity = (meeting) => {
+                setOverviewActivityForm({
+                    id: meeting.id,
+                    communityId: meeting.communityId || '',
+                    type: meeting.type || '節日活動',
+                    date: meeting.date,
+                    time: meeting.time,
+                    participants: meeting.participants || [],
+                    leaderId: meeting.leaderId || '',
+                    description: meeting.description || ''
+                });
+                setOverviewActivityModalOpen(true);
+            };
+
+            const handleDeleteOverviewActivity = (meetingId) => {
+                if (confirm('確定要刪除此活動嗎？')) {
+                    setOverviewActivities(prev => prev.filter(m => m.id !== meetingId));
+                }
+            };
+
+            // Presentation Handlers
+            const handleOverviewPresentationCompanyChange = (name) => {
+                if (name === overviewPresentationCompany) return;
+                setOverviewPresentationDatesByCompany(prev => {
+                    const prevKey = overviewPresentationCompany || 'default';
+                    const updated = { ...prev, [prevKey]: overviewPresentationDate };
+                    const nextDate = updated[name] || overviewPresentationDate;
+                    setOverviewPresentationDate(nextDate);
+                    return updated;
+                });
+                setOverviewPresentationCompany(name);
+            };
+
+            const changeOverviewPresentationMonth = (delta) => {
+                setOverviewPresentationDatesByCompany(prev => {
+                    const key = overviewPresentationCompany || 'default';
+                    const baseDate = prev[key] || overviewPresentationDate;
+                    const nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + delta, 1);
+                    const updated = { ...prev, [key]: nextDate };
+                    setOverviewPresentationDate(nextDate);
+                    setOverviewPresentationSelectedDate(nextDate);
+                    return updated;
+                });
+            };
+
+            const openOverviewPresentationModal = () => {
+                const d = overviewPresentationSelectedDate || overviewPresentationDate || new Date();
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${day}`;
+                setOverviewPresentationForm({
+                    communityId: '',
+                    type: '簡報',
+                    date: dateStr,
+                    time: '',
+                    participants: [],
+                    leaderId: '',
+                    description: ''
+                });
+                setOverviewPresentationModalOpen(true);
+            };
+
+            const handleOverviewPresentationFormChange = (field, value) => {
+                setOverviewPresentationForm(prev => ({ ...prev, [field]: value }));
+            };
+
+            const handleOverviewPresentationParticipantToggle = (userId, isChecked) => {
+                setOverviewPresentationForm(prev => {
+                    let nextParticipants = Array.isArray(prev.participants) ? [...prev.participants] : [];
+                    if (isChecked) {
+                        if (!nextParticipants.includes(userId)) nextParticipants.push(userId);
+                    } else {
+                        nextParticipants = nextParticipants.filter(id => id !== userId);
+                    }
+                    const nextLeader = nextParticipants.includes(prev.leaderId) ? prev.leaderId : '';
+                    return { ...prev, participants: nextParticipants, leaderId: nextLeader };
+                });
+            };
+
+            const handleSaveOverviewPresentation = () => {
+                if (!overviewPresentationForm.date) return;
+                if (overviewPresentationForm.id) {
+                    setOverviewPresentations(prev => prev.map(m => {
+                        if (m.id === overviewPresentationForm.id) {
+                            return {
+                                ...m,
+                                companyName: overviewPresentationCompany,
+                                communityId: overviewPresentationForm.communityId,
+                                type: overviewPresentationForm.type,
+                                date: overviewPresentationForm.date,
+                                time: overviewPresentationForm.time,
+                                participants: overviewPresentationForm.participants,
+                                leaderId: overviewPresentationForm.leaderId,
+                                description: overviewPresentationForm.description
+                            };
+                        }
+                        return m;
+                    }));
+                } else {
+                    const newItem = {
+                        id: Date.now().toString(),
+                        companyName: overviewPresentationCompany,
+                        communityId: overviewPresentationForm.communityId,
+                        type: overviewPresentationForm.type,
+                        date: overviewPresentationForm.date,
+                        time: overviewPresentationForm.time,
+                        participants: overviewPresentationForm.participants,
+                        leaderId: overviewPresentationForm.leaderId,
+                        description: overviewPresentationForm.description,
+                        creatorId: dbUser?.id,
+                        creatorName: dbUser?.name || '未記錄'
+                    };
+                    setOverviewPresentations(prev => [...prev, newItem]);
+                }
+                setOverviewPresentationModalOpen(false);
+            };
+
+            const handleEditOverviewPresentation = (meeting) => {
+                setOverviewPresentationForm({
+                    id: meeting.id,
+                    communityId: meeting.communityId || '',
+                    type: meeting.type || '簡報',
+                    date: meeting.date,
+                    time: meeting.time,
+                    participants: meeting.participants || [],
+                    leaderId: meeting.leaderId || '',
+                    description: meeting.description || ''
+                });
+                setOverviewPresentationModalOpen(true);
+            };
+
+            const handleDeleteOverviewPresentation = (meetingId) => {
+                if (confirm('確定要刪除此簡報嗎？')) {
+                    setOverviewPresentations(prev => prev.filter(m => m.id !== meetingId));
+                }
+            };
+
              const handleCloseMeetingReminder = () => {
                  if (!dbUser || !meetingReminder) {
                      setMeetingReminder(null);
                      return;
                  }
+
+                 // Handle 'New Meeting' notification acknowledgment
+                 if (meetingReminder._notificationType === 'new') {
+                     const ackKey = `meetingCreatedAck_${dbUser.id}_${meetingReminder.id}`;
+                     try {
+                         localStorage.setItem(ackKey, 'true');
+                     } catch {}
+                     setMeetingReminder(null);
+                     return;
+                 }
+
+                 // Handle 'Day-of' reminder count logic
                  const today = new Date();
                  const y = today.getFullYear();
                  const m = String(today.getMonth() + 1).padStart(2, '0');
@@ -7621,6 +8124,71 @@
                 if (confirm('確定要刪除此例會嗎？')) {
                     setOverviewMeetings(prev => prev.filter(m => m.id !== meetingId));
                 }
+            };
+            
+            const openCompleteOverviewMeetingModal = (meeting) => {
+                setCompleteMeetingTarget(meeting);
+                setCompleteMeetingForm({
+                    minutes: meeting.minutes || '',
+                    photos: Array.isArray(meeting.photos) ? meeting.photos : []
+                });
+                setCompleteMeetingModalOpen(true);
+            };
+            
+            const handleCompleteMeetingFormChange = (field, value) => {
+                setCompleteMeetingForm(prev => ({ ...prev, [field]: value }));
+            };
+            
+            const handleCompletePhotoUpload = (fileList) => {
+                const files = Array.from(fileList || []);
+                if (files.length === 0) return;
+                let results = [];
+                let done = 0;
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        results.push({ name: file.name, dataUrl: e.target.result });
+                        done += 1;
+                        if (done === files.length) {
+                            setCompleteMeetingForm(prev => ({
+                                ...prev,
+                                photos: [...(prev.photos || []), ...results]
+                            }));
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                });
+            };
+            
+            const handleRemoveCompletePhoto = (index) => {
+                setCompleteMeetingForm(prev => ({
+                    ...prev,
+                    photos: (prev.photos || []).filter((_, i) => i !== index)
+                }));
+            };
+            
+            const handleSaveCompleteOverviewMeeting = () => {
+                if (!completeMeetingTarget) return;
+                const updated = {
+                    ...completeMeetingTarget,
+                    minutes: completeMeetingForm.minutes || '',
+                    photos: Array.isArray(completeMeetingForm.photos) ? completeMeetingForm.photos : [],
+                    completed: true,
+                    completedById: dbUser?.id,
+                    completedByName: dbUser?.name || '未記錄',
+                    completedAt: new Date().toISOString()
+                };
+                if (updated.type === '區大' || updated.type === '臨時區大') {
+                    setOverviewDistrictMeetings(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
+                } else if (updated.type === '活動') {
+                    setOverviewActivities(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
+                } else if (updated.type === '簡報') {
+                    setOverviewPresentations(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
+                } else {
+                    setOverviewMeetings(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
+                }
+                setCompleteMeetingModalOpen(false);
+                setCompleteMeetingTarget(null);
             };
 
             const hasPermission = (pageKey) => {
@@ -8736,6 +9304,9 @@
                             {activeTab === 'overview' && (
                                 <div className="flex gap-2">
                                     <button onClick={() => setOverviewSubtab('district')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>例會</button>
+                                    <button onClick={() => setOverviewSubtab('district_meeting')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>區大</button>
+                                    <button onClick={() => setOverviewSubtab('activity')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>活動</button>
+                                    <button onClick={() => setOverviewSubtab('presentation')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簡報</button>
                                     <button onClick={() => setOverviewSubtab('general')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>概況</button>
                                 </div>
                             )}
@@ -9172,12 +9743,33 @@
 
                     {/* Main Content Area - Mobile Container */}
                     {meetingReminder && (
-                        <div className="fixed inset-0 z-40 flex items-end justify-center pointer-events-none">
+                        <div className="fixed inset-0 z-[999] flex items-end justify-center pointer-events-none">
                             <div className="w-full max-w-xs mb-6 px-4 pointer-events-auto">
-                                <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-3 text-xs space-y-1">
-                                    <div className="font-bold text-gray-800">例會提醒</div>
+                                <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-3 text-xs space-y-1 relative">
+                                    <button 
+                                        onClick={handleCloseMeetingReminder}
+                                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 transition-colors p-1"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                    <div className="font-bold text-gray-800 pr-6">
+                                        {meetingReminder._notificationType === 'new' ? `新增${meetingReminder.type || '例會'}通知` : `${meetingReminder.type || '例會'}提醒`}
+                                    </div>
                                     <div className="text-gray-700">
-                                        今天 {meetingReminder.time || ''} 有 {meetingReminder.type || '例會'}
+                                        {meetingReminder._notificationType === 'new' 
+                                            ? `已新增於 ${meetingReminder.date} ${meetingReminder.time || ''} 的 ${meetingReminder.type || '例會'}`
+                                            : `今天 ${meetingReminder.time || ''} 有 ${meetingReminder.type || '例會'}`
+                                        }
+                                    </div>
+                                    <div className="text-gray-500">
+                                        地點：{(() => {
+                                            const comm = communities.find(c => c.id === meetingReminder.communityId);
+                                            if (comm) return comm.name;
+                                            if (meetingReminder.communityId && typeof meetingReminder.communityId === 'string') {
+                                                return meetingReminder.communityId;
+                                            }
+                                            return '未指定';
+                                        })()}
                                     </div>
                                     <button 
                                         onClick={handleCloseMeetingReminder}
@@ -9322,9 +9914,9 @@
 
                                                     let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
                                                     
-                                                    if (isToday) {
-                                                        cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
-                                                    } else if (hasMeeting) {
+                                                    if (hasMeeting) {
+                                                        cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                                    } else if (isToday) {
                                                         cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
                                                     } else if (isSelected) {
                                                         cellClass = 'bg-red-50 text-red-600 border border-red-200';
@@ -9348,8 +9940,13 @@
                                         </div>
                                         <div className="mt-4 p-4 rounded-xl bg-gray-50 border border-gray-100 text-sm text-left">
                                             <div className="flex justify-between items-center mb-3">
-                                                <div className="font-bold text-gray-800 text-sm">
-                                                    當日例會
+                                                <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                    <span>當日例會</span>
+                                                    {overviewMeetingSelectedDate && (
+                                                        <span className="text-gray-600">
+                                                            {`${overviewMeetingSelectedDate.getFullYear()}年${String(overviewMeetingSelectedDate.getMonth() + 1).padStart(2, '0')}月${String(overviewMeetingSelectedDate.getDate()).padStart(2, '0')}日 (${['日','一','二','三','四','五','六'][overviewMeetingSelectedDate.getDay()]})`}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <button
                                                     onClick={openOverviewMeetingModal}
@@ -9376,9 +9973,6 @@
                                                 if (items.length === 0) {
                                                     return (
                                                         <div>
-                                                            <div className="font-bold text-gray-800 mb-1">
-                                                                {`${y}年${m}月${day}日 (${w})`} · {overviewMeetingCompany} 例會
-                                                            </div>
                                                             <div className="text-xs text-gray-500 italic">
                                                                 目前尚未設定此日期的例會內容。
                                                             </div>
@@ -9403,14 +9997,12 @@
                                                 });
                                                 return (
                                                     <div className="space-y-3">
-                                                        <div className="font-bold text-gray-800">
-                                                            {`${y}年${m}月${day}日 (${w})`} · {overviewMeetingCompany} 例會
-                                                        </div>
                                                         {items.map(item => {
                                                             const community = communityMap[item.communityId];
                                                             const leader = userMap[item.leaderId];
                                                             const participants = (item.participants || []).map(pid => userMap[pid]).filter(Boolean);
                                                             const canEdit = dbUser?.id === item.creatorId || dbUser?.role === 'admin';
+                                                            const canComplete = dbUser?.role === 'admin' || (leader && String(leader.id) === String(dbUser?.id));
                                                             return (
                                                                 <div key={item.id} className="p-3 rounded-xl bg-white border border-gray-200 text-xs space-y-1 relative group">
                                                                     <div className="flex justify-between items-center">
@@ -9424,8 +10016,16 @@
                                                                     <div className="text-gray-700">
                                                                         社區：{community ? community.name : '未指定'}
                                                                     </div>
-                                                                    <div className="text-gray-700">
-                                                                        主導：{leader ? leader.name : '未指定'}
+                                                                    <div className="text-gray-700 flex items-center gap-2">
+                                                                        <span>主導：{leader ? leader.name : '未指定'}</span>
+                                                                        {canComplete && (
+                                                                            <button
+                                                                                onClick={() => openCompleteOverviewMeetingModal(item)}
+                                                                                className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                            >
+                                                                                是否完成?
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                     <div className="text-gray-700">
                                                                         參加：{participants.length > 0 ? participants.map(p => p.name).join('、') : '未指定'}
@@ -9433,6 +10033,23 @@
                                                                     {item.description && (
                                                                         <div className="text-gray-600 whitespace-pre-wrap">
                                                                             {item.description}
+                                                                        </div>
+                                                                    )}
+                                                                    {item.minutes && (
+                                                                        <div className="text-gray-700 whitespace-pre-wrap">
+                                                                            會議紀錄：{item.minutes}
+                                                                        </div>
+                                                                    )}
+                                                                    {Array.isArray(item.photos) && item.photos.length > 0 && (
+                                                                        <div className="grid grid-cols-4 gap-2 mt-1">
+                                                                            {item.photos.map((p, idx) => (
+                                                                                <img
+                                                                                    key={idx}
+                                                                                    src={p.dataUrl || p}
+                                                                                    alt="會議照片"
+                                                                                    className="w-full h-20 object-cover rounded"
+                                                                                />
+                                                                            ))}
                                                                         </div>
                                                                     )}
                                                                     <div className="text-gray-400 text-[10px] pt-1 border-t border-gray-100 mt-1">
@@ -9463,6 +10080,656 @@
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {overviewSubtab === 'district_meeting' && (
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                    <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                    <span className="text-red-600 font-bold">{overviewDistrictMeetingCompany}</span>
+                                </div>
+                                <div className="flex items-center justify-center mb-4">
+                                    <button 
+                                        onClick={() => changeOverviewDistrictMeetingMonth(-1)}
+                                        className="p-1 rounded-full hover:bg-gray-100"
+                                    >
+                                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                    </button>
+                                    <span className="font-bold text-gray-800 text-lg mx-3">
+                                        {overviewDistrictMeetingDate.getFullYear()}年 {overviewDistrictMeetingDate.getMonth() + 1}月
+                                    </span>
+                                    <button 
+                                        onClick={() => changeOverviewDistrictMeetingMonth(1)}
+                                        className="p-1 rounded-full hover:bg-gray-100"
+                                    >
+                                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                    {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                        <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-7 gap-1">
+                                    {(() => {
+                                        const year = overviewDistrictMeetingDate.getFullYear();
+                                        const month = overviewDistrictMeetingDate.getMonth();
+                                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                        const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                        const days = [];
+                                        const meetingDatesSet = new Set(
+                                            overviewDistrictMeetings
+                                                .filter(meet => 
+                                                    meet.companyName === overviewDistrictMeetingCompany && 
+                                                    (meet.type === '區大' || meet.type === '臨時區大')
+                                                )
+                                                .map(meet => meet.date)
+                                        );
+                                        const holidays = [
+                                            '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
+                                            '2025-02-28',
+                                            '2025-04-03','2025-04-04','2025-04-05','2025-04-06',
+                                            '2025-05-01',
+                                            '2025-05-30','2025-05-31','2025-06-01',
+                                            '2025-10-04','2025-10-05','2025-10-06',
+                                            '2025-10-10','2025-10-11','2025-10-12',
+                                            '2025-12-25',
+                                            '2026-01-01',
+                                            '2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
+                                            '2026-02-27','2026-02-28','2026-03-01',
+                                            '2026-04-03','2026-04-04','2026-04-05','2026-04-06',
+                                            '2026-05-01',
+                                            '2026-06-19','2026-06-20','2026-06-21',
+                                            '2026-09-25','2026-09-26','2026-09-27',
+                                            '2026-10-09','2026-10-10','2026-10-11',
+                                            '2026-12-25',
+                                        ];
+                                        for (let i = 0; i < firstDayOfWeek; i++) days.push(<div key={`empty-${i}`} className="h-10"></div>);
+                                        for (let d = 1; d <= daysInMonth; d++) {
+                                            const currentDate = new Date(year, month, d);
+                                            const isSelected =
+                                                overviewDistrictMeetingSelectedDate &&
+                                                overviewDistrictMeetingSelectedDate.getFullYear() === currentDate.getFullYear() &&
+                                                overviewDistrictMeetingSelectedDate.getMonth() === currentDate.getMonth() &&
+                                                overviewDistrictMeetingSelectedDate.getDate() === currentDate.getDate();
+                                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                            const isToday = new Date().toDateString() === currentDate.toDateString();
+                                            const isHoliday = holidays.includes(dateStr);
+                                            const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                            const hasMeeting = meetingDatesSet.has(dateStr);
+                                            let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                            if (hasMeeting) cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                            else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                            else if (isSelected) cellClass = 'bg-red-50 text-red-600 border border-red-200';
+                                            days.push(
+                                                <div 
+                                                    key={d} 
+                                                    className={`rounded-xl flex items-center justify-center cursor-pointer transition-colors ${cellClass}`}
+                                                    style={{ aspectRatio: '2 / 1' }}
+                                                    onClick={() => setOverviewDistrictMeetingSelectedDate(currentDate)}
+                                                >
+                                                    <span className={`text-sm font-bold ${isToday ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>
+                                                        {d}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return days;
+                                    })()}
+                                </div>
+                                <div className="mt-4 p-4 rounded-xl bg-gray-50 border border-gray-100 text-sm text-left">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                            <span>當日區大</span>
+                                            {overviewDistrictMeetingSelectedDate && (
+                                                <span className="text-gray-600">
+                                                    {`${overviewDistrictMeetingSelectedDate.getFullYear()}年${String(overviewDistrictMeetingSelectedDate.getMonth() + 1).padStart(2, '0')}月${String(overviewDistrictMeetingSelectedDate.getDate()).padStart(2, '0')}日 (${['日','一','二','三','四','五','六'][overviewDistrictMeetingSelectedDate.getDay()]})`}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={openOverviewDistrictMeetingModal}
+                                            className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700"
+                                        >
+                                            + 新增
+                                        </button>
+                                    </div>
+                                    {(function() {
+                                        if (!overviewDistrictMeetingSelectedDate) {
+                                            return <div className="text-gray-400 text-xs">請點選上方日曆中的日期以查看當日內容。</div>;
+                                        }
+                                        const y = overviewDistrictMeetingSelectedDate.getFullYear();
+                                        const m = String(overviewDistrictMeetingSelectedDate.getMonth() + 1).padStart(2, '0');
+                                        const day = String(overviewDistrictMeetingSelectedDate.getDate()).padStart(2, '0');
+                                        const dateKey = `${y}-${m}-${day}`;
+                                        const items = overviewDistrictMeetings.filter(meet => meet.companyName === overviewDistrictMeetingCompany && meet.date === dateKey);
+                                        if (items.length === 0) {
+                                            return <div><div className="text-xs text-gray-500 italic">目前尚未設定此日期的內容。</div></div>;
+                                        }
+                                        const company = companies.find(c => c.name === overviewDistrictMeetingCompany);
+                                        const companyId = company ? company.id : null;
+                                        const availableCommunities = companyId
+                                            ? communities.filter(comm => {
+                                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                                return ids.some(id => String(id) === String(companyId));
+                                            })
+                                            : [];
+                                        const communityMap = {};
+                                        availableCommunities.forEach(comm => { communityMap[comm.id] = comm; });
+                                        const userMap = {};
+                                        usersList.forEach(u => { userMap[u.id] = u; });
+                                        return (
+                                            <div className="space-y-3">
+                                                {items.map(item => {
+                                                    const community = communityMap[item.communityId];
+                                                    const leader = userMap[item.leaderId];
+                                                    const participants = (item.participants || []).map(pid => userMap[pid]).filter(Boolean);
+                                                    const canEdit = dbUser?.id === item.creatorId || dbUser?.role === 'admin';
+                                                    const canComplete = dbUser?.role === 'admin' || (leader && String(leader.id) === String(dbUser?.id));
+                                                    return (
+                                                        <div key={item.id} className="p-3 rounded-xl bg-white border border-gray-200 text-xs space-y-1 relative group">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="font-bold text-gray-800">
+                                                                    {item.type || '區大'}
+                                                                </div>
+                                                                <div className="text-gray-500">
+                                                                    {item.time || '未設定時間'}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-gray-700">
+                                                                社區：{community ? community.name : (item.communityId || '未指定')}
+                                                            </div>
+                                                            <div className="text-gray-700 flex items-center gap-2">
+                                                                <span>主導：{leader ? leader.name : '未指定'}</span>
+                                                                {canComplete && (
+                                                                    <button
+                                                                        onClick={() => openCompleteOverviewMeetingModal(item)}
+                                                                        className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                    >
+                                                                        是否完成?
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-gray-700">
+                                                                參加：{participants.length > 0 ? participants.map(p => p.name).join('、') : '未指定'}
+                                                            </div>
+                                                            {item.description && (
+                                                                <div className="text-gray-600 whitespace-pre-wrap">
+                                                                    {item.description}
+                                                                </div>
+                                                            )}
+                                                            {item.minutes && (
+                                                                <div className="text-gray-700 whitespace-pre-wrap">
+                                                                    會議紀錄：{item.minutes}
+                                                                </div>
+                                                            )}
+                                                            {Array.isArray(item.photos) && item.photos.length > 0 && (
+                                                                <div className="grid grid-cols-4 gap-2 mt-1">
+                                                                    {item.photos.map((p, idx) => (
+                                                                        <img key={idx} src={p.dataUrl || p} alt="照片" className="w-full h-20 object-cover rounded" />
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            <div className="text-gray-400 text-[10px] pt-1 border-t border-gray-100 mt-1">
+                                                                建立 : {item.creatorName || '未記錄'}
+                                                            </div>
+                                                            {canEdit && (
+                                                                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
+                                                                    <button 
+                                                                        onClick={() => handleEditOverviewDistrictMeeting(item)}
+                                                                        className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 py-1 rounded transition-colors"
+                                                                    >
+                                                                        編輯
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => handleDeleteOverviewDistrictMeeting(item.id)}
+                                                                        className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 py-1 rounded transition-colors"
+                                                                    >
+                                                                        刪除
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+
+                        {overviewSubtab === 'activity' && (
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                    <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                    <span className="text-red-600 font-bold">{overviewActivityCompany}</span>
+                                </div>
+                                <div className="flex items-center justify-center mb-4">
+                                    <button 
+                                        onClick={() => changeOverviewActivityMonth(-1)}
+                                        className="p-1 rounded-full hover:bg-gray-100"
+                                    >
+                                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                    </button>
+                                    <span className="font-bold text-gray-800 text-lg mx-3">
+                                        {overviewActivityDate.getFullYear()}年 {overviewActivityDate.getMonth() + 1}月
+                                    </span>
+                                    <button 
+                                        onClick={() => changeOverviewActivityMonth(1)}
+                                        className="p-1 rounded-full hover:bg-gray-100"
+                                    >
+                                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                    {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                        <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-7 gap-1">
+                                    {(() => {
+                                        const year = overviewActivityDate.getFullYear();
+                                        const month = overviewActivityDate.getMonth();
+                                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                        const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                        const days = [];
+                                        const meetingDatesSet = new Set(
+                                            overviewActivities
+                                                .filter(meet => 
+                                                    meet.companyName === overviewActivityCompany
+                                                )
+                                                .map(meet => meet.date)
+                                        );
+                                        const holidays = [
+                                            '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
+                                            '2025-02-28',
+                                            '2025-04-03','2025-04-04','2025-04-05','2025-04-06',
+                                            '2025-05-01',
+                                            '2025-05-30','2025-05-31','2025-06-01',
+                                            '2025-10-04','2025-10-05','2025-10-06',
+                                            '2025-10-10','2025-10-11','2025-10-12',
+                                            '2025-12-25',
+                                            '2026-01-01',
+                                            '2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
+                                            '2026-02-27','2026-02-28','2026-03-01',
+                                            '2026-04-03','2026-04-04','2026-04-05','2026-04-06',
+                                            '2026-05-01',
+                                            '2026-06-19','2026-06-20','2026-06-21',
+                                            '2026-09-25','2026-09-26','2026-09-27',
+                                            '2026-10-09','2026-10-10','2026-10-11',
+                                            '2026-12-25',
+                                        ];
+                                        for (let i = 0; i < firstDayOfWeek; i++) days.push(<div key={`empty-${i}`} className="h-10"></div>);
+                                        for (let d = 1; d <= daysInMonth; d++) {
+                                            const currentDate = new Date(year, month, d);
+                                            const isSelected =
+                                                overviewActivitySelectedDate &&
+                                                overviewActivitySelectedDate.getFullYear() === currentDate.getFullYear() &&
+                                                overviewActivitySelectedDate.getMonth() === currentDate.getMonth() &&
+                                                overviewActivitySelectedDate.getDate() === currentDate.getDate();
+                                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                            const isToday = new Date().toDateString() === currentDate.toDateString();
+                                            const isHoliday = holidays.includes(dateStr);
+                                            const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                            const hasMeeting = meetingDatesSet.has(dateStr);
+                                            let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                            if (hasMeeting) cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                            else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                            else if (isSelected) cellClass = 'bg-red-50 text-red-600 border border-red-200';
+                                            days.push(
+                                                <div 
+                                                    key={d} 
+                                                    className={`rounded-xl flex items-center justify-center cursor-pointer transition-colors ${cellClass}`}
+                                                    style={{ aspectRatio: '2 / 1' }}
+                                                    onClick={() => setOverviewActivitySelectedDate(currentDate)}
+                                                >
+                                                    <span className={`text-sm font-bold ${isToday ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>
+                                                        {d}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return days;
+                                    })()}
+                                </div>
+                                <div className="mt-4 p-4 rounded-xl bg-gray-50 border border-gray-100 text-sm text-left">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                            <span>當日活動</span>
+                                            {overviewActivitySelectedDate && (
+                                                <span className="text-gray-600">
+                                                    {`${overviewActivitySelectedDate.getFullYear()}年${String(overviewActivitySelectedDate.getMonth() + 1).padStart(2, '0')}月${String(overviewActivitySelectedDate.getDate()).padStart(2, '0')}日 (${['日','一','二','三','四','五','六'][overviewActivitySelectedDate.getDay()]})`}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={openOverviewActivityModal}
+                                            className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700"
+                                        >
+                                            + 新增
+                                        </button>
+                                    </div>
+                                    {(function() {
+                                        if (!overviewActivitySelectedDate) {
+                                            return <div className="text-gray-400 text-xs">請點選上方日曆中的日期以查看當日內容。</div>;
+                                        }
+                                        const y = overviewActivitySelectedDate.getFullYear();
+                                        const m = String(overviewActivitySelectedDate.getMonth() + 1).padStart(2, '0');
+                                        const day = String(overviewActivitySelectedDate.getDate()).padStart(2, '0');
+                                        const dateKey = `${y}-${m}-${day}`;
+                                        const items = overviewActivities.filter(meet => meet.companyName === overviewActivityCompany && meet.date === dateKey);
+                                        if (items.length === 0) {
+                                            return <div><div className="text-xs text-gray-500 italic">目前尚未設定此日期的內容。</div></div>;
+                                        }
+                                        const company = companies.find(c => c.name === overviewActivityCompany);
+                                        const companyId = company ? company.id : null;
+                                        const availableCommunities = companyId
+                                            ? communities.filter(comm => {
+                                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                                return ids.some(id => String(id) === String(companyId));
+                                            })
+                                            : [];
+                                        const communityMap = {};
+                                        availableCommunities.forEach(comm => { communityMap[comm.id] = comm; });
+                                        const userMap = {};
+                                        usersList.forEach(u => { userMap[u.id] = u; });
+                                        return (
+                                            <div className="space-y-3">
+                                                {items.map(item => {
+                                                    const community = communityMap[item.communityId];
+                                                    const leader = userMap[item.leaderId];
+                                                    const participants = (item.participants || []).map(pid => userMap[pid]).filter(Boolean);
+                                                    const canEdit = dbUser?.id === item.creatorId || dbUser?.role === 'admin';
+                                                    const canComplete = dbUser?.role === 'admin' || (leader && String(leader.id) === String(dbUser?.id));
+                                                    return (
+                                                        <div key={item.id} className="p-3 rounded-xl bg-white border border-gray-200 text-xs space-y-1 relative group">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="font-bold text-gray-800">
+                                                                    {item.type || '活動'}
+                                                                </div>
+                                                                <div className="text-gray-500">
+                                                                    {item.time || '未設定時間'}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-gray-700">
+                                                                社區：{community ? community.name : '未指定'}
+                                                            </div>
+                                                            <div className="text-gray-700 flex items-center gap-2">
+                                                                <span>主導：{leader ? leader.name : '未指定'}</span>
+                                                                {canComplete && (
+                                                                    <button
+                                                                        onClick={() => openCompleteOverviewMeetingModal(item)}
+                                                                        className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                    >
+                                                                        是否完成?
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-gray-700">
+                                                                參加：{participants.length > 0 ? participants.map(p => p.name).join('、') : '未指定'}
+                                                            </div>
+                                                            {item.description && (
+                                                                <div className="text-gray-600 whitespace-pre-wrap">
+                                                                    {item.description}
+                                                                </div>
+                                                            )}
+                                                            {item.minutes && (
+                                                                <div className="text-gray-700 whitespace-pre-wrap">
+                                                                    會議紀錄：{item.minutes}
+                                                                </div>
+                                                            )}
+                                                            {Array.isArray(item.photos) && item.photos.length > 0 && (
+                                                                <div className="grid grid-cols-4 gap-2 mt-1">
+                                                                    {item.photos.map((p, idx) => (
+                                                                        <img key={idx} src={p.dataUrl || p} alt="照片" className="w-full h-20 object-cover rounded" />
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            <div className="text-gray-400 text-[10px] pt-1 border-t border-gray-100 mt-1">
+                                                                建立 : {item.creatorName || '未記錄'}
+                                                            </div>
+                                                            {canEdit && (
+                                                                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
+                                                                    <button 
+                                                                        onClick={() => handleEditOverviewActivity(item)}
+                                                                        className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 py-1 rounded transition-colors"
+                                                                    >
+                                                                        編輯
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => handleDeleteOverviewActivity(item.id)}
+                                                                        className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 py-1 rounded transition-colors"
+                                                                    >
+                                                                        刪除
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+
+                        {overviewSubtab === 'presentation' && (
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                    <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                    <span className="text-red-600 font-bold">{overviewPresentationCompany}</span>
+                                </div>
+                                <div className="flex items-center justify-center mb-4">
+                                    <button 
+                                        onClick={() => changeOverviewPresentationMonth(-1)}
+                                        className="p-1 rounded-full hover:bg-gray-100"
+                                    >
+                                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                    </button>
+                                    <span className="font-bold text-gray-800 text-lg mx-3">
+                                        {overviewPresentationDate.getFullYear()}年 {overviewPresentationDate.getMonth() + 1}月
+                                    </span>
+                                    <button 
+                                        onClick={() => changeOverviewPresentationMonth(1)}
+                                        className="p-1 rounded-full hover:bg-gray-100"
+                                    >
+                                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                    {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                        <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-7 gap-1">
+                                    {(() => {
+                                        const year = overviewPresentationDate.getFullYear();
+                                        const month = overviewPresentationDate.getMonth();
+                                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                        const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                        const days = [];
+                                        const meetingDatesSet = new Set(
+                                            overviewPresentations
+                                                .filter(meet => 
+                                                    meet.companyName === overviewPresentationCompany && 
+                                                    meet.type === '簡報'
+                                                )
+                                                .map(meet => meet.date)
+                                        );
+                                        const holidays = [
+                                            '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
+                                            '2025-02-28',
+                                            '2025-04-03','2025-04-04','2025-04-05','2025-04-06',
+                                            '2025-05-01',
+                                            '2025-05-30','2025-05-31','2025-06-01',
+                                            '2025-10-04','2025-10-05','2025-10-06',
+                                            '2025-10-10','2025-10-11','2025-10-12',
+                                            '2025-12-25',
+                                            '2026-01-01',
+                                            '2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
+                                            '2026-02-27','2026-02-28','2026-03-01',
+                                            '2026-04-03','2026-04-04','2026-04-05','2026-04-06',
+                                            '2026-05-01',
+                                            '2026-06-19','2026-06-20','2026-06-21',
+                                            '2026-09-25','2026-09-26','2026-09-27',
+                                            '2026-10-09','2026-10-10','2026-10-11',
+                                            '2026-12-25',
+                                        ];
+                                        for (let i = 0; i < firstDayOfWeek; i++) days.push(<div key={`empty-${i}`} className="h-10"></div>);
+                                        for (let d = 1; d <= daysInMonth; d++) {
+                                            const currentDate = new Date(year, month, d);
+                                            const isSelected =
+                                                overviewPresentationSelectedDate &&
+                                                overviewPresentationSelectedDate.getFullYear() === currentDate.getFullYear() &&
+                                                overviewPresentationSelectedDate.getMonth() === currentDate.getMonth() &&
+                                                overviewPresentationSelectedDate.getDate() === currentDate.getDate();
+                                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                            const isToday = new Date().toDateString() === currentDate.toDateString();
+                                            const isHoliday = holidays.includes(dateStr);
+                                            const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                            const hasMeeting = meetingDatesSet.has(dateStr);
+                                            let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                            if (hasMeeting) cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                            else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                            else if (isSelected) cellClass = 'bg-red-50 text-red-600 border border-red-200';
+                                            days.push(
+                                                <div 
+                                                    key={d} 
+                                                    className={`rounded-xl flex items-center justify-center cursor-pointer transition-colors ${cellClass}`}
+                                                    style={{ aspectRatio: '2 / 1' }}
+                                                    onClick={() => setOverviewPresentationSelectedDate(currentDate)}
+                                                >
+                                                    <span className={`text-sm font-bold ${isToday ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>
+                                                        {d}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return days;
+                                    })()}
+                                </div>
+                                <div className="mt-4 p-4 rounded-xl bg-gray-50 border border-gray-100 text-sm text-left">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                            <span>當日簡報</span>
+                                            {overviewPresentationSelectedDate && (
+                                                <span className="text-gray-600">
+                                                    {`${overviewPresentationSelectedDate.getFullYear()}年${String(overviewPresentationSelectedDate.getMonth() + 1).padStart(2, '0')}月${String(overviewPresentationSelectedDate.getDate()).padStart(2, '0')}日 (${['日','一','二','三','四','五','六'][overviewPresentationSelectedDate.getDay()]})`}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={openOverviewPresentationModal}
+                                            className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700"
+                                        >
+                                            + 新增
+                                        </button>
+                                    </div>
+                                    {(function() {
+                                        if (!overviewPresentationSelectedDate) {
+                                            return <div className="text-gray-400 text-xs">請點選上方日曆中的日期以查看當日內容。</div>;
+                                        }
+                                        const y = overviewPresentationSelectedDate.getFullYear();
+                                        const m = String(overviewPresentationSelectedDate.getMonth() + 1).padStart(2, '0');
+                                        const day = String(overviewPresentationSelectedDate.getDate()).padStart(2, '0');
+                                        const dateKey = `${y}-${m}-${day}`;
+                                        const items = overviewPresentations.filter(meet => meet.companyName === overviewPresentationCompany && meet.date === dateKey);
+                                        if (items.length === 0) {
+                                            return <div><div className="text-xs text-gray-500 italic">目前尚未設定此日期的內容。</div></div>;
+                                        }
+                                        const company = companies.find(c => c.name === overviewPresentationCompany);
+                                        const companyId = company ? company.id : null;
+                                        const availableCommunities = companyId
+                                            ? communities.filter(comm => {
+                                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                                return ids.some(id => String(id) === String(companyId));
+                                            })
+                                            : [];
+                                        const communityMap = {};
+                                        availableCommunities.forEach(comm => { communityMap[comm.id] = comm; });
+                                        const userMap = {};
+                                        usersList.forEach(u => { userMap[u.id] = u; });
+                                        return (
+                                            <div className="space-y-3">
+                                                {items.map(item => {
+                                                    const community = communityMap[item.communityId];
+                                                    const leader = userMap[item.leaderId];
+                                                    const participants = (item.participants || []).map(pid => userMap[pid]).filter(Boolean);
+                                                    const canEdit = dbUser?.id === item.creatorId || dbUser?.role === 'admin';
+                                                    const canComplete = dbUser?.role === 'admin' || (leader && String(leader.id) === String(dbUser?.id));
+                                                    return (
+                                                        <div key={item.id} className="p-3 rounded-xl bg-white border border-gray-200 text-xs space-y-1 relative group">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="font-bold text-gray-800">
+                                                                    {item.type || '簡報'}
+                                                                </div>
+                                                                <div className="text-gray-500">
+                                                                    {item.time || '未設定時間'}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-gray-700">
+                                                                社區：{community ? community.name : '未指定'}
+                                                            </div>
+                                                            <div className="text-gray-700 flex items-center gap-2">
+                                                                <span>主導：{leader ? leader.name : '未指定'}</span>
+                                                                {canComplete && (
+                                                                    <button
+                                                                        onClick={() => openCompleteOverviewMeetingModal(item)}
+                                                                        className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                    >
+                                                                        是否完成?
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-gray-700">
+                                                                參加：{participants.length > 0 ? participants.map(p => p.name).join('、') : '未指定'}
+                                                            </div>
+                                                            {item.description && (
+                                                                <div className="text-gray-600 whitespace-pre-wrap">
+                                                                    {item.description}
+                                                                </div>
+                                                            )}
+                                                            {item.minutes && (
+                                                                <div className="text-gray-700 whitespace-pre-wrap">
+                                                                    會議紀錄：{item.minutes}
+                                                                </div>
+                                                            )}
+                                                            {Array.isArray(item.photos) && item.photos.length > 0 && (
+                                                                <div className="grid grid-cols-4 gap-2 mt-1">
+                                                                    {item.photos.map((p, idx) => (
+                                                                        <img key={idx} src={p.dataUrl || p} alt="照片" className="w-full h-20 object-cover rounded" />
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            <div className="text-gray-400 text-[10px] pt-1 border-t border-gray-100 mt-1">
+                                                                建立 : {item.creatorName || '未記錄'}
+                                                            </div>
+                                                            {canEdit && (
+                                                                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
+                                                                    <button 
+                                                                        onClick={() => handleEditOverviewPresentation(item)}
+                                                                        className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-600 py-1 rounded transition-colors"
+                                                                    >
+                                                                        編輯
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => handleDeleteOverviewPresentation(item.id)}
+                                                                        className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 py-1 rounded transition-colors"
+                                                                    >
+                                                                        刪除
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                             </div>
                         )}
 
@@ -12803,6 +14070,111 @@
                         </div>
                     )}
 
+                    {/* Overview District Meeting Company Selection Bar */}
+                    {activeTab === 'overview' && overviewSubtab === 'district_meeting' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2">
+                                    {['台北公司', '桃園公司'].map(name => {
+                                        const len = name.length;
+                                        let displayName = name;
+                                        if (len === 4) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 5) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 6) {
+                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
+                                        }
+
+                                        return (
+                                            <button 
+                                                key={name}
+                                                onClick={() => handleOverviewDistrictMeetingCompanyChange(name)}
+                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                    overviewDistrictMeetingCompany === name 
+                                                        ? 'bg-red-600 text-white' 
+                                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {displayName}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Overview Activity Company Selection Bar */}
+                    {activeTab === 'overview' && overviewSubtab === 'activity' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2">
+                                    {['台北公司', '桃園公司'].map(name => {
+                                        const len = name.length;
+                                        let displayName = name;
+                                        if (len === 4) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 5) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 6) {
+                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
+                                        }
+
+                                        return (
+                                            <button 
+                                                key={name}
+                                                onClick={() => handleOverviewActivityCompanyChange(name)}
+                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                    overviewActivityCompany === name 
+                                                        ? 'bg-red-600 text-white' 
+                                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {displayName}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Overview Presentation Company Selection Bar */}
+                    {activeTab === 'overview' && overviewSubtab === 'presentation' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2">
+                                    {['台北公司', '桃園公司'].map(name => {
+                                        const len = name.length;
+                                        let displayName = name;
+                                        if (len === 4) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 5) {
+                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
+                                        } else if (len === 6) {
+                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
+                                        }
+
+                                        return (
+                                            <button 
+                                                key={name}
+                                                onClick={() => handleOverviewPresentationCompanyChange(name)}
+                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                    overviewPresentationCompany === name 
+                                                        ? 'bg-red-600 text-white' 
+                                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {displayName}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Cadre Company Selection Bar - Only visible on Cadre tab */}
                     {activeTab === 'cadre' && (
                         <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
@@ -15013,6 +16385,543 @@
                                             className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-200"
                                         >
                                             儲存
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {overviewDistrictMeetingModalOpen && (function() {
+                        const company = companies.find(c => c.name === overviewDistrictMeetingCompany);
+                        const companyId = company ? company.id : null;
+                        const availableCommunities = companyId
+                            ? communities.filter(comm => {
+                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const availableUsers = companyId
+                            ? usersList.filter(u => {
+                                const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const participantIds = overviewDistrictMeetingForm.participants || [];
+                        const participantUsers = availableUsers.filter(u => participantIds.includes(u.id));
+                        return (
+                            <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" onClick={() => setOverviewDistrictMeetingModalOpen(false)}>
+                                <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col" onClick={e => e.stopPropagation()}>
+                                    <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                                        <h3 className="text-lg font-bold text-gray-800">新增區大</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewDistrictMeetingModalOpen(false)}
+                                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <div className="p-6 space-y-4 text-sm flex-1 overflow-y-auto">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">社區名稱</label>
+                                            <select
+                                                value={overviewDistrictMeetingForm.communityId}
+                                                onChange={e => handleOverviewDistrictMeetingFormChange('communityId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇社區</option>
+                                                {availableCommunities.map(comm => (
+                                                    <option key={comm.id} value={comm.id}>{comm.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">項目</label>
+                                            <select
+                                                value={overviewDistrictMeetingForm.type}
+                                                onChange={e => handleOverviewDistrictMeetingFormChange('type', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="區大">區大</option>
+                                                <option value="臨時區大">臨時區大</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">日期</label>
+                                            <input
+                                                type="date"
+                                                value={overviewDistrictMeetingForm.date}
+                                                onChange={e => handleOverviewDistrictMeetingFormChange('date', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">時間</label>
+                                            <input
+                                                type="time"
+                                                value={overviewDistrictMeetingForm.time}
+                                                onChange={e => handleOverviewDistrictMeetingFormChange('time', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">參加人員（可複選）</label>
+                                            <div className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 max-h-48 overflow-y-auto space-y-2">
+                                                {availableUsers.map(u => {
+                                                    const checked = participantIds.includes(u.id);
+                                                    return (
+                                                        <label key={u.id} className="flex items-center gap-2 text-sm">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={e => handleOverviewDistrictMeetingParticipantToggle(u.id, e.target.checked)}
+                                                                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                                                            />
+                                                            <span>{u.name || u.email || u.phone || u.id}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
+                                            <select
+                                                value={overviewDistrictMeetingForm.leaderId || ''}
+                                                onChange={e => handleOverviewDistrictMeetingFormChange('leaderId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇主導人員</option>
+                                                {participantUsers.map(u => (
+                                                    <option key={u.id} value={u.id}>
+                                                        {u.name || u.email || u.phone || u.id}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">說明</label>
+                                            <textarea
+                                                value={overviewDistrictMeetingForm.description}
+                                                onChange={e => handleOverviewDistrictMeetingFormChange('description', e.target.value)}
+                                                rows={4}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewDistrictMeetingModalOpen(false)}
+                                            className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
+                                        >
+                                            取消
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveOverviewDistrictMeeting}
+                                            className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-200"
+                                        >
+                                            儲存
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {overviewActivityModalOpen && (function() {
+                        const company = companies.find(c => c.name === overviewActivityCompany);
+                        const companyId = company ? company.id : null;
+                        const availableCommunities = companyId
+                            ? communities.filter(comm => {
+                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const availableUsers = companyId
+                            ? usersList.filter(u => {
+                                const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const participantIds = overviewActivityForm.participants || [];
+                        const participantUsers = availableUsers.filter(u => participantIds.includes(u.id));
+                        return (
+                            <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" onClick={() => setOverviewActivityModalOpen(false)}>
+                                <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col" onClick={e => e.stopPropagation()}>
+                                    <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                                        <h3 className="text-lg font-bold text-gray-800">新增活動</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewActivityModalOpen(false)}
+                                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <div className="p-6 space-y-4 text-sm flex-1 overflow-y-auto">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">社區名稱</label>
+                                            <select
+                                                value={overviewActivityForm.communityId}
+                                                onChange={e => handleOverviewActivityFormChange('communityId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇社區</option>
+                                                {availableCommunities.map(comm => (
+                                                    <option key={comm.id} value={comm.id}>{comm.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">項目</label>
+                                            <select
+                                                value={['節日活動'].includes(overviewActivityForm.type) ? overviewActivityForm.type : '其他'}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '其他') {
+                                                        // Keep existing type if it's not '節日活動', else clear it
+                                                        const current = overviewActivityForm.type;
+                                                        handleOverviewActivityFormChange('type', current === '節日活動' ? '' : current);
+                                                    } else {
+                                                        handleOverviewActivityFormChange('type', val);
+                                                    }
+                                                }}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 mb-2"
+                                            >
+                                                <option value="其他">其他 (自定義)</option>
+                                                <option value="節日活動">節日活動</option>
+                                            </select>
+                                            {(!['節日活動'].includes(overviewActivityForm.type)) && (
+                                                <input
+                                                    type="text"
+                                                    value={overviewActivityForm.type === '節日活動' ? '' : overviewActivityForm.type}
+                                                    onChange={e => handleOverviewActivityFormChange('type', e.target.value)}
+                                                    placeholder="請輸入活動名稱"
+                                                    className="w-full bg-white border border-gray-200 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">日期</label>
+                                            <input
+                                                type="date"
+                                                value={overviewActivityForm.date}
+                                                onChange={e => handleOverviewActivityFormChange('date', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">時間</label>
+                                            <input
+                                                type="time"
+                                                value={overviewActivityForm.time}
+                                                onChange={e => handleOverviewActivityFormChange('time', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">參加人員（可複選）</label>
+                                            <div className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 max-h-48 overflow-y-auto space-y-2">
+                                                {availableUsers.map(u => {
+                                                    const checked = participantIds.includes(u.id);
+                                                    return (
+                                                        <label key={u.id} className="flex items-center gap-2 text-sm">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={e => handleOverviewActivityParticipantToggle(u.id, e.target.checked)}
+                                                                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                                                            />
+                                                            <span>{u.name || u.email || u.phone || u.id}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
+                                            <select
+                                                value={overviewActivityForm.leaderId || ''}
+                                                onChange={e => handleOverviewActivityFormChange('leaderId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇主導人員</option>
+                                                {participantUsers.map(u => (
+                                                    <option key={u.id} value={u.id}>
+                                                        {u.name || u.email || u.phone || u.id}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">說明</label>
+                                            <textarea
+                                                value={overviewActivityForm.description}
+                                                onChange={e => handleOverviewActivityFormChange('description', e.target.value)}
+                                                rows={4}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewActivityModalOpen(false)}
+                                            className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
+                                        >
+                                            取消
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveOverviewActivity}
+                                            className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-200"
+                                        >
+                                            儲存
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {overviewPresentationModalOpen && (function() {
+                        const company = companies.find(c => c.name === overviewPresentationCompany);
+                        const companyId = company ? company.id : null;
+                        const availableCommunities = companyId
+                            ? communities.filter(comm => {
+                                const ids = comm.companyIds || (comm.companyId ? [comm.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const availableUsers = companyId
+                            ? usersList.filter(u => {
+                                const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                                return ids.some(id => String(id) === String(companyId));
+                            })
+                            : [];
+                        const participantIds = overviewPresentationForm.participants || [];
+                        const participantUsers = availableUsers.filter(u => participantIds.includes(u.id));
+                        return (
+                            <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" onClick={() => setOverviewPresentationModalOpen(false)}>
+                                <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col" onClick={e => e.stopPropagation()}>
+                                    <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                                        <h3 className="text-lg font-bold text-gray-800">新增簡報</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewPresentationModalOpen(false)}
+                                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <div className="p-6 space-y-4 text-sm flex-1 overflow-y-auto">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">社區名稱</label>
+                                            <select
+                                                value={
+                                                    availableCommunities.some(comm => String(comm.id) === String(overviewPresentationForm.communityId))
+                                                        ? overviewPresentationForm.communityId
+                                                        : (overviewPresentationForm.communityId ? '其他' : '')
+                                                }
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '其他') {
+                                                        const current = overviewPresentationForm.communityId;
+                                                        const isExisting = availableCommunities.some(comm => String(comm.id) === String(current));
+                                                        const placeholder = (!current || isExisting) ? '自訂社區' : current;
+                                                        handleOverviewPresentationFormChange('communityId', placeholder);
+                                                    } else {
+                                                        handleOverviewPresentationFormChange('communityId', val);
+                                                    }
+                                                }}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 mb-2"
+                                            >
+                                                <option value="">請選擇社區</option>
+                                                <option value="其他">其他 (自定義)</option>
+                                                {availableCommunities.map(comm => (
+                                                    <option key={comm.id} value={comm.id}>{comm.name}</option>
+                                                ))}
+                                            </select>
+                                            {overviewPresentationForm.communityId &&
+                                                !availableCommunities.some(comm => String(comm.id) === String(overviewPresentationForm.communityId)) && (
+                                                <input
+                                                    type="text"
+                                                    value={overviewPresentationForm.communityId}
+                                                    onChange={e => handleOverviewPresentationFormChange('communityId', e.target.value)}
+                                                    placeholder="請輸入社區名稱"
+                                                    className="w-full bg-white border border-gray-200 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">項目</label>
+                                            <input
+                                                type="text"
+                                                value="簡報"
+                                                readOnly
+                                                className="w-full bg-gray-100 border-0 p-3 rounded-xl text-gray-800"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">日期</label>
+                                            <input
+                                                type="date"
+                                                value={overviewPresentationForm.date}
+                                                onChange={e => handleOverviewPresentationFormChange('date', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">時間</label>
+                                            <input
+                                                type="time"
+                                                value={overviewPresentationForm.time}
+                                                onChange={e => handleOverviewPresentationFormChange('time', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">參加人員（可複選）</label>
+                                            <div className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 max-h-48 overflow-y-auto space-y-2">
+                                                {availableUsers.map(u => {
+                                                    const checked = participantIds.includes(u.id);
+                                                    return (
+                                                        <label key={u.id} className="flex items-center gap-2 text-sm">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={e => handleOverviewPresentationParticipantToggle(u.id, e.target.checked)}
+                                                                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                                                            />
+                                                            <span>{u.name || u.email || u.phone || u.id}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
+                                            <select
+                                                value={overviewPresentationForm.leaderId || ''}
+                                                onChange={e => handleOverviewPresentationFormChange('leaderId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇主導人員</option>
+                                                {participantUsers.map(u => (
+                                                    <option key={u.id} value={u.id}>
+                                                        {u.name || u.email || u.phone || u.id}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">說明</label>
+                                            <textarea
+                                                value={overviewPresentationForm.description}
+                                                onChange={e => handleOverviewPresentationFormChange('description', e.target.value)}
+                                                rows={4}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setOverviewPresentationModalOpen(false)}
+                                            className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
+                                        >
+                                            取消
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveOverviewPresentation}
+                                            className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-200"
+                                        >
+                                            儲存
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {completeMeetingModalOpen && (function() {
+                        const target = completeMeetingTarget || {};
+                        return (
+                            <div className="fixed inset-0 z-[96] bg-black/50 flex items-center justify-center p-4" onClick={() => setCompleteMeetingModalOpen(false)}>
+                                <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col" onClick={e => e.stopPropagation()}>
+                                    <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                                        <h3 className="text-lg font-bold text-gray-800">完成會議</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCompleteMeetingModalOpen(false)}
+                                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <div className="p-6 space-y-4 text-sm flex-1 overflow-y-auto">
+                                        <div>
+                                            <div className="text-xs text-gray-500">
+                                                {target.type || '會議'}（{target.date || ''} {target.time || ''}）
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">會議紀錄</label>
+                                            <textarea
+                                                value={completeMeetingForm.minutes}
+                                                onChange={e => handleCompleteMeetingFormChange('minutes', e.target.value)}
+                                                rows={6}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-green-100 resize-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">上傳照片</label>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                multiple
+                                                onChange={e => handleCompletePhotoUpload(e.target.files)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800"
+                                            />
+                                            {Array.isArray(completeMeetingForm.photos) && completeMeetingForm.photos.length > 0 && (
+                                                <div className="grid grid-cols-4 gap-2 mt-2">
+                                                    {completeMeetingForm.photos.map((p, idx) => (
+                                                        <div key={idx} className="relative">
+                                                            <img
+                                                                src={p.dataUrl || p}
+                                                                alt="預覽"
+                                                                className="w-full h-24 object-cover rounded"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveCompletePhoto(idx)}
+                                                                className="absolute top-1 right-1 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs"
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setCompleteMeetingModalOpen(false)}
+                                            className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
+                                        >
+                                            取消
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveCompleteOverviewMeeting}
+                                            className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition shadow-lg shadow-green-200"
+                                        >
+                                            完成
                                         </button>
                                     </div>
                                 </div>
