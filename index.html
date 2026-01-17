@@ -6434,13 +6434,6 @@
                 const activityMeetings = Array.isArray(overviewActivities) ? overviewActivities : [];
                 const presentationMeetings = Array.isArray(overviewPresentations) ? overviewPresentations : [];
                 const meetings = [...baseMeetings, ...districtMeetings, ...activityMeetings, ...presentationMeetings];
-                const currentUserId = dbUser.id != null ? String(dbUser.id) : null;
-                const currentUserName = (dbUser.name || '').trim();
-                
-                if (!currentUserId && !currentUserName) {
-                    setMeetingReminder(null);
-                    return;
-                }
 
                 let newMeetingTarget = null;
                 let dayOfTarget = null;
@@ -6452,34 +6445,6 @@
                     const isToday = meet.date === todayKey;
                     const isFuture = meet.date > todayKey;
                     const isValidTypeForDayOf = meet.type === '例會' || meet.type === '臨時會';
-
-                    // Check relationship
-                    const leaderId = meet.leaderId != null ? String(meet.leaderId) : null;
-                    const participantIds = Array.isArray(meet.participants) ? meet.participants.map(v => String(v)) : [];
-
-                    let isRelated = false;
-                    if (currentUserId) {
-                        if (leaderId === currentUserId || participantIds.includes(currentUserId)) {
-                            isRelated = true;
-                        }
-                    }
-
-                    if (!isRelated && currentUserName && Array.isArray(participantIds) && Array.isArray(usersList)) {
-                        const participantUsers = participantIds
-                            .map(pid => usersList.find(u => String(u.id) === pid))
-                            .filter(Boolean);
-                        if (participantUsers.some(u => (u.name || '').trim() === currentUserName)) {
-                            isRelated = true;
-                        }
-                        if (!isRelated && leaderId) {
-                            const leaderUser = usersList.find(u => String(u.id) === leaderId);
-                            if (leaderUser && (leaderUser.name || '').trim() === currentUserName) {
-                                isRelated = true;
-                            }
-                        }
-                    }
-
-                    if (!isRelated) continue;
 
                     // 1. Check for New Meeting Notification (Priority 1)
                     if (isToday || isFuture) {
@@ -9310,11 +9275,46 @@
                             )}
                             {activeTab === 'overview' && (
                                 <div className="flex gap-2">
-                                    <button onClick={() => setOverviewSubtab('district')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>例會</button>
-                                    <button onClick={() => setOverviewSubtab('district_meeting')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>區大</button>
-                                    <button onClick={() => setOverviewSubtab('activity')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>活動</button>
-                                    <button onClick={() => setOverviewSubtab('presentation')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簡報</button>
-                                    <button onClick={() => setOverviewSubtab('general')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>概況</button>
+                                    {hasSubPermission('overview', 'district') && (
+                                        <button 
+                                            onClick={() => setOverviewSubtab('district')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                        >
+                                            例會
+                                        </button>
+                                    )}
+                                    {hasSubPermission('overview', 'district_meeting') && (
+                                        <button 
+                                            onClick={() => setOverviewSubtab('district_meeting')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                        >
+                                            區大
+                                        </button>
+                                    )}
+                                    {hasSubPermission('overview', 'activity') && (
+                                        <button 
+                                            onClick={() => setOverviewSubtab('activity')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                        >
+                                            活動
+                                        </button>
+                                    )}
+                                    {hasSubPermission('overview', 'presentation') && (
+                                        <button 
+                                            onClick={() => setOverviewSubtab('presentation')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                        >
+                                            簡報
+                                        </button>
+                                    )}
+                                    {hasSubPermission('overview', 'general') && (
+                                        <button 
+                                            onClick={() => setOverviewSubtab('general')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                        >
+                                            概況
+                                        </button>
+                                    )}
                                 </div>
                             )}
                             {activeTab === 'clock' && (
@@ -9817,7 +9817,7 @@
 
                         {activeTab === 'overview' && hasPermission('overview') && (
                             <div className="space-y-6 mb-6">
-                                {overviewSubtab === 'general' && (
+                                {overviewSubtab === 'general' && hasSubPermission('overview', 'general') && (
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                         <h2 className="text-lg font-bold text-gray-800 mb-4">總覽</h2>
                                         <div className="space-y-4">
@@ -9834,7 +9834,7 @@
                                         </div>
                                     </div>
                                 )}
-                                {overviewSubtab === 'district' && (
+                                {overviewSubtab === 'district' && hasSubPermission('overview', 'district') && (
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                         <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                             <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
@@ -10090,7 +10090,7 @@
                             </div>
                         )}
 
-                        {activeTab === 'overview' && hasPermission('overview') && overviewSubtab === 'district_meeting' && (
+                        {activeTab === 'overview' && hasPermission('overview') && hasSubPermission('overview', 'district_meeting') && overviewSubtab === 'district_meeting' && (
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                     <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
@@ -10307,7 +10307,7 @@
                             </div>
                         )}
 
-                        {activeTab === 'overview' && hasPermission('overview') && overviewSubtab === 'activity' && (
+                        {activeTab === 'overview' && hasPermission('overview') && hasSubPermission('overview', 'activity') && overviewSubtab === 'activity' && (
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                     <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
@@ -10523,7 +10523,7 @@
                             </div>
                         )}
 
-                        {activeTab === 'overview' && hasPermission('overview') && overviewSubtab === 'presentation' && (
+                        {activeTab === 'overview' && hasPermission('overview') && hasSubPermission('overview', 'presentation') && overviewSubtab === 'presentation' && (
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                     <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
