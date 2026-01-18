@@ -4347,7 +4347,7 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work', isNightShift = false, setIsNightShift }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, mode = 'work', isNightShift = false, setIsNightShift, timeSynced = false, networkTime = null }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [toast, setToast] = useState(''); // Add toast state to StaffDashboard
             const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -4463,9 +4463,9 @@
             }, [currentUser, roles]);
 
             useEffect(() => {
-                const timer = setInterval(() => setCurrentTime(new Date(Date.now() + (timeOffset || 0))), 1000);
-                return () => clearInterval(timer);
-            }, [timeOffset]);
+                if (!timeSynced || !networkTime) return;
+                setCurrentTime(networkTime);
+            }, [timeSynced, networkTime]);
 
             // Get Current Location for sorting
             useEffect(() => {
@@ -4966,6 +4966,9 @@
             }, [lastRecord, mySchedules, currentTime]);
 
             const getButtonConfig = () => {
+                if (!timeSynced || !networkTime) {
+                    return { type: 'in', text: 'UTC+8同步中', sub: '請稍候', icon: MapPin, colorClass: 'bg-gray-200 text-gray-500 border-2 border-gray-100 cursor-not-allowed', iconBg: 'bg-gray-100', iconColor: 'text-gray-500', disabled: true };
+                }
                 if (mode === 'card') {
                     const lastType = lastRecord?.type;
                     const isCardWorking = lastType === 'late_in';
@@ -5034,6 +5037,10 @@
             };
 
             const handleCheckInClick = (config) => {
+                 if (!timeSynced || !networkTime) {
+                     alert('目前無法取得網路UTC+8台北時間，暫時無法打卡');
+                     return;
+                 }
                  if (config.disabled) return;
                  
                  // Intercept only 'in' (Clock In)
@@ -5335,10 +5342,14 @@
                             </div>
                             <div className="text-center py-4">
                                 <div className="text-5xl font-bold font-mono tracking-wider drop-shadow-sm">
-                                    {currentTime.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit', second: '2-digit' })}
+                                    {networkTime
+                                        ? networkTime.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit', second: '2-digit' })
+                                        : ''}
                                 </div>
                                 <p className="text-white text-2xl mt-2 opacity-80">
-                                    {currentTime.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                                    {networkTime
+                                        ? networkTime.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+                                        : ''}
                                 </p>
                             </div>
                         </div>
@@ -6616,6 +6627,8 @@
             const [clockType, setClockType] = useState('in');
             const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
             const [timeOffset, setTimeOffset] = useState(0);
+            const [timeSynced, setTimeSynced] = useState(false);
+            const [networkTime, setNetworkTime] = useState(null);
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
             const [showCommunityPortal, setShowCommunityPortal] = useState(false);
@@ -7492,54 +7505,50 @@
 
             useEffect(() => {
                 const syncTime = async () => {
-                    // External time APIs are unstable and causing console errors.
-                    // Disabling them to rely on local device time, which is sufficient for most cases.
-                    /*
-                    if (!navigator.onLine) return; // Skip if offline to prevent network errors
-
-                    // Try multiple time APIs in sequence - prioritized more stable ones first
+                    if (!navigator.onLine) return;
                     const apis = [
                         'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei',
                         'https://worldtimeapi.org/api/timezone/Asia/Taipei'
                     ];
-
                     for (const api of apis) {
                         try {
-                            // Add a timeout signal to prevent long hangs that browser might complain about
                             const controller = new AbortController();
-                            const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased timeout to 10s
-                            
-                            const response = await fetch(api, { signal: controller.signal }).catch(() => null); // Catch fetch error immediately
+                            const timeoutId = setTimeout(() => controller.abort(), 10000);
+                            const response = await fetch(api, { signal: controller.signal }).catch(() => null);
                             clearTimeout(timeoutId);
-                            
                             if (response && response.ok) {
                                 const data = await response.json().catch(() => null);
                                 if (!data) continue;
-
                                 let serverTime;
-                                if (data.datetime) { // worldtimeapi
+                                if (data.datetime) {
                                     serverTime = new Date(data.datetime).getTime();
-                                } else if (data.dateTime) { // timeapi.io
+                                } else if (data.dateTime) {
                                     serverTime = new Date(data.dateTime).getTime();
                                 }
-                                
                                 if (serverTime) {
                                     const offset = serverTime - Date.now();
                                     setTimeOffset(offset);
-                                    return; // Success, exit loop
+                                    setNetworkTime(new Date(serverTime));
+                                    setTimeSynced(true);
+                                    return;
                                 }
                             }
                         } catch (e) {
-                            // Silently ignore
                         }
                     }
-                    */
-                    // Fallback to local time (no action needed as offset defaults to 0)
                 };
                 syncTime();
-                const i = setInterval(syncTime, 300000); // Check every 5 minutes
+                const i = setInterval(syncTime, 300000);
                 return () => clearInterval(i);
             }, []);
+
+            useEffect(() => {
+                if (!timeSynced) return;
+                const timer = setInterval(() => {
+                    setNetworkTime(prev => prev ? new Date(prev.getTime() + 1000) : prev);
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [timeSynced]);
 
             useEffect(() => {
                 const deleteAdmin = async () => {
@@ -9801,6 +9810,8 @@
                                         onDeleteRecord={handleAdminDeleteRecord} 
                                         attendanceHistory={myAttendance.filter(r => r.type !== 'leave')}
                                         timeOffset={timeOffset}
+                                        timeSynced={timeSynced}
+                                        networkTime={networkTime}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -10749,6 +10760,8 @@
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         attendanceHistory={myAttendance.filter(r => ['in', 'out'].includes(r.type))}
                                         timeOffset={timeOffset}
+                                        timeSynced={timeSynced}
+                                        networkTime={networkTime}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -10769,6 +10782,8 @@
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         attendanceHistory={myAttendance.filter(r => ['outing_start', 'outing_arrive', 'outing_end'].includes(r.type))}
                                         timeOffset={timeOffset}
+                                        timeSynced={timeSynced}
+                                        networkTime={networkTime}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -10789,6 +10804,8 @@
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         attendanceHistory={myAttendance.filter(r => ['late_in', 'late_out'].includes(r.type))}
                                         timeOffset={timeOffset}
+                                        timeSynced={timeSynced}
+                                        networkTime={networkTime}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -10810,6 +10827,8 @@
                                         onLeaveSubmit={handleLeaveSubmit}
                                         attendanceHistory={[]}
                                         timeOffset={timeOffset}
+                                        timeSynced={timeSynced}
+                                        networkTime={networkTime}
                                         companies={companies}
                                         communities={communities}
                                         checkInLocation={checkInLocation}
@@ -11789,6 +11808,7 @@
 
                                                         {(function(){
                                                             const now = new Date();
+                                                            const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                                                             const isToday = (secs) => {
                                                                 if (!secs) return false;
                                                                 const d = new Date(secs * 1000);
@@ -11816,7 +11836,7 @@
                                                             const scheduledUserIds = new Set();
                                                             (schedulesList || []).forEach(s => {
                                                                 if (!['work', 'duty'].includes(s.type)) return;
-                                                                if (s.date !== cadreRecordDate) return;
+                                                                if (s.date !== todayStr) return;
                                                                 if (!companyUserIdsSet.has(s.userId)) return;
                                                                 scheduledUserIds.add(s.userId);
                                                             });
@@ -11825,7 +11845,7 @@
                                                             let normalCount = 0;
                                                             let abnormalCount = 0;
 
-                                                            const clockedInUsers = (companyUsers || []).filter(u => scheduledUserIds.has(u.id)).map(u => {
+                                                            const clockedInUsers = (companyUsers || []).map(u => {
                                                                 const recs = attendanceList.filter(r => {
                                                                     const secs = r.timestamp?.seconds || r.createdAt?.seconds;
                                                                     if (!secs) return false;
@@ -11876,14 +11896,14 @@
 
                                                             const clockedInCount = clockedInUsers.length;
 
-                                                            const leaveCount = (leavesList || []).filter(r => {
+                                                                const leaveCount = (leavesList || []).filter(r => {
                                                                 if (!scheduledUserIds.has(r.userId)) return false;
                                                                 if (r.approvalStatus && r.approvalStatus !== 'approved') return false;
                                                                 const rDateStr = r.leaveStartDate ? r.leaveStartDate.split('T')[0] : (r.leaveDate || (() => {
                                                                     const d = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
                                                                     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                                                                 })());
-                                                                return rDateStr === cadreRecordDate;
+                                                                return rDateStr === todayStr;
                                                             }).length;
 
                                                             const notClockedInCount = Math.max(0, expectedCount - leaveCount - clockedInCount);
@@ -11898,9 +11918,17 @@
                                                             };
 
                                                             return (
-                                                                <div className="bg-white rounded-2xl shadow-sm p-3">
+                                                            <div className="bg-white rounded-2xl shadow-sm p-3">
                                                                     <div className="text-xs font-bold text-gray-500 mb-1">
-                                                                        今日最新打卡紀錄
+                                                                        {(() => {
+                                                                            const d = new Date();
+                                                                            const y = d.getFullYear();
+                                                                            const m = String(d.getMonth() + 1).padStart(2, '0');
+                                                                            const day = String(d.getDate()).padStart(2, '0');
+                                                                            const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+                                                                            const w = weekdays[d.getDay()];
+                                                                            return `今日${y}-${m}-${day}(星期${w})最新打卡紀錄`;
+                                                                        })()}
                                                                     </div>
                                                                     <div className="text-xs font-bold text-gray-500 mb-1">
                                                                         本日應上班 : {expectedCount}
@@ -11910,7 +11938,7 @@
                                                                         const scheduledUsers = Array.from(scheduledUserIds).map(uid => {
                                                                             const user = (companyUsers || []).find(u => u.id === uid);
                                                                             if (!user) return null;
-                                                                            const sched = (schedulesList || []).find(s => s.userId === uid && s.date === cadreRecordDate && ['work', 'duty'].includes(s.type));
+                                                                            const sched = (schedulesList || []).find(s => s.userId === uid && s.date === todayStr && ['work', 'duty'].includes(s.type));
                                                                             return { user, scheduleType: sched?.type || 'work' };
                                                                         }).filter(Boolean).sort((a, b) => {
                                                                             const an = a.user.name || '';
