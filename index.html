@@ -6394,7 +6394,8 @@
                 time: '',
                 participants: [],
                 leaderId: '',
-                description: ''
+                description: '',
+                otherParticipants: ''
             });
             const [overviewMeetings, setOverviewMeetings] = useState(() => {
                 try {
@@ -6493,6 +6494,67 @@
             }, [dbUser, overviewMeetings, overviewDistrictMeetings, overviewActivities, overviewPresentations, usersList]);
             const [overviewMeetingCompany, setOverviewMeetingCompany] = useState('台北公司');
             const [overviewMeetingDatesByCompany, setOverviewMeetingDatesByCompany] = useState({});
+            const getOverviewMeetingBadgeCount = () => {
+                const baseMeetings = Array.isArray(overviewMeetings) ? overviewMeetings : [];
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                const todayKey = `${y}-${m}-${d}`;
+                const filtered = baseMeetings.filter(meet => {
+                    if (!meet) return false;
+                    if (meet.companyName !== overviewMeetingCompany) return false;
+                    if (!(meet.type === '例會' || meet.type === '臨時會')) return false;
+                    if (!meet.date || typeof meet.date !== 'string') return false;
+                    return meet.date >= todayKey;
+                });
+                return filtered.length;
+            };
+            const getOverviewDistrictMeetingBadgeCount = () => {
+                const list = Array.isArray(overviewDistrictMeetings) ? overviewDistrictMeetings : [];
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                const todayKey = `${y}-${m}-${d}`;
+                const filtered = list.filter(meet => {
+                    if (!meet) return false;
+                    if (meet.companyName !== overviewDistrictMeetingCompany) return false;
+                    if (!meet.date || typeof meet.date !== 'string') return false;
+                    return meet.date >= todayKey;
+                });
+                return filtered.length;
+            };
+            const getOverviewActivityBadgeCount = () => {
+                const list = Array.isArray(overviewActivities) ? overviewActivities : [];
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                const todayKey = `${y}-${m}-${d}`;
+                const filtered = list.filter(meet => {
+                    if (!meet) return false;
+                    if (meet.companyName !== overviewActivityCompany) return false;
+                    if (!meet.date || typeof meet.date !== 'string') return false;
+                    return meet.date >= todayKey;
+                });
+                return filtered.length;
+            };
+            const getOverviewPresentationBadgeCount = () => {
+                const list = Array.isArray(overviewPresentations) ? overviewPresentations : [];
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                const todayKey = `${y}-${m}-${d}`;
+                const filtered = list.filter(meet => {
+                    if (!meet) return false;
+                    if (meet.companyName !== overviewPresentationCompany) return false;
+                    if (!meet.date || typeof meet.date !== 'string') return false;
+                    return meet.date >= todayKey;
+                });
+                return filtered.length;
+            };
 
             // District Meeting States
             const [overviewDistrictMeetingCompany, setOverviewDistrictMeetingCompany] = useState('台北公司');
@@ -6507,7 +6569,8 @@
                 time: '',
                 participants: [],
                 leaderId: '',
-                description: ''
+                description: '',
+                otherParticipants: ''
             });
             const [overviewDistrictMeetings, setOverviewDistrictMeetings] = useState(() => {
                 try {
@@ -6532,7 +6595,8 @@
                 time: '',
                 participants: [],
                 leaderId: '',
-                description: ''
+                description: '',
+                otherParticipants: ''
             });
             const [overviewActivities, setOverviewActivities] = useState(() => {
                 try {
@@ -6557,7 +6621,8 @@
                 time: '',
                 participants: [],
                 leaderId: '',
-                description: ''
+                description: '',
+                otherParticipants: ''
             });
             const [overviewPresentations, setOverviewPresentations] = useState(() => {
                 try {
@@ -7504,91 +7569,16 @@
             };
 
             useEffect(() => {
-                const CACHE_KEY = 'nw_time_sync_cache';
-                const MAX_CACHE_AGE = 2 * 60 * 1000;
-                const loadCachedTime = () => {
-                    try {
-                        if (typeof localStorage === 'undefined') return false;
-                        const raw = localStorage.getItem(CACHE_KEY);
-                        if (!raw) return false;
-                        const cached = JSON.parse(raw);
-                        if (!cached || !cached.serverTime || !cached.cachedAt) return false;
-                        const now = Date.now();
-                        const age = now - cached.cachedAt;
-                        if (age > MAX_CACHE_AGE || age < 0) return false;
-                        const estimatedServerNow = cached.serverTime + age;
-                        const offset = estimatedServerNow - now;
-                        setTimeOffset(offset);
-                        setNetworkTime(new Date(estimatedServerNow));
-                        setTimeSynced(true);
-                        return true;
-                    } catch {
-                        return false;
-                    }
+                const updateTime = () => {
+                    const now = new Date();
+                    setTimeOffset(0);
+                    setNetworkTime(now);
+                    setTimeSynced(true);
                 };
-                const syncTime = async () => {
-                    if (!navigator.onLine) return;
-                    const apis = [
-                        'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei',
-                        'https://worldtimeapi.org/api/timezone/Asia/Taipei'
-                    ];
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 2000);
-                        const fetches = apis.map(url =>
-                            fetch(url, { signal: controller.signal }).catch(() => null)
-                        );
-                        const response = await Promise.race(fetches);
-                        clearTimeout(timeoutId);
-                        if (response && response.ok) {
-                            const data = await response.json().catch(() => null);
-                            if (!data) return;
-                            let serverTime;
-                            if (data.datetime) {
-                                serverTime = new Date(data.datetime).getTime();
-                            } else if (data.dateTime) {
-                                serverTime = new Date(data.dateTime).getTime();
-                            }
-                            if (serverTime) {
-                                const now = Date.now();
-                                const offset = serverTime - now;
-                                setTimeOffset(offset);
-                                setNetworkTime(new Date(serverTime));
-                                setTimeSynced(true);
-                                try {
-                                    if (typeof localStorage !== 'undefined') {
-                                        localStorage.setItem(
-                                            CACHE_KEY,
-                                            JSON.stringify({
-                                                serverTime,
-                                                cachedAt: now
-                                            })
-                                        );
-                                    }
-                                } catch {
-                                }
-                            }
-                        }
-                    } catch (e) {
-                    }
-                };
-                const hadCache = loadCachedTime();
-                if (!hadCache) {
-                    syncTime();
-                } else {
-                    syncTime();
-                }
-                const i = setInterval(syncTime, 60000);
-                return () => clearInterval(i);
-            }, []);
-
-            useEffect(() => {
-                if (!timeSynced) return;
-                const timer = setInterval(() => {
-                    setNetworkTime(prev => prev ? new Date(prev.getTime() + 1000) : prev);
-                }, 1000);
+                updateTime();
+                const timer = setInterval(updateTime, 1000);
                 return () => clearInterval(timer);
-            }, [timeSynced]);
+            }, []);
 
             useEffect(() => {
                 const deleteAdmin = async () => {
@@ -7665,7 +7655,8 @@
                     time: '',
                     participants: [],
                     leaderId: '',
-                    description: ''
+                    description: '',
+                    otherParticipants: ''
                 });
                 setOverviewMeetingModalOpen(true);
             };
@@ -7773,7 +7764,8 @@
                     time: '',
                     participants: [],
                     leaderId: '',
-                    description: ''
+                    description: '',
+                    otherParticipants: ''
                 });
                 setOverviewDistrictMeetingModalOpen(true);
             };
@@ -7891,7 +7883,8 @@
                     time: '',
                     participants: [],
                     leaderId: '',
-                    description: ''
+                    description: '',
+                    otherParticipants: ''
                 });
                 setOverviewActivityModalOpen(true);
             };
@@ -9327,33 +9320,69 @@
                                     {hasSubPermission('overview', 'district') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('district')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
                                         >
-                                            例會
+                                            <span>例會</span>
+                                            {(function() {
+                                                const count = getOverviewMeetingBadgeCount();
+                                                if (!count) return null;
+                                                return (
+                                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
+                                                        {count}
+                                                    </span>
+                                                );
+                                            })()}
                                         </button>
                                     )}
                                     {hasSubPermission('overview', 'district_meeting') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('district_meeting')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
                                         >
-                                            區大
+                                            <span>區大</span>
+                                            {(function() {
+                                                const count = getOverviewDistrictMeetingBadgeCount();
+                                                if (!count) return null;
+                                                return (
+                                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
+                                                        {count}
+                                                    </span>
+                                                );
+                                            })()}
                                         </button>
                                     )}
                                     {hasSubPermission('overview', 'activity') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('activity')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
                                         >
-                                            活動
+                                            <span>活動</span>
+                                            {(function() {
+                                                const count = getOverviewActivityBadgeCount();
+                                                if (!count) return null;
+                                                return (
+                                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
+                                                        {count}
+                                                    </span>
+                                                );
+                                            })()}
                                         </button>
                                     )}
                                     {hasSubPermission('overview', 'presentation') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('presentation')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
                                         >
-                                            簡報
+                                            <span>簡報</span>
+                                            {(function() {
+                                                const count = getOverviewPresentationBadgeCount();
+                                                if (!count) return null;
+                                                return (
+                                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
+                                                        {count}
+                                                    </span>
+                                                );
+                                            })()}
                                         </button>
                                     )}
                                     {hasSubPermission('overview', 'general') && (
@@ -16341,7 +16370,7 @@
                         const availableUsers = companyId
                             ? usersList.filter(u => {
                                 const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
-                                return ids.some(id => String(id) === String(companyId));
+                                return ids.some(id => String(id) === String(companyId)) && (u.status || '在職') !== '離職';
                             })
                             : [];
                         const participantIds = overviewMeetingForm.participants || [];
@@ -16420,6 +16449,16 @@
                                                     );
                                                 })}
                                             </div>
+                                            <div className="mt-2">
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">其他人員（自訂）</label>
+                                                <input
+                                                    type="text"
+                                                    value={overviewMeetingForm.otherParticipants || ''}
+                                                    onChange={e => handleOverviewMeetingFormChange('otherParticipants', e.target.value)}
+                                                    placeholder="請輸入其他參加人員，以、分隔"
+                                                    className="w-full bg-white border border-gray-200 p-2 rounded-xl text-xs text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
@@ -16479,7 +16518,7 @@
                         const availableUsers = companyId
                             ? usersList.filter(u => {
                                 const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
-                                return ids.some(id => String(id) === String(companyId));
+                                return ids.some(id => String(id) === String(companyId)) && (u.status || '在職') !== '離職';
                             })
                             : [];
                         const participantIds = overviewDistrictMeetingForm.participants || [];
@@ -16558,6 +16597,16 @@
                                                     );
                                                 })}
                                             </div>
+                                            <div className="mt-2">
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">其他人員（自訂）</label>
+                                                <input
+                                                    type="text"
+                                                    value={overviewDistrictMeetingForm.otherParticipants || ''}
+                                                    onChange={e => handleOverviewDistrictMeetingFormChange('otherParticipants', e.target.value)}
+                                                    placeholder="請輸入其他參加人員，以、分隔"
+                                                    className="w-full bg白 border border-gray-200 p-2 rounded-xl text-xs text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
@@ -16617,7 +16666,7 @@
                         const availableUsers = companyId
                             ? usersList.filter(u => {
                                 const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
-                                return ids.some(id => String(id) === String(companyId));
+                                return ids.some(id => String(id) === String(companyId)) && (u.status || '在職') !== '離職';
                             })
                             : [];
                         const participantIds = overviewActivityForm.participants || [];
@@ -16714,6 +16763,16 @@
                                                     );
                                                 })}
                                             </div>
+                                            <div className="mt-2">
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">其他人員（自訂）</label>
+                                                <input
+                                                    type="text"
+                                                    value={overviewActivityForm.otherParticipants || ''}
+                                                    onChange={e => handleOverviewActivityFormChange('otherParticipants', e.target.value)}
+                                                    placeholder="請輸入其他參加人員，以、分隔"
+                                                    className="w-full bg-white border border-gray-200 p-2 rounded-xl text-xs text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1">主導人員</label>
@@ -16773,7 +16832,7 @@
                         const availableUsers = companyId
                             ? usersList.filter(u => {
                                 const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
-                                return ids.some(id => String(id) === String(companyId));
+                                return ids.some(id => String(id) === String(companyId)) && (u.status || '在職') !== '離職';
                             })
                             : [];
                         const participantIds = overviewPresentationForm.participants || [];
@@ -16874,6 +16933,16 @@
                                                         </label>
                                                     );
                                                 })}
+                                            </div>
+                                            <div className="mt-2">
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">其他人員（自訂）</label>
+                                                <input
+                                                    type="text"
+                                                    value={overviewPresentationForm.otherParticipants || ''}
+                                                    onChange={e => handleOverviewPresentationFormChange('otherParticipants', e.target.value)}
+                                                    placeholder="請輸入其他參加人員，以、分隔"
+                                                    className="w-full bg-white border border-gray-200 p-2 rounded-xl text-xs text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
                                             </div>
                                         </div>
                                         <div>
