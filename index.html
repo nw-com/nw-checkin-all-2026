@@ -7510,35 +7510,35 @@
                         'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Taipei',
                         'https://worldtimeapi.org/api/timezone/Asia/Taipei'
                     ];
-                    for (const api of apis) {
-                        try {
-                            const controller = new AbortController();
-                            const timeoutId = setTimeout(() => controller.abort(), 10000);
-                            const response = await fetch(api, { signal: controller.signal }).catch(() => null);
-                            clearTimeout(timeoutId);
-                            if (response && response.ok) {
-                                const data = await response.json().catch(() => null);
-                                if (!data) continue;
-                                let serverTime;
-                                if (data.datetime) {
-                                    serverTime = new Date(data.datetime).getTime();
-                                } else if (data.dateTime) {
-                                    serverTime = new Date(data.dateTime).getTime();
-                                }
-                                if (serverTime) {
-                                    const offset = serverTime - Date.now();
-                                    setTimeOffset(offset);
-                                    setNetworkTime(new Date(serverTime));
-                                    setTimeSynced(true);
-                                    return;
-                                }
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 3000);
+                        const fetches = apis.map(url =>
+                            fetch(url, { signal: controller.signal }).catch(() => null)
+                        );
+                        const response = await Promise.race(fetches);
+                        clearTimeout(timeoutId);
+                        if (response && response.ok) {
+                            const data = await response.json().catch(() => null);
+                            if (!data) return;
+                            let serverTime;
+                            if (data.datetime) {
+                                serverTime = new Date(data.datetime).getTime();
+                            } else if (data.dateTime) {
+                                serverTime = new Date(data.dateTime).getTime();
                             }
-                        } catch (e) {
+                            if (serverTime) {
+                                const offset = serverTime - Date.now();
+                                setTimeOffset(offset);
+                                setNetworkTime(new Date(serverTime));
+                                setTimeSynced(true);
+                            }
                         }
+                    } catch (e) {
                     }
                 };
                 syncTime();
-                const i = setInterval(syncTime, 300000);
+                const i = setInterval(syncTime, 60000);
                 return () => clearInterval(i);
             }, []);
 
