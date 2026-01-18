@@ -7504,6 +7504,28 @@
             };
 
             useEffect(() => {
+                const CACHE_KEY = 'nw_time_sync_cache';
+                const MAX_CACHE_AGE = 2 * 60 * 1000;
+                const loadCachedTime = () => {
+                    try {
+                        if (typeof localStorage === 'undefined') return false;
+                        const raw = localStorage.getItem(CACHE_KEY);
+                        if (!raw) return false;
+                        const cached = JSON.parse(raw);
+                        if (!cached || !cached.serverTime || !cached.cachedAt) return false;
+                        const now = Date.now();
+                        const age = now - cached.cachedAt;
+                        if (age > MAX_CACHE_AGE || age < 0) return false;
+                        const estimatedServerNow = cached.serverTime + age;
+                        const offset = estimatedServerNow - now;
+                        setTimeOffset(offset);
+                        setNetworkTime(new Date(estimatedServerNow));
+                        setTimeSynced(true);
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                };
                 const syncTime = async () => {
                     if (!navigator.onLine) return;
                     const apis = [
@@ -7512,7 +7534,7 @@
                     ];
                     try {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 3000);
+                        const timeoutId = setTimeout(() => controller.abort(), 2000);
                         const fetches = apis.map(url =>
                             fetch(url, { signal: controller.signal }).catch(() => null)
                         );
@@ -7528,16 +7550,34 @@
                                 serverTime = new Date(data.dateTime).getTime();
                             }
                             if (serverTime) {
-                                const offset = serverTime - Date.now();
+                                const now = Date.now();
+                                const offset = serverTime - now;
                                 setTimeOffset(offset);
                                 setNetworkTime(new Date(serverTime));
                                 setTimeSynced(true);
+                                try {
+                                    if (typeof localStorage !== 'undefined') {
+                                        localStorage.setItem(
+                                            CACHE_KEY,
+                                            JSON.stringify({
+                                                serverTime,
+                                                cachedAt: now
+                                            })
+                                        );
+                                    }
+                                } catch {
+                                }
                             }
                         }
                     } catch (e) {
                     }
                 };
-                syncTime();
+                const hadCache = loadCachedTime();
+                if (!hadCache) {
+                    syncTime();
+                } else {
+                    syncTime();
+                }
                 const i = setInterval(syncTime, 60000);
                 return () => clearInterval(i);
             }, []);
