@@ -6401,38 +6401,8 @@
                 description: '',
                 otherParticipants: ''
             });
-            const [overviewMeetings, setOverviewMeetings] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('overviewMeetings');
-                    let meetings = saved ? JSON.parse(saved) : [];
-                    
-                    // Restore specifically lost meeting: 2026/01/17 20:00
-                    const lostDate = '2026-01-17';
-                    const lostTime = '20:00';
-                    const exists = meetings.some(m => m.date === lostDate && m.time === lostTime);
-                    
-                    if (!exists) {
-                        meetings.push({
-                            id: 'restored_lost_meeting',
-                            companyName: '台北公司', 
-                            communityId: '',
-                            type: '例會',
-                            date: lostDate,
-                            time: lostTime,
-                            participants: [],
-                            leaderId: '',
-                            description: '補回遺失的例會'
-                        });
-                    }
-                    return meetings;
-                } catch (e) {
-                    return [];
-                }
-            });
+            const [overviewMeetings, setOverviewMeetings] = useState([]);
 
-            useEffect(() => {
-                localStorage.setItem('overviewMeetings', JSON.stringify(overviewMeetings));
-            }, [overviewMeetings]);
             const [meetingReminder, setMeetingReminder] = useState(null);
 
             useEffect(() => {
@@ -6457,6 +6427,15 @@
                 for (let i = 0; i < meetings.length; i++) {
                     const meet = meetings[i];
                     if (!meet) continue;
+
+                    // Filter Logic:
+                    // Only notify if user is admin/manager OR user is a participant
+                    const isAdminOrManager = dbUser && ['admin', 'manager'].includes(dbUser.role);
+                    const isParticipant = dbUser && Array.isArray(meet.participants) && meet.participants.includes(dbUser.id);
+                    
+                    if (!isAdminOrManager && !isParticipant) {
+                        continue;
+                    }
                     
                     const isToday = meet.date === todayKey;
                     const isFuture = meet.date > todayKey;
@@ -6576,15 +6555,7 @@
                 description: '',
                 otherParticipants: ''
             });
-            const [overviewDistrictMeetings, setOverviewDistrictMeetings] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('overviewDistrictMeetings');
-                    return saved ? JSON.parse(saved) : [];
-                } catch (e) { return []; }
-            });
-            useEffect(() => {
-                localStorage.setItem('overviewDistrictMeetings', JSON.stringify(overviewDistrictMeetings));
-            }, [overviewDistrictMeetings]);
+            const [overviewDistrictMeetings, setOverviewDistrictMeetings] = useState([]);
 
             // Activity States
             const [overviewActivityCompany, setOverviewActivityCompany] = useState('台北公司');
@@ -6602,15 +6573,7 @@
                 description: '',
                 otherParticipants: ''
             });
-            const [overviewActivities, setOverviewActivities] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('overviewActivities');
-                    return saved ? JSON.parse(saved) : [];
-                } catch (e) { return []; }
-            });
-            useEffect(() => {
-                localStorage.setItem('overviewActivities', JSON.stringify(overviewActivities));
-            }, [overviewActivities]);
+            const [overviewActivities, setOverviewActivities] = useState([]);
 
             // Presentation States
             const [overviewPresentationCompany, setOverviewPresentationCompany] = useState('台北公司');
@@ -6628,15 +6591,7 @@
                 description: '',
                 otherParticipants: ''
             });
-            const [overviewPresentations, setOverviewPresentations] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('overviewPresentations');
-                    return saved ? JSON.parse(saved) : [];
-                } catch (e) { return []; }
-            });
-            useEffect(() => {
-                localStorage.setItem('overviewPresentations', JSON.stringify(overviewPresentations));
-            }, [overviewPresentations]);
+            const [overviewPresentations, setOverviewPresentations] = useState([]);
 
             const [clockSubtab, setClockSubtab] = useState('work');
             const [clockScheduleDate, setClockScheduleDate] = useState(new Date()); // New State for Clock Tab Schedule
@@ -7691,29 +7646,11 @@
                 });
             };
 
-            const handleSaveOverviewMeeting = () => {
+            const handleSaveOverviewMeeting = async () => {
                 if (!overviewMeetingForm.date) return;
                 
-                if (overviewMeetingForm.id) {
-                    setOverviewMeetings(prev => prev.map(m => {
-                        if (m.id === overviewMeetingForm.id) {
-                            return {
-                                ...m,
-                                companyName: overviewMeetingCompany,
-                                communityId: overviewMeetingForm.communityId,
-                                type: overviewMeetingForm.type,
-                                date: overviewMeetingForm.date,
-                                time: overviewMeetingForm.time,
-                                participants: overviewMeetingForm.participants,
-                                leaderId: overviewMeetingForm.leaderId,
-                                description: overviewMeetingForm.description
-                            };
-                        }
-                        return m;
-                    }));
-                } else {
-                    const newItem = {
-                        id: Date.now().toString(),
+                try {
+                    const payload = {
                         companyName: overviewMeetingCompany,
                         communityId: overviewMeetingForm.communityId,
                         type: overviewMeetingForm.type,
@@ -7722,12 +7659,25 @@
                         participants: overviewMeetingForm.participants,
                         leaderId: overviewMeetingForm.leaderId,
                         description: overviewMeetingForm.description,
-                        creatorId: dbUser?.id,
-                        creatorName: dbUser?.name || '未記錄'
+                        updatedBy: dbUser?.name || 'unknown',
+                        updatedAt: serverTimestamp()
                     };
-                    setOverviewMeetings(prev => [...prev, newItem]);
+
+                    if (overviewMeetingForm.id) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_meetings', overviewMeetingForm.id), payload);
+                    } else {
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_meetings'), {
+                            ...payload,
+                            creatorId: dbUser?.id,
+                            creatorName: dbUser?.name || '未記錄',
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                    setOverviewMeetingModalOpen(false);
+                } catch (e) {
+                    console.error('Save meeting error', e);
+                    alert('儲存失敗');
                 }
-                setOverviewMeetingModalOpen(false);
             };
 
             // District Meeting Handlers
@@ -7791,28 +7741,10 @@
                 });
             };
 
-            const handleSaveOverviewDistrictMeeting = () => {
+            const handleSaveOverviewDistrictMeeting = async () => {
                 if (!overviewDistrictMeetingForm.date) return;
-                if (overviewDistrictMeetingForm.id) {
-                    setOverviewDistrictMeetings(prev => prev.map(m => {
-                        if (m.id === overviewDistrictMeetingForm.id) {
-                            return {
-                                ...m,
-                                companyName: overviewDistrictMeetingCompany,
-                                communityId: overviewDistrictMeetingForm.communityId,
-                                type: overviewDistrictMeetingForm.type,
-                                date: overviewDistrictMeetingForm.date,
-                                time: overviewDistrictMeetingForm.time,
-                                participants: overviewDistrictMeetingForm.participants,
-                                leaderId: overviewDistrictMeetingForm.leaderId,
-                                description: overviewDistrictMeetingForm.description
-                            };
-                        }
-                        return m;
-                    }));
-                } else {
-                    const newItem = {
-                        id: Date.now().toString(),
+                try {
+                    const payload = {
                         companyName: overviewDistrictMeetingCompany,
                         communityId: overviewDistrictMeetingForm.communityId,
                         type: overviewDistrictMeetingForm.type,
@@ -7821,12 +7753,25 @@
                         participants: overviewDistrictMeetingForm.participants,
                         leaderId: overviewDistrictMeetingForm.leaderId,
                         description: overviewDistrictMeetingForm.description,
-                        creatorId: dbUser?.id,
-                        creatorName: dbUser?.name || '未記錄'
+                        updatedBy: dbUser?.name || 'unknown',
+                        updatedAt: serverTimestamp()
                     };
-                    setOverviewDistrictMeetings(prev => [...prev, newItem]);
+
+                    if (overviewDistrictMeetingForm.id) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings', overviewDistrictMeetingForm.id), payload);
+                    } else {
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings'), {
+                            ...payload,
+                            creatorId: dbUser?.id,
+                            creatorName: dbUser?.name || '未記錄',
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                    setOverviewDistrictMeetingModalOpen(false);
+                } catch(e) {
+                    console.error(e);
+                    alert('儲存失敗');
                 }
-                setOverviewDistrictMeetingModalOpen(false);
             };
 
             const handleEditOverviewDistrictMeeting = (meeting) => {
@@ -7843,9 +7788,14 @@
                 setOverviewDistrictMeetingModalOpen(true);
             };
 
-            const handleDeleteOverviewDistrictMeeting = (meetingId) => {
+            const handleDeleteOverviewDistrictMeeting = async (meetingId) => {
                 if (confirm('確定要刪除此區大嗎？')) {
-                    setOverviewDistrictMeetings(prev => prev.filter(m => m.id !== meetingId));
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings', meetingId));
+                    } catch(e) {
+                        console.error(e);
+                        alert('刪除失敗');
+                    }
                 }
             };
 
@@ -7910,28 +7860,10 @@
                 });
             };
 
-            const handleSaveOverviewActivity = () => {
+            const handleSaveOverviewActivity = async () => {
                 if (!overviewActivityForm.date) return;
-                if (overviewActivityForm.id) {
-                    setOverviewActivities(prev => prev.map(m => {
-                        if (m.id === overviewActivityForm.id) {
-                            return {
-                                ...m,
-                                companyName: overviewActivityCompany,
-                                communityId: overviewActivityForm.communityId,
-                                type: overviewActivityForm.type,
-                                date: overviewActivityForm.date,
-                                time: overviewActivityForm.time,
-                                participants: overviewActivityForm.participants,
-                                leaderId: overviewActivityForm.leaderId,
-                                description: overviewActivityForm.description
-                            };
-                        }
-                        return m;
-                    }));
-                } else {
-                    const newItem = {
-                        id: Date.now().toString(),
+                try {
+                    const payload = {
                         companyName: overviewActivityCompany,
                         communityId: overviewActivityForm.communityId,
                         type: overviewActivityForm.type,
@@ -7940,12 +7872,25 @@
                         participants: overviewActivityForm.participants,
                         leaderId: overviewActivityForm.leaderId,
                         description: overviewActivityForm.description,
-                        creatorId: dbUser?.id,
-                        creatorName: dbUser?.name || '未記錄'
+                        updatedBy: dbUser?.name || 'unknown',
+                        updatedAt: serverTimestamp()
                     };
-                    setOverviewActivities(prev => [...prev, newItem]);
+
+                    if (overviewActivityForm.id) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_activities', overviewActivityForm.id), payload);
+                    } else {
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_activities'), {
+                            ...payload,
+                            creatorId: dbUser?.id,
+                            creatorName: dbUser?.name || '未記錄',
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                    setOverviewActivityModalOpen(false);
+                } catch(e) {
+                    console.error(e);
+                    alert('儲存失敗');
                 }
-                setOverviewActivityModalOpen(false);
             };
 
             const handleEditOverviewActivity = (meeting) => {
@@ -7962,9 +7907,14 @@
                 setOverviewActivityModalOpen(true);
             };
 
-            const handleDeleteOverviewActivity = (meetingId) => {
+            const handleDeleteOverviewActivity = async (meetingId) => {
                 if (confirm('確定要刪除此活動嗎？')) {
-                    setOverviewActivities(prev => prev.filter(m => m.id !== meetingId));
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_activities', meetingId));
+                    } catch(e) {
+                        console.error(e);
+                        alert('刪除失敗');
+                    }
                 }
             };
 
@@ -8028,28 +7978,10 @@
                 });
             };
 
-            const handleSaveOverviewPresentation = () => {
+            const handleSaveOverviewPresentation = async () => {
                 if (!overviewPresentationForm.date) return;
-                if (overviewPresentationForm.id) {
-                    setOverviewPresentations(prev => prev.map(m => {
-                        if (m.id === overviewPresentationForm.id) {
-                            return {
-                                ...m,
-                                companyName: overviewPresentationCompany,
-                                communityId: overviewPresentationForm.communityId,
-                                type: overviewPresentationForm.type,
-                                date: overviewPresentationForm.date,
-                                time: overviewPresentationForm.time,
-                                participants: overviewPresentationForm.participants,
-                                leaderId: overviewPresentationForm.leaderId,
-                                description: overviewPresentationForm.description
-                            };
-                        }
-                        return m;
-                    }));
-                } else {
-                    const newItem = {
-                        id: Date.now().toString(),
+                try {
+                    const payload = {
                         companyName: overviewPresentationCompany,
                         communityId: overviewPresentationForm.communityId,
                         type: overviewPresentationForm.type,
@@ -8058,12 +7990,25 @@
                         participants: overviewPresentationForm.participants,
                         leaderId: overviewPresentationForm.leaderId,
                         description: overviewPresentationForm.description,
-                        creatorId: dbUser?.id,
-                        creatorName: dbUser?.name || '未記錄'
+                        updatedBy: dbUser?.name || 'unknown',
+                        updatedAt: serverTimestamp()
                     };
-                    setOverviewPresentations(prev => [...prev, newItem]);
+
+                    if (overviewPresentationForm.id) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_presentations', overviewPresentationForm.id), payload);
+                    } else {
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_presentations'), {
+                            ...payload,
+                            creatorId: dbUser?.id,
+                            creatorName: dbUser?.name || '未記錄',
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                    setOverviewPresentationModalOpen(false);
+                } catch(e) {
+                    console.error(e);
+                    alert('儲存失敗');
                 }
-                setOverviewPresentationModalOpen(false);
             };
 
             const handleEditOverviewPresentation = (meeting) => {
@@ -8080,9 +8025,14 @@
                 setOverviewPresentationModalOpen(true);
             };
 
-            const handleDeleteOverviewPresentation = (meetingId) => {
+            const handleDeleteOverviewPresentation = async (meetingId) => {
                 if (confirm('確定要刪除此簡報嗎？')) {
-                    setOverviewPresentations(prev => prev.filter(m => m.id !== meetingId));
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_presentations', meetingId));
+                    } catch(e) {
+                        console.error(e);
+                        alert('刪除失敗');
+                    }
                 }
             };
 
@@ -8138,9 +8088,14 @@
                 setOverviewMeetingModalOpen(true);
             };
 
-            const handleDeleteOverviewMeeting = (meetingId) => {
+            const handleDeleteOverviewMeeting = async (meetingId) => {
                 if (confirm('確定要刪除此例會嗎？')) {
-                    setOverviewMeetings(prev => prev.filter(m => m.id !== meetingId));
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_meetings', meetingId));
+                    } catch(e) {
+                        console.error(e);
+                        alert('刪除失敗');
+                    }
                 }
             };
             
@@ -8185,28 +8140,36 @@
                 }));
             };
             
-            const handleSaveCompleteOverviewMeeting = () => {
+            const handleSaveCompleteOverviewMeeting = async () => {
                 if (!completeMeetingTarget) return;
-                const updated = {
-                    ...completeMeetingTarget,
-                    minutes: completeMeetingForm.minutes || '',
-                    photos: Array.isArray(completeMeetingForm.photos) ? completeMeetingForm.photos : [],
-                    completed: true,
-                    completedById: dbUser?.id,
-                    completedByName: dbUser?.name || '未記錄',
-                    completedAt: new Date().toISOString()
-                };
-                if (updated.type === '區大' || updated.type === '臨時區大') {
-                    setOverviewDistrictMeetings(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
-                } else if (updated.type === '活動') {
-                    setOverviewActivities(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
-                } else if (updated.type === '簡報') {
-                    setOverviewPresentations(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
-                } else {
-                    setOverviewMeetings(prev => prev.map(m => m.id === completeMeetingTarget.id ? updated : m));
+                
+                try {
+                    const payload = {
+                        minutes: completeMeetingForm.minutes || '',
+                        photos: Array.isArray(completeMeetingForm.photos) ? completeMeetingForm.photos : [],
+                        completed: true,
+                        completedById: dbUser?.id,
+                        completedByName: dbUser?.name || '未記錄',
+                        completedAt: new Date().toISOString()
+                    };
+
+                    let collectionName = 'overview_meetings';
+                    if (completeMeetingTarget.type === '區大' || completeMeetingTarget.type === '臨時區大') {
+                        collectionName = 'overview_district_meetings';
+                    } else if (completeMeetingTarget.type === '活動') {
+                        collectionName = 'overview_activities';
+                    } else if (completeMeetingTarget.type === '簡報') {
+                        collectionName = 'overview_presentations';
+                    }
+
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, completeMeetingTarget.id), payload);
+
+                    setCompleteMeetingModalOpen(false);
+                    setCompleteMeetingTarget(null);
+                } catch (e) {
+                    console.error('Complete meeting error', e);
+                    alert('儲存失敗');
                 }
-                setCompleteMeetingModalOpen(false);
-                setCompleteMeetingTarget(null);
             };
 
             const hasPermission = (pageKey) => {
@@ -8501,6 +8464,24 @@
                         (snap) => setMakeupRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
                         (e) => handleFetchError(e, 'makeup_requests_snap')
                     ));
+                }
+
+                // Fetch Overview Data
+                const hasOverviewPerm = ['admin', 'manager', 'hr'].includes(dbUser.role) || 
+                                      (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('overview');
+                
+                if (hasOverviewPerm) {
+                    const qOverviewMeetings = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_meetings'));
+                    unsubscribes.push(onSnapshot(qOverviewMeetings, (snap) => setOverviewMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+
+                    const qOverviewDistrictMeetings = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings'));
+                    unsubscribes.push(onSnapshot(qOverviewDistrictMeetings, (snap) => setOverviewDistrictMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+
+                    const qOverviewActivities = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_activities'));
+                    unsubscribes.push(onSnapshot(qOverviewActivities, (snap) => setOverviewActivities(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+
+                    const qOverviewPresentations = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_presentations'));
+                    unsubscribes.push(onSnapshot(qOverviewPresentations, (snap) => setOverviewPresentations(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
                 }
 
                 return () => unsubscribes.forEach(u => u());
