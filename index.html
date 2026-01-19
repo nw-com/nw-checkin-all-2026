@@ -3825,43 +3825,47 @@
             const [description, setDescription] = useState('');
             const [photo, setPhoto] = useState(null);
             const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
+            const [initialized, setInitialized] = useState(false);
 
             useEffect(() => {
-                if (isOpen) {
-                    const initUserId = initialData?.userId || (users.length > 0 ? users[0].id : '');
-                    setUserId(initUserId);
-                    if (initialData) {
-                        setCompany(defaultCompany || '所屬公司'); // Company usually doesn't change
-                        if (['病假', '事假'].includes(initialData.leaveReason)) {
-                            setReason(initialData.leaveReason);
-                            setCustomReason('');
-                        } else {
-                            setReason('其他');
-                            setCustomReason(initialData.leaveReason);
-                        }
-                        setStartDate(initialData.leaveStartDate || getFormattedDateTime(new Date(), '09:00'));
-                        setEndDate(initialData.leaveEndDate || getFormattedDateTime(new Date(), '18:00'));
-                        setDescription(initialData.leaveDescription || '');
-                        if (initialData.photoUrl) {
-                            setPhoto(initialData.photoUrl); // Store URL string as photo state for edit mode
-                            setPreviewPhotoUrl(initialData.photoUrl);
-                        } else {
-                            setPhoto(null);
-                            setPreviewPhotoUrl(null);
-                        }
-                    } else {
-                        // Reset for new entry
-                        setCompany(defaultCompany || '所屬公司');
-                        setReason('病假');
+                if (!isOpen) {
+                    setInitialized(false);
+                    return;
+                }
+                if (initialized) return;
+                const initUserId = initialData?.userId || (users.length > 0 ? users[0].id : '');
+                setUserId(initUserId);
+                if (initialData) {
+                    setCompany(defaultCompany || '所屬公司');
+                    if (['病假', '事假'].includes(initialData.leaveReason)) {
+                        setReason(initialData.leaveReason);
                         setCustomReason('');
-                        setStartDate(getFormattedDateTime(new Date(), '09:00'));
-                        setEndDate(getFormattedDateTime(new Date(), '18:00'));
-                        setDescription('');
+                    } else {
+                        setReason('其他');
+                        setCustomReason(initialData.leaveReason);
+                    }
+                    setStartDate(initialData.leaveStartDate || getFormattedDateTime(new Date(), '09:00'));
+                    setEndDate(initialData.leaveEndDate || getFormattedDateTime(new Date(), '18:00'));
+                    setDescription(initialData.leaveDescription || '');
+                    if (initialData.photoUrl) {
+                        setPhoto(initialData.photoUrl);
+                        setPreviewPhotoUrl(initialData.photoUrl);
+                    } else {
                         setPhoto(null);
                         setPreviewPhotoUrl(null);
                     }
+                } else {
+                    setCompany(defaultCompany || '所屬公司');
+                    setReason('病假');
+                    setCustomReason('');
+                    setStartDate(getFormattedDateTime(new Date(), '09:00'));
+                    setEndDate(getFormattedDateTime(new Date(), '18:00'));
+                    setDescription('');
+                    setPhoto(null);
+                    setPreviewPhotoUrl(null);
                 }
-            }, [isOpen, initialData, defaultCompany, users]);
+                setInitialized(true);
+            }, [isOpen, initialData, defaultCompany, users, initialized]);
             
             if (!isOpen) return null;
 
@@ -8211,6 +8215,15 @@
                 const userRole = (roles || []).find(r => r.id === dbUser.role);
                 return userRole?.permissions?.includes(pageKey) || false;
             };
+
+            useEffect(() => {
+                if (!dbUser) return;
+                const allowed = availablePages.filter(p => hasPermission(p.key));
+                if (allowed.length === 0) return;
+                if (!allowed.some(p => p.key === activeTab)) {
+                    setActiveTab(allowed[0].key);
+                }
+            }, [dbUser, roles, activeTab]);
 
             useEffect(() => {
                 if (!navigator.geolocation) {
@@ -14331,52 +14344,88 @@
                     )}
 
                     <div className="fixed bottom-0 left-0 right-0 z-50 h-[8vh] bg-white border-t border-gray-100">
-                        <div className={`max-w-md mx-auto h-full px-4 flex items-center ${(() => {
-                            const count = ['home', 'overview', 'clock', 'community', 'function', 'cadre', 'application', 'settings']
-                                .reduce((acc, key) => acc + (hasPermission(key) ? 1 : 0), 0);
-                            return count <= 4 ? 'justify-center gap-6' : 'justify-between';
-                        })()}`}>
+                        <div className="max-w-md mx-auto h-full px-4 flex items-center">
                             {hasPermission('home') && (
-                                <button onClick={() => switchTab('home')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'home' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <Home className="w-5 h-5 mb-1" /> 首頁
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('home')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'home' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <Home className="w-5 h-5 mb-1" /> 首頁
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('overview') && (
-                                <button onClick={() => switchTab('overview')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'overview' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <BarChart3 className="w-5 h-5 mb-1" /> 總覽
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('overview')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'overview' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <BarChart3 className="w-5 h-5 mb-1" /> 總覽
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('clock') && (
-                                <button onClick={() => switchTab('clock')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'clock' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <ClipboardList className="w-5 h-5 mb-1" /> 打卡
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('clock')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'clock' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <ClipboardList className="w-5 h-5 mb-1" /> 打卡
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('community') && (
-                                <button onClick={() => setShowCommunityPortal(true)} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <Building2 className="w-5 h-5 mb-1" /> 社區
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => setShowCommunityPortal(true)}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <Building2 className="w-5 h-5 mb-1" /> 社區
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('function') && (
-                                <button onClick={() => switchTab('function')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'function' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <Briefcase className="w-5 h-5 mb-1" /> 功能
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('function')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'function' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <Briefcase className="w-5 h-5 mb-1" /> 功能
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('cadre') && (
-                                <button onClick={() => switchTab('cadre')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'cadre' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <Shield className="w-5 h-5 mb-1" /> 幹部
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('cadre')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'cadre' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <Shield className="w-5 h-5 mb-1" /> 幹部
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('application') && (
-                                <button onClick={() => switchTab('application')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'application' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <FileText className="w-5 h-5 mb-1" /> 申請
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('application')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'application' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <FileText className="w-5 h-5 mb-1" /> 申請
+                                    </button>
+                                </div>
                             )}
                             {hasPermission('settings') && (
-                                <button onClick={() => switchTab('settings')} className={`flex flex-col items-center font-bold text-xs ${activeTab === 'settings' ? 'text-red-600' : 'text-gray-600'}`}>
-                                    <Settings className="w-5 h-5 mb-1" /> 設定
-                                </button>
+                                <div className="flex-1 flex justify-center">
+                                    <button
+                                        onClick={() => switchTab('settings')}
+                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'settings' ? 'text-red-600' : 'text-gray-600'}`}
+                                    >
+                                        <Settings className="w-5 h-5 mb-1" /> 設定
+                                    </button>
+                                </div>
                             )}
-                    </div>
+                        </div>
                     </div>
 
                     {showCommunityPortal && (
@@ -14597,10 +14646,12 @@
                         initialData={editingCadreLeave}
                         users={(function(){
                             const targetCompany = companies.find(c => c.name === cadreCompany);
-                            const companyUserIds = targetCompany ? usersList
-                                .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
-                                .map(u => u.id) : [];
-                            return usersList.filter(u => companyUserIds.includes(u.id));
+                            if (!targetCompany) return [];
+                            return usersList.filter(u => {
+                                if ((u.status || '在職') === '離職') return false;
+                                const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                                return ids.some(cid => String(cid) === String(targetCompany.id));
+                            });
                         })()}
                         onSubmit={async (data) => {
                             setCadreLeaveLoading(true);
