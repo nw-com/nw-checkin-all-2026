@@ -4375,6 +4375,11 @@
             const [outingReasonOption, setOutingReasonOption] = useState('例行督察');
             const [outingCustomReason, setOutingCustomReason] = useState('');
             const [showOutingReasonSelector, setShowOutingReasonSelector] = useState(false);
+            const [isManualLocation, setIsManualLocation] = useState(false);
+
+            useEffect(() => {
+                setIsManualLocation(false);
+            }, [currentUser?.id]);
 
             // Hardcoded Holidays (Taiwan)
             const holidays = [
@@ -4872,26 +4877,32 @@
                         setCheckInLocation(defaultLocation);
                         if (!isCompanyGroup && currentLocation) setHasLocationSorted(true);
                     } else {
-                        const savedCompanyId = (currentUser.companyId) || ((currentUser.companyIds && currentUser.companyIds.length > 0) ? currentUser.companyIds[0] : null);
-                        const savedCommunityId = (currentUser.communityId) || ((currentUser.communityIds && currentUser.communityIds.length > 0) ? currentUser.communityIds[0] : null);
-                        const desiredType = isCompanyGroup ? 'company' : 'community';
-                        const desiredId = isCompanyGroup ? savedCompanyId : savedCommunityId;
-                        let desiredLoc = null;
-                        if (desiredId) {
-                            desiredLoc = availableLocations.find(l => l.type === desiredType && String(l.id) === String(desiredId));
+                        // Restore default location logic, but only if user hasn't manually selected one
+                        if (!isManualLocation) {
+                            const savedCompanyId = (currentUser.companyId) || ((currentUser.companyIds && currentUser.companyIds.length > 0) ? currentUser.companyIds[0] : null);
+                            const savedCommunityId = (currentUser.communityId) || ((currentUser.communityIds && currentUser.communityIds.length > 0) ? currentUser.communityIds[0] : null);
+                            const desiredType = isCompanyGroup ? 'company' : 'community';
+                            const desiredId = isCompanyGroup ? savedCompanyId : savedCommunityId;
+                            let desiredLoc = null;
+                            if (desiredId) {
+                                desiredLoc = availableLocations.find(l => l.type === desiredType && String(l.id) === String(desiredId));
+                            }
+                            if (!desiredLoc) {
+                                desiredLoc = availableLocations.find(l => l.type === desiredType) || availableLocations[0];
+                            }
+                            if (!checkInLocation || checkInLocation.id !== desiredLoc.id) {
+                                setCheckInLocation(desiredLoc);
+                            }
                         }
-                        if (!desiredLoc) {
-                            desiredLoc = availableLocations.find(l => l.type === desiredType) || availableLocations[0];
-                        }
-                        if (!checkInLocation || checkInLocation.id !== desiredLoc.id) {
-                            setCheckInLocation(desiredLoc);
-                        } else if (!isCompanyGroup && currentLocation && !hasLocationSorted) {
+
+                        // Only auto-update for community users when GPS becomes available (to sort by distance)
+                        if (!isCompanyGroup && currentLocation && !hasLocationSorted && !isManualLocation) {
                             setCheckInLocation(availableLocations[0]);
                             setHasLocationSorted(true);
                         }
                     }
                 }
-            }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup, mode]);
+            }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup, mode, isManualLocation]);
 
             // Auto-Reset Logic: Determine if still "Working" within the shift window
             const isWorking = useMemo(() => {
@@ -5886,6 +5897,7 @@
                                             key={loc.id}
                                             onClick={() => {
                                                 setCheckInLocation({ id: loc.id, name: loc.name, type: loc.type });
+                                                setIsManualLocation(true);
                                                 setShowLocationSelector(false);
                                             }}
                                             className={`w-full text-left px-4 py-3 rounded-xl mb-1 flex items-center justify-between ${checkInLocation?.id === loc.id ? 'bg-red-50 text-red-600 font-bold' : 'hover:bg-gray-50 text-gray-700'}`}
@@ -8094,7 +8106,8 @@
                 setCompleteMeetingTarget(meeting);
                 setCompleteMeetingForm({
                     minutes: meeting.minutes || '',
-                    photos: Array.isArray(meeting.photos) ? meeting.photos : []
+                    photos: Array.isArray(meeting.photos) ? meeting.photos : [],
+                    isCompleted: meeting.completed || false
                 });
                 setCompleteMeetingModalOpen(true);
             };
@@ -8138,7 +8151,7 @@
                     const payload = {
                         minutes: completeMeetingForm.minutes || '',
                         photos: Array.isArray(completeMeetingForm.photos) ? completeMeetingForm.photos : [],
-                        completed: true,
+                        completed: completeMeetingForm.isCompleted,
                         completedById: dbUser?.id,
                         completedByName: dbUser?.name || '未記錄',
                         completedAt: new Date().toISOString()
@@ -9613,9 +9626,9 @@
                                             const dayEnd = new Date(year, month, day, 23, 59, 59);
 
                                             const todayLeaveInfo = (() => {
-                                                const parseRange = (l) => {
-                                                    if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
-                                                    let s, e;
+                                                  const parseRange = (l) => {
+                                                      if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
+                                                      let s, e;
                                                     if (l.leaveStartDate) {
                                                         const sd = String(l.leaveStartDate).replace(/\//g, '-');
                                                         s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
@@ -9935,14 +9948,22 @@
                                                 const firstDayOfWeek = new Date(year, month, 1).getDay();
                                                 const days = [];
 
-                                                const meetingDatesSet = new Set(
-                                                    overviewMeetings
-                                                        .filter(meet => 
-                                                            meet.companyName === overviewCompany && 
-                                                            (meet.type === '例會' || meet.type === '臨時會')
-                                                        )
-                                                        .map(meet => meet.date)
-                                                );
+                                                const dateStatusMap = {};
+                                                overviewMeetings
+                                                    .filter(meet => 
+                                                        meet.companyName === overviewCompany && 
+                                                        (meet.type === '例會' || meet.type === '臨時會')
+                                                    )
+                                                    .forEach(meet => {
+                                                        if (!meet.date) return;
+                                                        if (!dateStatusMap[meet.date]) {
+                                                            dateStatusMap[meet.date] = { count: 0, completedCount: 0 };
+                                                        }
+                                                        dateStatusMap[meet.date].count++;
+                                                        if (meet.completed) {
+                                                            dateStatusMap[meet.date].completedCount++;
+                                                        }
+                                                    });
                                                 // Taiwan National Holidays (2025-2026)
                                                 const holidays = [
                                                     '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', 
@@ -9982,12 +10003,22 @@
                                                     const isToday = new Date().toDateString() === currentDate.toDateString();
                                                     const isHoliday = holidays.includes(dateStr);
                                                     const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
-                                                    const hasMeeting = meetingDatesSet.has(dateStr);
+                                                    const status = dateStatusMap[dateStr];
+                                                    const hasMeeting = !!status;
+                                                    const isPast = currentDate.getTime() < new Date().setHours(0,0,0,0);
 
                                                     let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
                                                     
                                                     if (hasMeeting) {
-                                                        cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                                        if (isPast) {
+                                                            if (status.completedCount === status.count) {
+                                                                cellClass = 'bg-green-600 text-white border border-green-700 shadow-sm hover:bg-green-700';
+                                                            } else {
+                                                                cellClass = 'bg-red-600 text-white border border-red-700 shadow-sm hover:bg-red-700';
+                                                            }
+                                                        } else {
+                                                            cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                                        }
                                                     } else if (isToday) {
                                                         cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
                                                     } else if (isSelected) {
@@ -10091,13 +10122,13 @@
                                                                     <div className="text-gray-700 flex items-center gap-2">
                                                                         <span>主導：{leader ? leader.name : '未指定'}</span>
                                                                         {canComplete && (
-                                                                            <button
-                                                                                onClick={() => openCompleteOverviewMeetingModal(item)}
-                                                                                className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
-                                                                            >
-                                                                                是否完成?
-                                                                            </button>
-                                                                        )}
+                                                                    <button
+                                                                        onClick={() => openCompleteOverviewMeetingModal(item)}
+                                                                        className={`px-2 py-0.5 text-white rounded text-[11px] ${item.completed ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'}`}
+                                                                    >
+                                                                        {item.completed ? '已完成' : '是否完成?'}
+                                                                    </button>
+                                                                )}
                                                                     </div>
                                                                     <div className="text-gray-700">
                                                                         參加：{participants.length > 0 ? participants.map(p => p.name).join('、') : '未指定'}
@@ -10190,14 +10221,22 @@
                                         const daysInMonth = new Date(year, month + 1, 0).getDate();
                                         const firstDayOfWeek = new Date(year, month, 1).getDay();
                                         const days = [];
-                                        const meetingDatesSet = new Set(
-                                            overviewDistrictMeetings
-                                                .filter(meet => 
-                                                    meet.companyName === overviewCompany && 
-                                                    (meet.type === '區大' || meet.type === '臨時區大')
-                                                )
-                                                .map(meet => meet.date)
-                                        );
+                                        const dateStatusMap = {};
+                                        overviewDistrictMeetings
+                                            .filter(meet => 
+                                                meet.companyName === overviewCompany && 
+                                                (meet.type === '區大' || meet.type === '臨時區大')
+                                            )
+                                            .forEach(meet => {
+                                                if (!meet.date) return;
+                                                if (!dateStatusMap[meet.date]) {
+                                                    dateStatusMap[meet.date] = { count: 0, completedCount: 0 };
+                                                }
+                                                dateStatusMap[meet.date].count++;
+                                                if (meet.completed) {
+                                                    dateStatusMap[meet.date].completedCount++;
+                                                }
+                                            });
                                         const holidays = [
                                             '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
                                             '2025-02-28',
@@ -10229,10 +10268,21 @@
                                             const isToday = new Date().toDateString() === currentDate.toDateString();
                                             const isHoliday = holidays.includes(dateStr);
                                             const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
-                                            const hasMeeting = meetingDatesSet.has(dateStr);
+                                            const status = dateStatusMap[dateStr];
+                                            const hasMeeting = !!status;
+                                            const isPast = currentDate.getTime() < new Date().setHours(0,0,0,0);
                                             let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
-                                            if (hasMeeting) cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
-                                            else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                            if (hasMeeting) {
+                                                if (isPast) {
+                                                    if (status.completedCount === status.count) {
+                                                        cellClass = 'bg-green-600 text-white border border-green-700 shadow-sm hover:bg-green-700';
+                                                    } else {
+                                                        cellClass = 'bg-red-600 text-white border border-red-700 shadow-sm hover:bg-red-700';
+                                                    }
+                                                } else {
+                                                    cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                                }
+                                            } else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
                                             else if (isSelected) cellClass = 'bg-red-50 text-red-600 border border-red-200';
                                             days.push(
                                                 <div 
@@ -10317,9 +10367,9 @@
                                                                 {canComplete && (
                                                                     <button
                                                                         onClick={() => openCompleteOverviewMeetingModal(item)}
-                                                                        className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                        className={`px-2 py-0.5 text-white rounded text-[11px] ${item.completed ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'}`}
                                                                     >
-                                                                        是否完成?
+                                                                        {item.completed ? '已完成' : '是否完成?'}
                                                                     </button>
                                                                 )}
                                                             </div>
@@ -10407,13 +10457,21 @@
                                         const daysInMonth = new Date(year, month + 1, 0).getDate();
                                         const firstDayOfWeek = new Date(year, month, 1).getDay();
                                         const days = [];
-                                        const meetingDatesSet = new Set(
-                                            overviewActivities
-                                                .filter(meet => 
-                                                    meet.companyName === overviewCompany
-                                                )
-                                                .map(meet => meet.date)
-                                        );
+                                        const dateStatusMap = {};
+                                        overviewActivities
+                                            .filter(meet => 
+                                                meet.companyName === overviewCompany
+                                            )
+                                            .forEach(meet => {
+                                                if (!meet.date) return;
+                                                if (!dateStatusMap[meet.date]) {
+                                                    dateStatusMap[meet.date] = { count: 0, completedCount: 0 };
+                                                }
+                                                dateStatusMap[meet.date].count++;
+                                                if (meet.completed) {
+                                                    dateStatusMap[meet.date].completedCount++;
+                                                }
+                                            });
                                         const holidays = [
                                             '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
                                             '2025-02-28',
@@ -10445,10 +10503,21 @@
                                             const isToday = new Date().toDateString() === currentDate.toDateString();
                                             const isHoliday = holidays.includes(dateStr);
                                             const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
-                                            const hasMeeting = meetingDatesSet.has(dateStr);
+                                            const status = dateStatusMap[dateStr];
+                                            const hasMeeting = !!status;
+                                            const isPast = currentDate.getTime() < new Date().setHours(0,0,0,0);
                                             let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
-                                            if (hasMeeting) cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
-                                            else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                            if (hasMeeting) {
+                                                if (isPast) {
+                                                    if (status.completedCount === status.count) {
+                                                        cellClass = 'bg-green-600 text-white border border-green-700 shadow-sm hover:bg-green-700';
+                                                    } else {
+                                                        cellClass = 'bg-red-600 text-white border border-red-700 shadow-sm hover:bg-red-700';
+                                                    }
+                                                } else {
+                                                    cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                                }
+                                            } else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
                                             else if (isSelected) cellClass = 'bg-red-50 text-red-600 border border-red-200';
                                             days.push(
                                                 <div 
@@ -10533,9 +10602,9 @@
                                                                 {canComplete && (
                                                                     <button
                                                                         onClick={() => openCompleteOverviewMeetingModal(item)}
-                                                                        className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                        className={`px-2 py-0.5 text-white rounded text-[11px] ${item.completed ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'}`}
                                                                     >
-                                                                        是否完成?
+                                                                        {item.completed ? '已完成' : '是否完成?'}
                                                                     </button>
                                                                 )}
                                                             </div>
@@ -10623,14 +10692,22 @@
                                         const daysInMonth = new Date(year, month + 1, 0).getDate();
                                         const firstDayOfWeek = new Date(year, month, 1).getDay();
                                         const days = [];
-                                        const meetingDatesSet = new Set(
-                                            overviewPresentations
-                                                .filter(meet => 
-                                                    meet.companyName === overviewCompany && 
-                                                    meet.type === '簡報'
-                                                )
-                                                .map(meet => meet.date)
-                                        );
+                                        const dateStatusMap = {};
+                                        overviewPresentations
+                                            .filter(meet => 
+                                                meet.companyName === overviewCompany && 
+                                                meet.type === '簡報'
+                                            )
+                                            .forEach(meet => {
+                                                if (!meet.date) return;
+                                                if (!dateStatusMap[meet.date]) {
+                                                    dateStatusMap[meet.date] = { count: 0, completedCount: 0 };
+                                                }
+                                                dateStatusMap[meet.date].count++;
+                                                if (meet.completed) {
+                                                    dateStatusMap[meet.date].completedCount++;
+                                                }
+                                            });
                                         const holidays = [
                                             '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
                                             '2025-02-28',
@@ -10662,10 +10739,21 @@
                                             const isToday = new Date().toDateString() === currentDate.toDateString();
                                             const isHoliday = holidays.includes(dateStr);
                                             const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
-                                            const hasMeeting = meetingDatesSet.has(dateStr);
+                                            const status = dateStatusMap[dateStr];
+                                            const hasMeeting = !!status;
+                                            const isPast = currentDate.getTime() < new Date().setHours(0,0,0,0);
                                             let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
-                                            if (hasMeeting) cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
-                                            else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
+                                            if (hasMeeting) {
+                                                if (isPast) {
+                                                    if (status.completedCount === status.count) {
+                                                        cellClass = 'bg-green-600 text-white border border-green-700 shadow-sm hover:bg-green-700';
+                                                    } else {
+                                                        cellClass = 'bg-red-600 text-white border border-red-700 shadow-sm hover:bg-red-700';
+                                                    }
+                                                } else {
+                                                    cellClass = 'bg-blue-800 text-white border border-blue-900 shadow-sm hover:bg-blue-900';
+                                                }
+                                            } else if (isToday) cellClass = 'bg-blue-50 text-blue-600 border border-blue-200';
                                             else if (isSelected) cellClass = 'bg-red-50 text-red-600 border border-red-200';
                                             days.push(
                                                 <div 
@@ -10750,9 +10838,9 @@
                                                                 {canComplete && (
                                                                     <button
                                                                         onClick={() => openCompleteOverviewMeetingModal(item)}
-                                                                        className="px-2 py-0.5 bg-orange-500 text-white rounded text-[11px] hover:bg-orange-600"
+                                                                        className={`px-2 py-0.5 text-white rounded text-[11px] ${item.completed ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-500 hover:bg-orange-600'}`}
                                                                     >
-                                                                        是否完成?
+                                                                        {item.completed ? '已完成' : '是否完成?'}
                                                                     </button>
                                                                 )}
                                                             </div>
@@ -10975,22 +11063,27 @@
                                                             const parseRange = (l) => {
                                                                 if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
                                                                 let s, e;
+                                                                const combine = (d, t, defT) => {
+                                                                    if (!d) return null;
+                                                                    let dStr = String(d).replace(/\//g, '-');
+                                                                    if (dStr.includes('T') || (dStr.includes(' ') && dStr.includes(':'))) {
+                                                                        const tryDate = new Date(dStr);
+                                                                        if (!isNaN(tryDate.getTime())) return tryDate;
+                                                                    }
+                                                                    const tStr = t || defT;
+                                                                    return new Date(`${dStr}T${tStr}`);
+                                                                };
                                                                 if (l.leaveStartDate) {
-                                                                    const sd = String(l.leaveStartDate).replace(/\//g, '-');
-                                                                    s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                    s = combine(l.leaveStartDate, l.leaveStartTime, '00:00:00');
                                                                 } else if (l.startDate) {
-                                                                    const sd = String(l.startDate).replace(/\//g, '-');
-                                                                    s = new Date(sd);
+                                                                    s = combine(l.startDate, l.startTime, '00:00:00');
                                                                 } else if (l.leaveDate) {
-                                                                    const sd = String(l.leaveDate).replace(/\//g, '-');
-                                                                    s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                                    s = combine(l.leaveDate, l.leaveTime, '00:00:00');
                                                                 }
                                                                 if (l.leaveEndDate) {
-                                                                    const ed = String(l.leaveEndDate).replace(/\//g, '-');
-                                                                    e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                    e = combine(l.leaveEndDate, l.leaveEndTime, '23:59:59');
                                                                 } else if (l.endDate) {
-                                                                    const ed = String(l.endDate).replace(/\//g, '-');
-                                                                    e = new Date(ed);
+                                                                    e = combine(l.endDate, l.endTime, '23:59:59');
                                                                 } else if (s) {
                                                                     e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
                                                                 }
@@ -11013,22 +11106,27 @@
                                                         const parseRange = (l) => {
                                                             if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
                                                             let s, e;
+                                                            const combine = (d, t, defT) => {
+                                                                if (!d) return null;
+                                                                let dStr = String(d).replace(/\//g, '-');
+                                                                if (dStr.includes('T') || (dStr.includes(' ') && dStr.includes(':'))) {
+                                                                    const tryDate = new Date(dStr);
+                                                                    if (!isNaN(tryDate.getTime())) return tryDate;
+                                                                }
+                                                                const tStr = t || defT;
+                                                                return new Date(`${dStr}T${tStr}`);
+                                                            };
                                                             if (l.leaveStartDate) {
-                                                                const sd = String(l.leaveStartDate).replace(/\//g, '-');
-                                                                s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                                s = combine(l.leaveStartDate, l.leaveStartTime, '00:00:00');
                                                             } else if (l.startDate) {
-                                                                const sd = String(l.startDate).replace(/\//g, '-');
-                                                                s = new Date(sd);
+                                                                s = combine(l.startDate, l.startTime, '00:00:00');
                                                             } else if (l.leaveDate) {
-                                                                const sd = String(l.leaveDate).replace(/\//g, '-');
-                                                                s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                                s = combine(l.leaveDate, l.leaveTime, '00:00:00');
                                                             }
                                                             if (l.leaveEndDate) {
-                                                                const ed = String(l.leaveEndDate).replace(/\//g, '-');
-                                                                e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                                e = combine(l.leaveEndDate, l.leaveEndTime, '23:59:59');
                                                             } else if (l.endDate) {
-                                                                const ed = String(l.endDate).replace(/\//g, '-');
-                                                                e = new Date(ed);
+                                                                e = combine(l.endDate, l.endTime, '23:59:59');
                                                             } else if (s) {
                                                                 e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
                                                             }
@@ -11065,6 +11163,9 @@
                                                         if (totalHours > 0) {
                                                             const fmt = (dt) => `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
                                                             let period = '';
+                                                            let sequence = 'full';
+                                                            let ratio = 1;
+
                                                             if (minStart && maxEnd) {
                                                                 if (schedule && schedule.startTime && schedule.endTime) {
                                                                     const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
@@ -11072,23 +11173,53 @@
                                                                     const ss = new Date(year, month, d, Number(sh) || 0, Number(sm) || 0, 0, 0);
                                                                     const se = new Date(year, month, d, Number(eh) || 0, Number(em) || 0, 0, 0);
                                                                     const schedHours = Math.max(0, (se.getTime() - ss.getTime()) / 3600000);
-                                                                    if (Math.abs(Number(totalHours.toFixed(1)) - Number(schedHours.toFixed(1))) < 0.01) {
-                                                                        period = '全日';
+                                                                    
+                                                                    if (schedHours > 0) {
+                                                                        ratio = totalHours / schedHours;
+                                                                        if (Math.abs(Number(totalHours.toFixed(1)) - Number(schedHours.toFixed(1))) < 0.01 || ratio >= 0.99) {
+                                                                            period = '全日';
+                                                                            sequence = 'full';
+                                                                        } else {
+                                                                            period = `${fmt(minStart)}~${fmt(maxEnd)}`;
+                                                                            const startsAtStart = Math.abs(minStart.getTime() - ss.getTime()) < 60000;
+                                                                            const endsAtEnd = Math.abs(maxEnd.getTime() - se.getTime()) < 60000;
+                                                                            
+                                                                            if (startsAtStart && !endsAtEnd) {
+                                                                                sequence = 'leave_work';
+                                                                            } else {
+                                                                                sequence = 'work_leave';
+                                                                            }
+                                                                        }
                                                                     } else {
-                                                                        period = `${fmt(minStart)}~${fmt(maxEnd)}`;
+                                                                         period = `${fmt(minStart)}~${fmt(maxEnd)}`;
                                                                     }
                                                                 } else {
                                                                     period = `${fmt(minStart)}~${fmt(maxEnd)}`;
                                                                 }
                                                             }
-                                                            return { hours: Number(totalHours.toFixed(1)), period };
+                                                            return { hours: Number(totalHours.toFixed(1)), period, sequence, ratio };
                                                         }
                                                         return null;
                                                     })();
 
-                                                            if (leaveInfo) {
-                                                                cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
-                                                            } else if (schedule) {
+                                                    let cellStyle = {};
+                                                    if (leaveInfo) {
+                                                        if (leaveInfo.sequence === 'full') {
+                                                            cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
+                                                        } else {
+                                                            const pct = Math.min(100, Math.max(0, leaveInfo.ratio * 100));
+                                                            // leave_work: Leave (Orange) top, Work (Green) bottom
+                                                            // work_leave: Work (Green) top, Leave (Orange) bottom
+                                                            // Orange: #ffedd5, Green: #dcfce7
+                                                            if (leaveInfo.sequence === 'leave_work') {
+                                                                cellStyle = { background: `linear-gradient(to bottom, #ffedd5 ${pct}%, #dcfce7 ${pct}%)` };
+                                                            } else {
+                                                                const workPct = 100 - pct;
+                                                                cellStyle = { background: `linear-gradient(to bottom, #dcfce7 ${workPct}%, #ffedd5 ${workPct}%)` };
+                                                            }
+                                                            cellClass = 'text-gray-700 border border-gray-200';
+                                                        }
+                                                    } else if (schedule) {
                                                                 if (schedule.type === 'work') cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
                                                                 else if (schedule.type === 'duty') cellClass = 'bg-purple-100 text-purple-700 border border-purple-200';
                                                                 else if (schedule.type === 'card') cellClass = 'bg-green-100 text-green-700 border border-green-200';
@@ -11139,11 +11270,17 @@
                                                                 <div 
                                                                     key={d}
                                                                     onClick={() => setClockScheduleSelectedDate(currentDate)}
+                                                                    style={cellStyle}
                                                                     className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors cursor-pointer ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''} ${clockScheduleSelectedDate && clockScheduleSelectedDate.toDateString() === currentDate.toDateString() ? 'ring-2 ring-blue-500 z-10' : ''}`}
                                                                 >
                                                                     <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
                                                             {leaveInfo ? (
-                                                                <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">請假-{leaveInfo.period ? leaveInfo.period : ''}{leaveInfo.hours ? ` ${leaveInfo.hours} hr` : ''}</span>
+                                                                <span className="text-[10px] scale-90 font-bold w-[115%] text-center leading-none">
+                                                                    {leaveInfo.sequence === 'full' ? '請假' : 
+                                                                     leaveInfo.sequence === 'leave_work' ? '請假、上班' : 
+                                                                     leaveInfo.sequence === 'work_leave' ? '上班、請假' : '請假'}
+                                                                    {leaveInfo.hours ? ` ${leaveInfo.hours}h` : ''}
+                                                                </span>
                                                             ) : schedule ? (
                                                                 <div className="flex flex-col items-center w-full">
                                                                     <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
@@ -11203,46 +11340,73 @@
                                                 return tA - tB;
                                             });
                                             
-                                            const leave = (() => {
+                                            const dayLeaves = (() => {
                                                 const parseRange = (l) => {
-                                                    if ((l.type && l.type !== 'leave') || (l.approvalStatus && l.approvalStatus !== 'approved')) return null;
+                                                    if ((l.type && l.type !== 'leave') || (l.approvalStatus && !['approved', 'pending'].includes(l.approvalStatus))) return null;
                                                     let s, e;
+                                                    
+                                                    // Helper to combine date and time
+                                                    const combine = (d, t, defT) => {
+                                                        if (!d) return null;
+                                                        let dStr = String(d).replace(/\//g, '-');
+                                                        
+                                                        // Check if dStr already has time component (e.g., '2026-01-06T15:00' or '2026-01-06 15:00')
+                                                        if (dStr.includes('T') || (dStr.includes(' ') && dStr.includes(':'))) {
+                                                            const tryDate = new Date(dStr);
+                                                            if (!isNaN(tryDate.getTime())) {
+                                                                return tryDate;
+                                                            }
+                                                        }
+                                                        
+                                                        const tStr = t || defT;
+                                                        return new Date(`${dStr}T${tStr}`);
+                                                    };
+
                                                     if (l.leaveStartDate) {
-                                                        const sd = String(l.leaveStartDate).replace(/\//g, '-');
-                                                        s = new Date(sd + (l.leaveStartTime ? 'T'+l.leaveStartTime : 'T00:00'));
+                                                        s = combine(l.leaveStartDate, l.leaveStartTime, '00:00:00');
                                                     } else if (l.startDate) {
-                                                        const sd = String(l.startDate).replace(/\//g, '-');
-                                                        s = new Date(sd);
+                                                        s = combine(l.startDate, l.startTime, '00:00:00');
                                                     } else if (l.leaveDate) {
-                                                        const sd = String(l.leaveDate).replace(/\//g, '-');
-                                                        s = new Date(sd + (l.leaveTime ? 'T'+l.leaveTime : 'T00:00'));
+                                                        s = combine(l.leaveDate, l.leaveTime, '00:00:00');
                                                     }
+
                                                     if (l.leaveEndDate) {
-                                                        const ed = String(l.leaveEndDate).replace(/\//g, '-');
-                                                        e = new Date(ed + (l.leaveEndTime ? 'T'+l.leaveEndTime : 'T23:59'));
+                                                        e = combine(l.leaveEndDate, l.leaveEndTime, '23:59:59');
                                                     } else if (l.endDate) {
-                                                        const ed = String(l.endDate).replace(/\//g, '-');
-                                                        e = new Date(ed);
+                                                        e = combine(l.endDate, l.endTime, '23:59:59');
                                                     } else if (s) {
                                                         e = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 23, 59, 59);
                                                     }
-                                                    if (!s || !e || isNaN(s) || isNaN(e)) return null;
+
+                                                    if (!s || !e || isNaN(s.getTime()) || isNaN(e.getTime())) return null;
                                                     return { s, e };
                                                 };
-                                                const listA = (myAttendance || []).filter(r => r.type === 'leave' && r.approvalStatus === 'approved');
+
+                                                const listA = (myAttendance || []).filter(r => r.type === 'leave' && ['approved', 'pending'].includes(r.approvalStatus));
                                                 const listB = (leavesList && leavesList.length > 0) 
-                                                    ? leavesList.filter(r => r.userId === dbUser?.id && r.approvalStatus === 'approved')
-                                                    : (myLeaves || []).filter(r => r.approvalStatus === 'approved');
+                                                    ? leavesList.filter(r => r.userId === dbUser?.id && ['approved', 'pending'].includes(r.approvalStatus))
+                                                    : (myLeaves || []).filter(r => ['approved', 'pending'].includes(r.approvalStatus));
                                                 
                                                 const dayStart = new Date(year, month, date, 0, 0, 0);
                                                 const dayEnd = new Date(year, month, date, 23, 59, 59);
 
+                                                const results = [];
+                                                // Deduplicate by ID if possible
+                                                const seenIds = new Set();
+                                                
                                                 for (const l of [...listA, ...listB]) {
+                                                    if (l.id && seenIds.has(l.id)) continue;
+                                                    if (l.id) seenIds.add(l.id);
+
                                                     const rng = parseRange(l);
                                                     if (!rng) continue;
-                                                    if (rng.s <= dayEnd && rng.e >= dayStart) return l;
+                                                    
+                                                    // Check overlap: start <= dayEnd AND end >= dayStart
+                                                    if (rng.s <= dayEnd && rng.e >= dayStart) {
+                                                        results.push(l);
+                                                    }
                                                 }
-                                                return null;
+                                                return results;
                                             })();
                                             const isPastDate = clockScheduleSelectedDate < new Date(new Date().setHours(0,0,0,0));
 
@@ -11298,50 +11462,49 @@
                                                             )}
                                                         </div>
 
-                                                         {leave && (
-                                                            <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
-                                                                <div className="text-xs font-bold text-orange-400 mb-1">請假紀錄</div>
-                                                                 <div className="font-bold text-orange-700">
-                                                                    {leave.leaveType} ({leave.leaveDuration}小時)
-                                                                 </div>
-                                                                 <div className="text-xs text-orange-600 mt-1">{leave.reason}</div>
-                                                            </div>
-                                                         )}
-
                                                         <div className="bg-gray-50 p-3 rounded-xl">
                                                             <div className="text-xs font-bold text-gray-400 mb-1">打卡紀錄</div>
                                                             {attendance.length > 0 ? (
                                                                 <div className="grid grid-cols-2 gap-4">
                                                                     <div className="space-y-2">
                                                                         <div className="text-xs text-gray-400 text-center border-b border-gray-200 pb-1 mb-2">上班/簽到</div>
-                                                                        {attendance.filter(r => ['in', 'work_in', 'duty_in', 'late_in', 'card_in', 'outing_start'].includes(r.type)).map((record, idx) => (
-                                                                            <div key={idx} className={`w-full flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm h-[56px] ${(() => {
-                                                                                const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
-                                                                                const isSched = !!(schedule && (schedule.type === 'work' || schedule.type === 'duty'));
-                                                                                let isLate = false;
-                                                                                if (t && isSched && schedule.startTime) {
-                                                                                    const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
-                                                                                    const st = new Date(year, month, date, Number(sh) || 0, Number(sm) || 0, 0, 0);
-                                                                                    isLate = t > st;
-                                                                                }
-                                                                                return (['late_in'].includes(record.type) || isLate) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100';
-                                                                            })()}`}>
-
-                                                                                <span className="font-mono font-bold text-gray-800 text-lg">
-                                                                                    {(() => {
-                                                                                        const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
-                                                                                        return t ? t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--';
-                                                                                    })()}
-                                                                                </span>
-                                                                            </div>
-                                                                        ))}
+                                                                        {(() => {
+                                                                            // Priority 1: Work In types
+                                                                            let target = attendance.find(r => ['in', 'work_in', 'duty_in', 'late_in'].includes(r.type));
+                                                                            // Priority 2: Card In (if no Work In)
+                                                                            if (!target) {
+                                                                                target = attendance.find(r => r.type === 'card_in');
+                                                                            }
+                                                                            
+                                                                            if (!target) return null;
+                                                                            
+                                                                            const record = target;
+                                                                            return (
+                                                                                <div className={`w-full flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm h-[56px] ${(() => {
+                                                                                    const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
+                                                                                    const isSched = !!(schedule && (schedule.type === 'work' || schedule.type === 'duty'));
+                                                                                    let isLate = false;
+                                                                                    if (t && isSched && schedule.startTime) {
+                                                                                        const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
+                                                                                        const st = new Date(year, month, date, Number(sh) || 0, Number(sm) || 0, 0, 0);
+                                                                                        isLate = t > st;
+                                                                                    }
+                                                                                    return (['late_in'].includes(record.type) || isLate) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100';
+                                                                                })()}`}>
+                                                                                    <span className="font-mono font-bold text-gray-800 text-lg">
+                                                                                        {(() => {
+                                                                                            const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
+                                                                                            return t ? t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--';
+                                                                                        })()}
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        })()}
                                                                         {(() => {
                                                                             const isWorkDay = schedule && (schedule.type === 'work' || schedule.type === 'duty');
-                                                                            const hasIn = attendance.some(r => ['in', 'work_in', 'duty_in', 'late_in', 'card_in', 'outing_start'].includes(r.type));
+                                                                            const hasIn = attendance.some(r => ['in', 'work_in', 'duty_in', 'late_in', 'card_in'].includes(r.type));
                                                                             
-                                                                            if (leave) {
-                                                                                return <div className="w-full text-sm p-2 rounded-lg border shadow-sm bg-gray-100 text-gray-700 flex items-center justify-center">請假</div>;
-                                                                            }
+
 
                                                                             if (!hasIn && isPastDate && isWorkDay) {
                                                                                 const locs = availableClockInLocations || [];
@@ -11367,60 +11530,60 @@
                                                                     </div>
                                                                     <div className="space-y-2">
                                                                         <div className="text-xs text-gray-400 text-center border-b border-gray-200 pb-1 mb-2">下班/簽退</div>
-                                                                        {attendance.filter(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'outing_end', 'leave_early'].includes(r.type)).map((record, idx) => (
-                                                                            <div key={idx} className={`w-full flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm h-[56px] ${(() => {
-                                                                                const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
-                                                                                const isSched = !!(schedule && (schedule.type === 'work' || schedule.type === 'duty'));
-                                                                                let isEarly = false;
-                                                                                if (t && isSched && schedule.endTime) {
-                                                                                    const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
-                                                                                    const et = new Date(year, month, date, Number(eh) || 0, Number(em) || 0, 0, 0);
-                                                                                    isEarly = t < et;
-                                                                                }
-                                                                                return (['leave_early'].includes(record.type) || isEarly) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100';
-                                                                            })()}`}>
+                                                                        {(() => {
+                                                                            // Priority 1: Work Out types (find last match)
+                                                                            const workOuts = attendance.filter(r => ['out', 'work_out', 'duty_out', 'late_out', 'leave_early'].includes(r.type));
+                                                                            let target = workOuts.length > 0 ? workOuts[workOuts.length - 1] : null;
+                                                                            
+                                                                            if (!target) {
+                                                                                const cardOuts = attendance.filter(r => r.type === 'card_out');
+                                                                                target = cardOuts.length > 0 ? cardOuts[cardOuts.length - 1] : null;
+                                                                            }
+                                                                            
+                                                                            if (!target) return null;
+                                                                            
+                                                                            const record = target;
+                                                                            return (
+                                                                                <div className={`w-full flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm h-[56px] ${(() => {
+                                                                                    const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
+                                                                                    const isSched = !!(schedule && (schedule.type === 'work' || schedule.type === 'duty'));
+                                                                                    let isEarly = false;
+                                                                                    if (t && isSched && schedule.endTime) {
+                                                                                        const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
+                                                                                        const et = new Date(year, month, date, Number(eh) || 0, Number(em) || 0, 0, 0);
+                                                                                        isEarly = t < et;
+                                                                                    }
+                                                                                    return (['leave_early'].includes(record.type) || isEarly) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100';
+                                                                                })()}`}>
 
-                                                                                <div className="flex flex-col items-center">
-                                                                                    <span className="font-mono font-bold text-gray-800 text-lg">
-                                                                                        {(() => {
-                                                                                            const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
-                                                                                            if (!t) return '--:--:--';
-                                                                                            
-                                                                                            // Check if cross day (if date part is different from current selected view date)
-                                                                                            // We need to compare with the "date" variable (day of month) or full date logic
-                                                                                            // "date" variable comes from render logic, which is the selected day
-                                                                                            // "viewDate" is the Date object for the month
-                                                                                            // Actually, the simplest check is if the record date != schedule date (dateStr)
-                                                                                            
-                                                                                            // Construct selected date from viewDate components
-                                                                                            // But wait, "date" variable is available in scope (from map loop or upper scope)
-                                                                                            // Let's use dateStr which is YYYY-MM-DD of the selected day
-                                                                                            
-                                                                                            const rY = t.getFullYear();
-                                                                                            const rM = String(t.getMonth() + 1).padStart(2, '0');
-                                                                                            const rD = String(t.getDate()).padStart(2, '0');
-                                                                                            const rDateStr = `${rY}-${rM}-${rD}`;
-                                                                                            
-                                                                                            const isCrossDay = rDateStr !== dateStr;
+                                                                                    <div className="flex flex-col items-center">
+                                                                                        <span className="font-mono font-bold text-gray-800 text-lg">
+                                                                                            {(() => {
+                                                                                                const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
+                                                                                                if (!t) return '--:--:--';
+                                                                                                
+                                                                                                const rY = t.getFullYear();
+                                                                                                const rM = String(t.getMonth() + 1).padStart(2, '0');
+                                                                                                const rD = String(t.getDate()).padStart(2, '0');
+                                                                                                const rDateStr = `${rY}-${rM}-${rD}`;
+                                                                                                
+                                                                                                const isCrossDay = rDateStr !== dateStr;
 
-                                                                                            if (isCrossDay) {
-                                                                                                return `${rM}-${rD} ${t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}`;
-                                                                                            }
-                                                                                            return t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-                                                                                        })()}
-                                                                                    </span>
+                                                                                                if (isCrossDay) {
+                                                                                                    return `${rM}-${rD} ${t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}`;
+                                                                                                }
+                                                                                                return t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+                                                                                            })()}
+                                                                                        </span>
+                                                                                    </div>
                                                                                 </div>
-                                                                            </div>
-                                                                        ))}
+                                                                            );
+                                                                        })()}
                                                                         {(() => {
                                                                             const isWorkDay = schedule && (schedule.type === 'work' || schedule.type === 'duty');
-                                            const hasOut = attendance.some(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'outing_end', 'leave_early'].includes(r.type));
+                                            const hasOut = attendance.some(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'leave_early'].includes(r.type));
                                             
-                                            if (leave) {
-                                                return <div className="w-full text-sm p-2 rounded-lg border shadow-sm bg-gray-100 text-gray-700 flex items-center justify-center">請假</div>;
-                                            }
-
-                                            if (!hasOut && isPastDate && isWorkDay && !leave) {
+                                            if (!hasOut && isPastDate && isWorkDay && dayLeaves.length === 0) {
                                                                                 const locs = availableClockInLocations || [];
                                                                                 const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
                                                                                 const defaultTime = schedule?.endTime || '18:00';
@@ -11573,6 +11736,51 @@
                                                                 })()
                                                             )}
                                                         </div>
+
+                                                        {(() => {
+                                                            const hasPending = dayLeaves.some(l => l.approvalStatus === 'pending');
+                                                            const containerClass = hasPending ? "bg-red-50 border-red-100" : "bg-orange-50 border-orange-100";
+                                                            const titleClass = hasPending ? "text-red-400" : "text-orange-400";
+                                                            
+                                                            return (
+                                                                <div className={`p-3 rounded-xl border ${containerClass}`}>
+                                                                    <div className={`text-xs font-bold ${titleClass} mb-1`}>請假紀錄</div>
+                                                                    <div className="space-y-2">
+                                                                        {dayLeaves.length > 0 ? (
+                                                                            dayLeaves.map((l, idx) => {
+                                                                                const isPending = l.approvalStatus === 'pending';
+                                                                                const textClass = isPending ? "text-red-700" : "text-orange-700";
+                                                                                const subTextClass = isPending ? "text-red-600" : "text-orange-600";
+                                                                                const borderClass = isPending ? "border-red-200" : "border-orange-200";
+        
+                                                                                return (
+                                                                                    <div key={idx} className={`border-b ${borderClass} last:border-0 pb-2 last:pb-0`}>
+                                                                                        <div className={`font-bold ${textClass}`}>
+                                                                                            {l.leaveType || '請假'}-{isPending ? '待核准' : '已核准'} {l.leaveDuration ? `(${l.leaveDuration}小時)` : ''}
+                                                                                        </div>
+                                                                                        <div className={`text-xs ${subTextClass} mt-1`}>
+                                                                                            {(() => {
+                                                                                                if (l.leaveStartDate && l.leaveEndDate) {
+                                                                                                    return `${l.leaveStartDate} ${l.leaveStartTime || ''} ~ ${l.leaveEndDate} ${l.leaveEndTime || ''}`;
+                                                                                                } else if (l.startDate && l.endDate) {
+                                                                                                    return `${l.startDate} ${l.startTime || ''} ~ ${l.endDate} ${l.endTime || ''}`;
+                                                                                                } else if (l.leaveDate) {
+                                                                                                    return `${l.leaveDate} ${l.leaveTime || ''} (單日)`;
+                                                                                                }
+                                                                                                return '';
+                                                                                            })()}
+                                                                                        </div>
+                                                                                        {l.reason && <div className={`text-xs ${subTextClass} mt-1`}>{l.reason}</div>}
+                                                                                    </div>
+                                                                                );
+                                                                            })
+                                                                        ) : (
+                                                                            <div className="text-sm text-orange-300 font-bold text-center py-2">無請假紀錄</div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                             );
@@ -17036,6 +17244,18 @@
                                             </div>
                                         </div>
                                         <div>
+                                            <div className="flex items-center gap-2 mb-4">
+                                                <input
+                                                    type="checkbox"
+                                                    id="meeting-completed-checkbox"
+                                                    checked={completeMeetingForm.isCompleted}
+                                                    onChange={e => handleCompleteMeetingFormChange('isCompleted', e.target.checked)}
+                                                    className="w-5 h-5 rounded text-green-600 focus:ring-green-500 border-gray-300"
+                                                />
+                                                <label htmlFor="meeting-completed-checkbox" className="text-sm font-bold text-gray-700 select-none">
+                                                    會議已完成
+                                                </label>
+                                            </div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1">會議紀錄</label>
                                             <textarea
                                                 value={completeMeetingForm.minutes}

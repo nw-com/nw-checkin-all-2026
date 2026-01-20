@@ -4,7 +4,7 @@ const path = require('path');
 
 console.log("Starting server script...");
 
-const port = 8080;
+const port = 8000;
 const LOG_REQUESTS = process.env.LOG_REQUESTS === '1';
 const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
 
