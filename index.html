@@ -6293,12 +6293,18 @@
                         // For '上班', check if any 'in' record exists today
                         if (type === '上班') {
                              const hasClockIn = todayAttendance.some(a => ['in', 'late_in', 'outing_start', 'outing_arrive'].includes(a.type));
-                             if (hasClockIn) return; // Already clocked in
+                             if (hasClockIn) {
+                                 if (timeType === '上班') setIsOpen(false);
+                                 return; // Already clocked in
+                             }
                         }
                         // For '下班', check if any 'out' record exists today
                         if (type === '下班') {
                              const hasClockOut = todayAttendance.some(a => ['out', 'early_out', 'late_out'].includes(a.type));
-                             if (hasClockOut) return; // Already clocked out
+                             if (hasClockOut) {
+                                 if (timeType === '下班') setIsOpen(false);
+                                 return; // Already clocked out
+                             }
                         }
 
                         const targetTime = parseTime(tStr);
@@ -15237,6 +15243,7 @@
 
                                                             let actualDates = [];
                                                             let actualHours = 0;
+                                                            let actualDays = 0;
                                                             if (rng.s && rng.e && !isNaN(rng.s) && !isNaN(rng.e)) {
                                                                 let curr = new Date(rng.s);
                                                                 let loopDate = new Date(curr.getFullYear(), curr.getMonth(), curr.getDate());
@@ -15252,8 +15259,6 @@
                                                                     const fullDateStr = `${loopDate.getFullYear()}/${String(loopDate.getMonth()+1).padStart(2,'0')}/${String(loopDate.getDate()).padStart(2,'0')}`;
                                                                     
                                                                     if (!isHoliday && !isWeekend && !isRest && !isFridayOff) {
-                                                                        actualDates.push(fullDateStr);
-                                                                        
                                                                         if (sched && (sched.type === 'work' || sched.type === 'duty' || sched.type === 'card') && sched.startTime && sched.endTime) {
                                                                             const parseToMin = (s) => {
                                                                                 const [h, m] = String(s).split(':').map(Number);
@@ -15268,8 +15273,27 @@
                                                                             schedEnd.setHours(Math.floor(endMin/60), endMin%60, 0, 0);
                                                                             if (sched.crossDay) schedEnd.setDate(schedEnd.getDate() + 1);
 
-                                                                            const scheduleHours = (schedEnd - schedStart) / 3600000;
-                                                                            if (scheduleHours > 0) actualHours += scheduleHours;
+                                                                            const scheduleDurationMs = schedEnd - schedStart;
+                                                                            const scheduleHours = scheduleDurationMs / 3600000;
+                                                                            
+                                                                            const leaveStartMs = rng.s.getTime();
+                                                                            const leaveEndMs = rng.e.getTime();
+                                                                            const schedStartMs = schedStart.getTime();
+                                                                            const schedEndMs = schedEnd.getTime();
+                                                                            
+                                                                            const overlapStart = Math.max(leaveStartMs, schedStartMs);
+                                                                            const overlapEnd = Math.min(leaveEndMs, schedEndMs);
+                                                                            
+                                                                            if (overlapEnd > overlapStart) {
+                                                                                const overlapMs = overlapEnd - overlapStart;
+                                                                                const overlapHours = overlapMs / 3600000;
+                                                                                
+                                                                                actualHours += overlapHours;
+                                                                                if (scheduleHours > 0) {
+                                                                                    actualDays += (overlapHours / scheduleHours);
+                                                                                }
+                                                                                actualDates.push(fullDateStr);
+                                                                            }
                                                                         }
                                                                     }
                                                                     loopDate.setDate(loopDate.getDate() + 1);
@@ -15288,7 +15312,7 @@
                                                                             <div key={i}>{d}</div>
                                                                         )) : '-'}
                                                                     </div>
-                                                                    <div className="px-3 py-2">{actualDates.length}</div>
+                                                                    <div className="px-3 py-2">{parseFloat(actualDays.toFixed(2))}</div>
                                                                     <div className="px-3 py-2">{actualDates.length > 0 ? actualHours.toFixed(1) : '-'}</div>
                                                                     <div className="px-3 py-2">{l.leaveDescription || ''}</div>
                                                                 </div>
@@ -15344,23 +15368,9 @@
                                                 const actualHours = diffMs / 3600000;
                                                 let showHr = true;
                                                 const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                                                const schedule = userSchedules[dateStr];
-                                                if (schedule && (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.startTime && schedule.endTime) {
-                                                    const parseToMin = (s) => {
-                                                        const [h, m] = String(s).split(':').map(Number);
-                                                        return (h * 60) + m;
-                                                    };
-                                                    let sDurationMin = parseToMin(schedule.endTime) - parseToMin(schedule.startTime);
-                                                    if (schedule.crossDay) {
-                                                        const endMin = parseToMin(schedule.endTime) + (24 * 60);
-                                                        sDurationMin = endMin - parseToMin(schedule.startTime);
-                                                    }
-                                                    const scheduleHours = sDurationMin / 60;
-                                                    if (actualHours < scheduleHours) {
-                                                        workStr = '異常-未達工時';
-                                                        showHr = false;
-                                                    }
-                                                }
+                                                // 卡班月報表不判定異常，直接顯示實際工時
+                                                // 原本有檢查 schedule 並判定未達工時，現在移除
+                                                
                                                 if (showHr) {
                                                     workStr = `${actualHours.toFixed(1)} hr`;
                                                 }
@@ -15434,41 +15444,71 @@
                                             return d >= monthStart && d <= monthEnd;
                                         });
                                         const outingRecords = monthRecords.filter(r => ['outing_start','outing_arrive','outing_end'].includes(r.type));
-                                        const byDay = {};
+                                        
+                                        const rows = [];
+                                        const recordsByDay = {};
+                                        
+                                        // Group by day
                                         outingRecords.forEach(r => {
                                             const d = new Date(r.timestamp.seconds * 1000);
                                             const day = d.getDate();
-                                            byDay[day] = byDay[day] || { starts: [], arrives: [], ends: [], locationName: '' };
-                                            if (r.type === 'outing_start') byDay[day].starts.push(r);
-                                            if (r.type === 'outing_arrive') byDay[day].arrives.push(r);
-                                            if (r.type === 'outing_end') byDay[day].ends.push(r);
-                                            const comm = communities.find(c => String(c.id) === String(r.communityId));
-                                            const locName = r.checkInLocationName || (comm ? comm.name : '') || r.address || '';
-                                            if (!byDay[day].locationName && locName) byDay[day].locationName = locName;
+                                            if (!recordsByDay[day]) recordsByDay[day] = [];
+                                            recordsByDay[day].push(r);
                                         });
-                                        const rows = Object.keys(byDay).map(k => {
-                                            const day = Number(k);
-                                            const starts = byDay[day].starts.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                                            const arrives = byDay[day].arrives.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                                            const ends = byDay[day].ends.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-                                            const firstStart = starts[0] || null;
-                                            const firstArrive = arrives[0] || null;
-                                            const lastEnd = ends.length > 0 ? ends[ends.length - 1] : null;
-                                            const dateObj = new Date(targetYear, targetMonth, day);
-                                            const startStr = firstStart ? new Date(firstStart.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-                                            const arriveStr = firstArrive ? new Date(firstArrive.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-                                            const endStr = lastEnd ? new Date(lastEnd.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-                                            const reasonStr = (firstStart?.outingReason || firstArrive?.outingReason || lastEnd?.outingReason || '').trim() || '-';
-                                            return {
-                                                day,
-                                                week: weekMap[dateObj.getDay()],
-                                                reasonStr,
-                                                startStr,
-                                                arriveStr,
-                                                endStr,
-                                                location: byDay[day].locationName || '-',
-                                            };
-                                        }).sort((a,b) => a.day - b.day);
+
+                                        const formatTime = ts => new Date(ts * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                                        Object.keys(recordsByDay).forEach(dayKey => {
+                                            const day = Number(dayKey);
+                                            const dayRecs = recordsByDay[dayKey];
+                                            
+                                            // Sort by time
+                                            dayRecs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                                            
+                                            const starts = dayRecs.filter(r => r.type === 'outing_start');
+                                            const arrives = dayRecs.filter(r => r.type === 'outing_arrive');
+                                            const ends = dayRecs.filter(r => r.type === 'outing_end');
+                                            
+                                            if (starts.length === 0 && (arrives.length > 0 || ends.length > 0)) {
+                                                const firstRec = arrives[0] || ends[0];
+                                                const comm = communities.find(c => String(c.id) === String(firstRec.communityId));
+                                                const locName = firstRec.checkInLocationName || (comm ? comm.name : '') || firstRec.address || '';
+                                                
+                                                rows.push({
+                                                    day,
+                                                    week: weekMap[new Date(targetYear, targetMonth, day).getDay()],
+                                                    startStr: '-',
+                                                    arriveStr: arrives[0] ? formatTime(arrives[0].timestamp.seconds) : '-',
+                                                    endStr: ends.length > 0 ? formatTime(ends[ends.length - 1].timestamp.seconds) : '-',
+                                                    location: locName,
+                                                    reasonStr: '公出(補)'
+                                                });
+                                            } else {
+                                                starts.forEach((s, idx) => {
+                                                    const nextStart = starts[idx + 1];
+                                                    const myArrive = arrives.find(a => a.timestamp.seconds > s.timestamp.seconds && (!nextStart || a.timestamp.seconds < nextStart.timestamp.seconds));
+                                                    const myEnd = ends.find(e => e.timestamp.seconds > s.timestamp.seconds && (!nextStart || e.timestamp.seconds < nextStart.timestamp.seconds));
+                                                    
+                                                    const comm = communities.find(c => String(c.id) === String(s.communityId));
+                                                    const locName = s.checkInLocationName || (comm ? comm.name : '') || s.address || '';
+                                                    
+                                                    rows.push({
+                                                        day,
+                                                        week: weekMap[new Date(targetYear, targetMonth, day).getDay()],
+                                                        startStr: formatTime(s.timestamp.seconds),
+                                                        arriveStr: myArrive ? formatTime(myArrive.timestamp.seconds) : '-',
+                                                        endStr: myEnd ? formatTime(myEnd.timestamp.seconds) : '-',
+                                                        location: locName,
+                                                        reasonStr: s.outingReason || '公出'
+                                                    });
+                                                });
+                                            }
+                                        });
+                                        
+                                        rows.sort((a, b) => {
+                                            if (a.day !== b.day) return a.day - b.day;
+                                            return a.startStr.localeCompare(b.startStr);
+                                        });
                                         
                                         return (
                                             <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
@@ -15584,7 +15624,7 @@
                                                         {cadreRecordDate.split('-').slice(0,2).join('-')} 出勤月報表
                                                     </div>
                                                     
-                                                    <div className="grid grid-cols-[80px_repeat(31,minmax(24px,1fr))_repeat(10,32px)] text-[10px] border-b border-r border-gray-300 user-select-none">
+                                                    <div className="grid grid-cols-[80px_repeat(31,minmax(24px,1fr))_repeat(7,32px)_150px] text-[10px] border-b border-r border-gray-300 user-select-none">
                                                         <div className="border-t border-l border-gray-300 bg-gray-100 p-1 flex items-center justify-center font-bold sticky left-0 z-10">姓名</div>
                                                         {Array.from({length: 31}, (_, i) => i+1).map(d => {
                                                             const dateObj = new Date(targetYear, targetMonth, d);
@@ -15604,11 +15644,12 @@
                                                                 </div>
                                                             );
                                                         })}
-                                                        {['出勤<br/>日數','出勤<br/>工時','特休<br/>日數','請假<br/>時數','曠職<br/>日數','遲到<br/>次數','早退<br/>次數','外出<br/>次數','卡班<br/>日數','卡班<br/>工時'].map(h => (
+                                                        {['出勤<br/>工時','請假<br/>時數','曠職<br/>日數','遲到<br/>次數','早退<br/>次數','外出<br/>次數','卡班<br/>工時'].map(h => (
                                                             <div key={h} className="border-t border-l border-gray-300 bg-gray-100 p-1 flex items-center justify-center font-bold text-center leading-tight">
                                                                 <span dangerouslySetInnerHTML={{ __html: h }}></span>
                                                             </div>
                                                         ))}
+                                                        <div className="border-t border-l border-gray-300 bg-gray-100 p-1 flex items-center justify-center font-bold text-center leading-tight">備註</div>
 
                                                         {(function(){
                                                             // Calculate data for selected users
@@ -15630,6 +15671,7 @@
                                                             });
 
                                                             return targetUsers.map(u => {
+                                                                const currentRemarks = [];
                                                                 const uRecords = allMonthRecords.filter(r => r.userId === u.id);
                                                                 const uLeaves = allMonthLeaves.filter(r => r.userId === u.id);
                                                                 // Pre-filter schedules for this user from the bulk list
@@ -15665,9 +15707,7 @@
                                                                     
                                                                     const isV = dayRecords.length > 0;
 
-                                                                    // Late/Early
-                                                                    if (dayRecords.some(r => r.type === 'late_in')) lateCount++;
-                                                                    if (dayRecords.some(r => r.type === 'early_out')) earlyCount++;
+                                                                    // Late/Early calculation moved to after schedule and leave determination
                                                                     
                                                                     // 2. Check Schedule
                                                                     // Prioritize userSchedules for the selected user (most reliable), otherwise use bulk list
@@ -15791,13 +15831,13 @@
                                                                         cardHours += cardCalcHours;
                                                                     }
 
-                                                                    if (regularCalcHours > 0) {
+                                                                        if (regularCalcHours > 0) {
                                                                          if (isDutyDay) {
                                                                              attendanceDays++; 
-                                                                             totalHours += regularCalcHours;
+                                                                             totalHours += Number(regularCalcHours.toFixed(1));
                                                                          } else if (isWorkDay) {
                                                                              attendanceDays++;
-                                                                             totalHours += regularCalcHours;
+                                                                             totalHours += Number(regularCalcHours.toFixed(1));
                                                                          }
                                                                          // Off/Holiday regular hours are excluded from totals
                                                                     }
@@ -15863,7 +15903,7 @@
                                                                     if (!leaveObj && cadreSignatures && cadreSignatures.length > 0) {
                                                                         const sig = cadreSignatures.find(s => {
                                                                             if (s.userId !== u.id) return false;
-                                                                            if (s.type !== '請假') return false;
+                                                                            if (s.type !== '請假' && s.type !== '公出') return false;
                                                                             if (s.status !== 'approved') return false;
                                                                             
                                                                             const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
@@ -15879,7 +15919,7 @@
 
                                                                         if (sig) {
                                                                             leaveObj = {
-                                                                                leaveReason: '請假', 
+                                                                                leaveReason: sig.type, 
                                                                                 startDate: new Date(targetYear, targetMonth, d),
                                                                                 endDate: new Date(targetYear, targetMonth, d)
                                                                             };
@@ -15906,6 +15946,53 @@
                                                                     if (leaveObj && leaveObj.leaveReason === '公出') {
                                                                         outingCount++;
                                                                     }
+                                                                    
+                                                                    // Add actual outing records from attendance
+                                                                    const actualOutings = dayRecords.filter(r => r.type === 'outing_start').length;
+                                                                    outingCount += actualOutings;
+
+                                                                    // Late/Early Logic (After Schedule & Leave determination)
+                                                                    if ((isWorkDay || isDutyDay) && !isHoliday && !isOff && !leaveObj) {
+                                                                        if (schedule) {
+                                                                            // Late Count
+                                                                            if (schedule.startTime) {
+                                                                                const [sh, sm] = schedule.startTime.split(':').map(Number);
+                                                                                const sTime = new Date(dayStart);
+                                                                                sTime.setHours(sh, sm + 10, 0, 0); // +10 mins buffer
+                                                                                
+                                                                                const firstIn = dayRecords.find(r => ['in', 'late_in'].includes(r.type));
+                                                                                if (firstIn) {
+                                                                                    const inTime = new Date(firstIn.timestamp.seconds * 1000);
+                                                                                    if (inTime > sTime) lateCount++;
+                                                                                }
+                                                                            }
+                                                                            
+                                                                            // Early Count
+                                                                            if (schedule.endTime) {
+                                                                                const [eh, em] = schedule.endTime.split(':').map(Number);
+                                                                                let eTime = new Date(dayStart);
+                                                                                eTime.setHours(eh, em, 0, 0);
+                                                                                if (eTime < dayStart) eTime.setDate(eTime.getDate() + 1); // Handle overnight logic if needed, usually same day end
+                                                                                // Check if end time is actually next day (e.g. 02:00)
+                                                                                const [sh] = (schedule.startTime || '00:00').split(':').map(Number);
+                                                                                if (eh < sh) {
+                                                                                     // eTime is already handled above if we constructed it correctly? 
+                                                                                     // Actually if eTime < sTime, it's next day.
+                                                                                     // Let's use simple logic: if endTime is small and startTime is large.
+                                                                                     eTime = new Date(dayStart);
+                                                                                     eTime.setHours(eh, em, 0, 0);
+                                                                                     if (eh < sh) eTime.setDate(eTime.getDate() + 1);
+                                                                                }
+
+                                                                                const lastOut = [...dayRecords].reverse().find(r => ['out', 'early_out'].includes(r.type));
+                                                                                if (lastOut) {
+                                                                                    const outTime = new Date(lastOut.timestamp.seconds * 1000);
+                                                                                    if (outTime < eTime) earlyCount++;
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+
 
                                                                     // Determine Content
                                                                     let cellContent = '';
@@ -15913,9 +16000,10 @@
                                                                     let fontSizeClass = 'text-xs';
                                                                     
                                                                     if (leaveObj) {
-                                                                        cellContent = '請假';
-                                                                        fontSizeClass = 'text-[10px] scale-90';
+                                                                        fontSizeClass = 'text-xs';
                                                                         bgClass = 'bg-yellow-50';
+                                                                        
+                                                                        let h = 0;
                                                                         if (leaveObj.leaveReason !== '公出') {
                                                                             leaveDays++;
                                                                             const { s, e } = getLeaveRange(leaveObj);
@@ -15923,6 +16011,7 @@
                                                                                 let os = s > dayStart ? s : dayStart;
                                                                                 let oe = e < dayEnd ? e : dayEnd;
                                                                                 
+                                                                                let scheduledDuration = 0;
                                                                                 if (schedule && (schedule.type === 'work' || schedule.type === 'duty') && schedule.startTime && schedule.endTime) {
                                                                                     const [sh, sm] = String(schedule.startTime).split(':').map(Number);
                                                                                     const [eh, em] = String(schedule.endTime).split(':').map(Number);
@@ -15934,20 +16023,60 @@
                                                                                     
                                                                                     if (se < ss) se.setDate(se.getDate() + 1);
                                                                                     
+                                                                                    scheduledDuration = (se - ss) / 3600000;
+
                                                                                     if (os < ss) os = ss;
                                                                                     if (oe > se) oe = se;
                                                                                 }
                                                                                 
-                                                                                const h = Math.max(0, (oe - os) / 3600000);
+                                                                                h = Math.max(0, (oe - os) / 3600000);
+                                                                                h = Number(h.toFixed(1));
                                                                                 leaveHours += h;
-                                                                                if (h > 0) {
-                                                                                    cellContent = `請假-${Number(h.toFixed(1))}hr`;
+
+                                                                                // Cap regularCalcHours based on effective schedule (User Request)
+                                                                                if (scheduledDuration > 0) {
+                                                                                    const effectiveScheduledHours = Math.max(0, scheduledDuration - h);
+                                                                                    if (regularCalcHours > effectiveScheduledHours) {
+                                                                                        const oldVal = Number(regularCalcHours.toFixed(1));
+                                                                                        regularCalcHours = effectiveScheduledHours;
+                                                                                        const newVal = Number(regularCalcHours.toFixed(1));
+                                                                                        
+                                                                                        if (isDutyDay || isWorkDay) {
+                                                                                            if (oldVal > 0) {
+                                                                                                totalHours = Number((totalHours - oldVal + newVal).toFixed(1));
+                                                                                            } else if (newVal > 0) {
+                                                                                                totalHours = Number((totalHours + newVal).toFixed(1));
+                                                                                            }
+                                                                                        }
+                                                                                        // Also update dayHours for display
+                                                                                        dayHours = regularCalcHours;
+                                                                                    }
                                                                                 }
                                                                             }
+                                                                            
+                                                                            if (h > 0) {
+                                                                                currentRemarks.push(`${d}日 請假${h}hr`);
+                                                                            } else {
+                                                                                currentRemarks.push(`${d}日 請假`);
+                                                                            }
+                                                                        } else {
+                                                                            currentRemarks.push(`${d}日 公出`);
+                                                                        }
+                                                                        
+                                                                        if (regularCalcHours > 0) {
+                                                                            const workVal = regularCalcHours.toFixed(1);
+                                                                            cellContent = workVal.endsWith('.0') ? workVal.slice(0, -2) : workVal;
+                                                                        } else {
+                                                                            if (isCardDay || cardCalcHours > 0 || cardShiftRecords.length > 0) cellContent = 'V';
+                                                                            else if (isWorkDay) cellContent = '上班';
+                                                                            else if (isDutyDay) cellContent = '值班';
+                                                                            else if (isOff) cellContent = '公休';
+                                                                            else if (isHoliday) cellContent = '假日';
+                                                                            else cellContent = '上班';
                                                                         }
                                                                     } else if (isV) {
                                                                         // Attendance logic
-                                                                        if (isCardDay) {
+                                                                        if (isCardDay || cardCalcHours > 0 || cardShiftRecords.length > 0) {
                                                                             cellContent = 'V';
                                                                         } else if (isHoliday) {
                                                                              // If holiday and attended, do NOT show hours as per request
@@ -15969,7 +16098,7 @@
                                                                             // Let's assume Off days (特休) also follow this or maybe show hours?
                                                                             // Previous request said "如非假日或特休 只顯示上班或值班 工時".
                                                                             // So Off day should also NOT show hours.
-                                                                            cellContent = '特休';
+                                                                            cellContent = '公休';
                                                                             fontSizeClass = 'text-[10px] scale-90';
                                                                             bgClass = 'bg-gray-50';
                                                                             // restDays already incremented above
@@ -16091,16 +16220,14 @@
                                                                     <React.Fragment key={u.id}>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center font-bold bg-white sticky left-0 z-10 text-xs">{u.name}</div>
                                                                         {dailyCells}
-                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{attendanceDays}</div>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{totalHours.toFixed(1)}</div>
-                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{restDays}</div>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{leaveHours.toFixed(1)}</div>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-red-500">{absentDays}</div>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-orange-500">{lateCount}</div>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-orange-500">{earlyCount}</div>
-                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-blue-500">{outingCount}</div>
-                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{cardDays}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs text-blue-500 cursor-pointer hover:bg-blue-50" onClick={() => { setReportModalType('outing'); setCadreMapSelectedUserId(u.id); setReportModalOpen(true); }}>{outingCount}</div>
                                                                         <div className="border-t border-l border-gray-300 p-1 flex items-center justify-center text-xs">{cardHours.toFixed(1)}</div>
+                                                                        <div className="border-t border-l border-gray-300 p-1 flex items-center justify-start text-[10px] leading-tight px-2 whitespace-pre-wrap">{currentRemarks.join('\n')}</div>
                                                                     </React.Fragment>
                                                                 );
                                                             });
@@ -16357,7 +16484,14 @@
                                                 if (sDurationMin < 0) sDurationMin += 24 * 60; // 跨日
                                                 
                                                 if (sDurationMin > 0) {
-                                                    const scheduleMs = sDurationMin * 60000;
+                                                    let scheduleMs = sDurationMin * 60000;
+                                                    
+                                                    // 扣除請假時數 (leaveHoursForDay 已計算為 schedule 內的請假時數)
+                                                    if (leaveHoursForDay > 0) {
+                                                        scheduleMs -= (leaveHoursForDay * 3600000);
+                                                        if (scheduleMs < 0) scheduleMs = 0;
+                                                    }
+
                                                     if (diffMs > scheduleMs) diffMs = scheduleMs;
                                                 }
                                             }
@@ -16420,10 +16554,9 @@
 
                                         if (status !== '特休' && status !== '假日') {
                                             if (hasApprovedLeave) {
-                                                if (leaveHoursForDay > 0) {
-                                                    const displayHours = Number(leaveHoursForDay.toFixed(1));
-                                                    status = `請假-${displayHours}hr`;
-                                                } else {
+                                                // 不覆蓋原有狀態（如上班、值班），僅記錄備註
+                                                // 若原狀態為空或 '-'，則設為請假
+                                                if (!status || status === '-') {
                                                     status = '請假';
                                                 }
                                             }
@@ -16432,9 +16565,19 @@
                                         let statusClass = 'text-gray-700';
                                         if (status && status.startsWith('請假')) statusClass = 'text-gray-900';
 
-                                        // 處理備註：異常 + 外出/卡班
+                                        // 處理備註：異常 + 請假 + 外出/卡班
                                         let finalRemarks = remarks;
                                         let extraRemarks = [];
+                                        
+                                        if (hasApprovedLeave) {
+                                            if (leaveHoursForDay > 0) {
+                                                const displayHours = Number(leaveHoursForDay.toFixed(1));
+                                                extraRemarks.push(`請假${displayHours}hr`);
+                                            } else {
+                                                extraRemarks.push('請假');
+                                            }
+                                        }
+                                        
                                         if (hasOuting) extraRemarks.push('外出');
                                         if (hasDuty) extraRemarks.push('卡班');
                                         
@@ -16452,7 +16595,7 @@
                                             </>
                                         );
 
-                                        const isLeaveStatus = status && status.startsWith('請假');
+                                        const isLeaveStatus = hasApprovedLeave;
                                         
                                         const hasDayAndNight = dayRecords.length > 0 && nightRecords.length > 0;
                                         const baseLocationStr = allTimeInfo.locStr;
@@ -16539,7 +16682,7 @@
                                                             <div className="px-3 py-2">{row.week}</div>
                                                             <div className="px-3 py-2 text-xs truncate" title={row.locationStr}>{row.locationStr}</div>
                                                             <div className="px-3 py-2">
-                                                                {(!row.isHoliday && !row.isLeave && row.status !== '特休' && row.status !== '假日' && row.status !== '補休') ? (
+                                                                {(!row.isHoliday && row.status !== '請假' && row.status !== '特休' && row.status !== '假日' && row.status !== '補休') ? (
                                                                     <>
                                                                         <div className="text-gray-500 text-xs">班表 : {row.scheduleInStr}</div>
                                                                         <div className="text-gray-500 text-xs">打卡 : {row.inTimeStr}</div>
@@ -16551,7 +16694,7 @@
                                                                 )}
                                                             </div>
                                                             <div className="px-3 py-2">
-                                                                {(!row.isHoliday && !row.isLeave && row.status !== '特休' && row.status !== '假日' && row.status !== '補休') ? (
+                                                                {(!row.isHoliday && row.status !== '請假' && row.status !== '特休' && row.status !== '假日' && row.status !== '補休') ? (
                                                                     <>
                                                                         <div className="text-gray-500 text-xs">班表 : {row.scheduleOutStr}</div>
                                                                         <div className="text-gray-500 text-xs">打卡 : {row.outTimeStr}</div>
@@ -16562,7 +16705,7 @@
                                                                     )
                                                                 )}
                                                             </div>
-                                                            <div className="px-3 py-2">{(row.status === '特休' || row.status === '假日' || row.status === '補休' || row.isHoliday || row.isLeave) ? '' : row.workStr}</div>
+                                                            <div className="px-3 py-2">{(row.status === '特休' || row.status === '假日' || row.status === '補休' || row.isHoliday) ? '' : row.workStr}</div>
                                                             <div className={`px-3 py-2 font-bold ${row.statusClass}`}>{row.status}</div>
                                                             <div className="px-3 py-2">{row.remarks}</div>
                                                         </div>
