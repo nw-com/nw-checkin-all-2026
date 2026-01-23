@@ -1,0 +1,1919 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>西北保全核薪管理系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; }
+        .payslip-dashed { border-top: 2px dashed #e2e8f0; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+    <div id="app" class="h-screen max-w-6xl mx-auto flex flex-col">
+        <div class="p-4 md:p-8 h-[12%]">
+        <!-- Header -->
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-30 bg-slate-50">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-3 rounded-xl text-white shadow-lg">
+                    <i class="fas fa-shield-alt fa-2x"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-tight">西北保全核薪系統</h1>
+                    <p class="text-sm text-slate-500">Salary System v1.0</p>
+                </div>
+            </div>
+            
+            <nav class="flex items-center bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center gap-2">
+                    <button onclick="switchTab('overview')" id="tab-overview" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 bg-blue-600 text-white shadow-md">
+                        <i class="fas fa-chart-line"></i> 總覽
+                    </button>
+                    <button onclick="switchTab('ledger')" id="tab-ledger" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-file-invoice-dollar"></i> 收支
+                    </button>
+                    <button onclick="switchTab('schedule')" id="tab-schedule" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-calendar-check"></i> 核薪
+                    </button>
+                    <button onclick="switchTab('calc')" id="tab-calc" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-calculator"></i> 計算
+                    </button>
+                    <button onclick="switchTab('list')" id="tab-list" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-users"></i> 員工
+                    </button>
+                    <button onclick="switchTab('settings')" id="tab-settings" class="px-6 py-2 rounded-lg transition-all flex items-center gap-2 hover:bg-slate-100 text-slate-600">
+                        <i class="fas fa-gear"></i> 設定
+                    </button>
+                </div>
+                <div class="ml-auto flex items-center gap-3 pl-4 border-l border-slate-200">
+                    <span id="nav-user-name" class="text-slate-700 text-sm"></span>
+                    <div id="nav-user-avatar" class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-medium cursor-pointer" title="點擊登出"></div>
+                </div>
+            </nav>
+        </header>
+        </div>
+
+        <!-- Main Content -->
+        <div class="p-4 md:p-8 h-[88%] overflow-y-auto">
+        <main>
+            <!-- Tab: Employee List -->
+            <div id="view-list" class="hidden">
+                <!-- Table -->
+                <section class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 border-b bg-slate-50 flex justify-between items-center sticky top-0 z-20">
+                        <h2 class="font-semibold text-slate-700">現職人員清單</h2>
+                        <button onclick="openAddEmployeeModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors flex items-center gap-2">
+                            <i class="fas fa-plus"></i> 新增員工
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-500 border-b sticky top-0 z-10">
+                                <tr>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">所屬公司/社區</th>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">姓名</th>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">狀態/日期</th>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">薪資</th>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">保險</th>
+                                    <th class="px-6 py-3 font-medium sticky top-0 bg-slate-50 z-10">銀行</th>
+                                    <th class="px-6 py-3 font-medium text-left sticky top-0 bg-slate-50 z-10">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="employee-tbody" class="divide-y text-slate-600">
+                                <!-- JS items here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Overview -->
+            <div id="view-overview">
+                <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 border-b pb-2 text-slate-700">
+                        <i class="fas fa-chart-line"></i> 總覽
+                    </h2>
+                    <div class="text-sm text-slate-600">
+                        總覽功能開發中...
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Ledger -->
+            <div id="view-ledger" class="hidden">
+                <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 border-b pb-2 text-slate-700">
+                        <i class="fas fa-file-invoice-dollar"></i> 收支明細
+                    </h2>
+                    <div class="text-sm text-slate-600">
+                        收支明細功能開發中...
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Schedule -->
+            <div id="view-schedule" class="hidden">
+                <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 border-b pb-2 text-slate-700">
+                        <i class="fas fa-calendar-check"></i> 排班核薪
+                    </h2>
+                    <div class="text-sm text-slate-600">
+                        排班核薪功能開發中...
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Calculation -->
+            <div id="view-calc" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="space-y-6">
+                    <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h2 class="text-lg font-semibold mb-4 border-b pb-2">1. 選擇人員與設定</h2>
+                        <select id="calc-select" onchange="loadSelectedEmp()" class="w-full border rounded-lg px-4 py-2 mb-4 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="">-- 請選擇人員 --</option>
+                        </select>
+                        
+                        <div id="calc-inputs" class="hidden space-y-4 animate-in fade-in">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-slate-50 p-4 rounded-xl">
+                                    <p class="text-slate-500 text-xs mb-1">本薪</p>
+                                    <p id="disp-base" class="font-bold text-lg">NT$ 0</p>
+                                </div>
+                                <div class="bg-slate-50 p-4 rounded-xl">
+                                    <p class="text-slate-500 text-xs mb-1">固定津貼</p>
+                                    <p id="disp-bonus" class="font-bold text-lg text-blue-600">NT$ 0</p>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">加班時數</label>
+                                    <input id="c-ot" type="number" oninput="doCalc()" value="0" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">特休折現(天)</label>
+                                    <input id="c-sl" type="number" oninput="doCalc()" value="0" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">請假時數</label>
+                                    <input id="c-leave" type="number" oninput="doCalc()" value="0" class="w-full border rounded-lg px-3 py-2 text-red-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">其他加項/獎金</label>
+                                    <input id="c-other" type="number" oninput="doCalc()" value="0" class="w-full border rounded-lg px-3 py-2">
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Payslip -->
+                <div id="payslip-container" class="hidden">
+                    <section class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="bg-slate-900 text-white p-6 text-center">
+                            <p class="text-slate-400 text-[10px] uppercase tracking-widest mb-1">Payroll Statement</p>
+                            <h3 class="text-2xl font-bold">薪資明細單</h3>
+                            <div class="flex justify-center gap-8 mt-4">
+                                <div class="text-center border-r border-slate-700 pr-8">
+                                    <p class="text-[10px] text-slate-400">員工姓名</p>
+                                    <p id="ps-name" class="text-lg">-</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-[10px] text-slate-400">實領淨額</p>
+                                    <p id="ps-net" class="text-lg text-green-400 font-bold">NT$ 0</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-8 flex-grow space-y-4 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">基本底薪</span>
+                                <span id="ps-base" class="font-mono">NT$ 0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">津貼合計</span>
+                                <span id="ps-bonus" class="font-mono">NT$ 0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">加班費 (1.34x)</span>
+                                <span id="ps-ot-pay" class="font-mono text-green-600">+ NT$ 0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-500">特休折算</span>
+                                <span id="ps-sl-pay" class="font-mono text-green-600">+ NT$ 0</span>
+                            </div>
+                            <div class="border-t pt-4 space-y-3">
+                                <div class="flex justify-between text-red-500">
+                                    <span>勞健保自付</span>
+                                    <span id="ps-ins" class="font-mono">- NT$ 1,000</span>
+                                </div>
+                                <div class="flex justify-between text-red-500">
+                                    <span>請假扣款</span>
+                                    <span id="ps-leave-dec" class="font-mono">- NT$ 0</span>
+                                </div>
+                                <div id="ps-pension-row" class="flex justify-between text-red-500">
+                                    <span id="ps-pension-label">勞退自提</span>
+                                    <span id="ps-pension-amt" class="font-mono">- NT$ 0</span>
+                                </div>
+                            </div>
+                            <div class="mt-8 pt-4 payslip-dashed flex justify-between items-center">
+                                <span class="font-bold text-lg">應領總額</span>
+                                <span id="ps-gross" class="text-xl font-bold text-blue-600 font-mono">NT$ 0</span>
+                            </div>
+                        </div>
+                        <div class="p-4 bg-slate-50 border-t text-[10px] text-slate-400 text-center">
+                            西北保全公司制 | 列印時間：<span id="print-time"></span>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <div id="view-settings" class="hidden">
+                <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2 border-b pb-2 text-slate-700">
+                        <i class="fas fa-gear"></i> 系統設定
+                    </h2>
+                    
+                    <!-- Sub Tabs -->
+                    <div class="flex gap-2 mb-6 border-b border-slate-100 pb-1 overflow-x-auto">
+                        <button onclick="switchSettingTab('general')" id="st-general" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">一般</button>
+                        <button onclick="switchSettingTab('unit')" id="st-unit" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">單位</button>
+                        <button onclick="switchSettingTab('health')" id="st-health" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">健保</button>
+                        <button onclick="switchSettingTab('labor')" id="st-labor" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">勞保</button>
+                        <button onclick="switchSettingTab('pension')" id="st-pension" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">勞退</button>
+                        <button onclick="switchSettingTab('system')" id="st-system" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">系統</button>
+                    </div>
+
+                    <!-- Tab Contents -->
+                    <div id="sv-general" class="hidden animate-in fade-in">
+                        <div class="text-slate-500 text-sm p-4 bg-slate-50 rounded-lg">一般設定內容區塊</div>
+                    </div>
+                    <div id="sv-unit" class="hidden animate-in fade-in">
+                        <div class="overflow-x-auto rounded-lg border border-slate-200">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-50 text-slate-500 border-b">
+                                    <tr>
+                                        <th class="px-4 py-3 font-medium">單位編號(公司/社區)</th>
+                                        <th class="px-4 py-3 font-medium">單位名稱(公司/社區)</th>
+                                        <th class="px-4 py-3 font-medium">人員數</th>
+                                        <th class="px-4 py-3 font-medium">總薪資</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="unit-tbody" class="divide-y text-slate-600">
+                                    <!-- Auto-rendered -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="sv-health" class="hidden animate-in fade-in">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <div class="text-base font-semibold text-slate-800">全民健康保險投保金額分級表</div>
+                                    <div class="text-xs text-slate-500">115年1月1日起適用，一般被保險人</div>
+                                </div>
+                            </div>
+
+                            <div class="overflow-x-auto rounded-lg border border-slate-200">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-slate-50 text-slate-500 border-b">
+                                        <tr>
+                                            <th class="px-4 py-3 font-medium whitespace-nowrap">投保等級</th>
+                                            <th class="px-4 py-3 font-medium whitespace-nowrap">實際薪資月額</th>
+                                            <th class="px-4 py-3 font-medium whitespace-nowrap">月投保金額</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y text-slate-600">
+                                        <tr>
+                                            <td class="px-4 py-3">第1級</td>
+                                            <td class="px-4 py-3">29,500元以下</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">29,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第2級</td>
+                                            <td class="px-4 py-3">29,501元至30,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">30,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第3級</td>
+                                            <td class="px-4 py-3">30,301元至31,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">31,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第4級</td>
+                                            <td class="px-4 py-3">31,801元至33,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">33,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第5級</td>
+                                            <td class="px-4 py-3">33,301元至34,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">34,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第6級</td>
+                                            <td class="px-4 py-3">34,801元至36,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">36,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第7級</td>
+                                            <td class="px-4 py-3">36,301元至38,200元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">38,200元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第8級</td>
+                                            <td class="px-4 py-3">38,201元至40,100元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">40,100元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第9級</td>
+                                            <td class="px-4 py-3">40,101元至42,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">42,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第10級</td>
+                                            <td class="px-4 py-3">42,001元至43,900元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">43,900元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第11級</td>
+                                            <td class="px-4 py-3">43,901元至45,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">45,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第12級</td>
+                                            <td class="px-4 py-3">45,801元至48,200元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">48,200元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第13級</td>
+                                            <td class="px-4 py-3">48,201元至50,600元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">50,600元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第14級</td>
+                                            <td class="px-4 py-3">50,601元至53,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">53,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第15級</td>
+                                            <td class="px-4 py-3">53,001元至55,400元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">55,400元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第16級</td>
+                                            <td class="px-4 py-3">55,401元至57,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">57,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第17級</td>
+                                            <td class="px-4 py-3">57,801元至60,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">60,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第18級</td>
+                                            <td class="px-4 py-3">60,801元至63,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">63,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第19級</td>
+                                            <td class="px-4 py-3">63,801元至66,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">66,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第20級</td>
+                                            <td class="px-4 py-3">66,801元至69,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">69,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第21級</td>
+                                            <td class="px-4 py-3">69,801元至72,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">72,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第22級</td>
+                                            <td class="px-4 py-3">72,801元至76,500元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">76,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第23級</td>
+                                            <td class="px-4 py-3">76,501元至80,200元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">80,200元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第24級</td>
+                                            <td class="px-4 py-3">80,201元至83,900元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">83,900元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第25級</td>
+                                            <td class="px-4 py-3">83,901元至87,600元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">87,600元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第26級</td>
+                                            <td class="px-4 py-3">87,601元至92,100元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">92,100元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第27級</td>
+                                            <td class="px-4 py-3">92,101元至96,600元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">96,600元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第28級</td>
+                                            <td class="px-4 py-3">96,601元至101,100元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">101,100元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第29級</td>
+                                            <td class="px-4 py-3">101,101元至105,600元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">105,600元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第30級</td>
+                                            <td class="px-4 py-3">105,601元至110,100元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">110,100元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第31級</td>
+                                            <td class="px-4 py-3">110,101元至115,500元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">115,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第32級</td>
+                                            <td class="px-4 py-3">115,501元至120,900元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">120,900元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第33級</td>
+                                            <td class="px-4 py-3">120,901元至126,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">126,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第34級</td>
+                                            <td class="px-4 py-3">126,301元至131,700元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">131,700元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第35級</td>
+                                            <td class="px-4 py-3">131,701元至137,100元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">137,100元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第36級</td>
+                                            <td class="px-4 py-3">137,101元至142,500元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">142,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第37級</td>
+                                            <td class="px-4 py-3">142,501元至147,900元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">147,900元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第38級</td>
+                                            <td class="px-4 py-3">147,901元至150,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">150,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第39級</td>
+                                            <td class="px-4 py-3">150,001元至156,400元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">156,400元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第40級</td>
+                                            <td class="px-4 py-3">156,401元至162,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">162,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第41級</td>
+                                            <td class="px-4 py-3">162,801元至169,200元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">169,200元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第42級</td>
+                                            <td class="px-4 py-3">169,201元至175,600元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">175,600元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第43級</td>
+                                            <td class="px-4 py-3">175,601元至182,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">182,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第44級</td>
+                                            <td class="px-4 py-3">182,001元至189,500元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">189,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第45級</td>
+                                            <td class="px-4 py-3">189,501元至197,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">197,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第46級</td>
+                                            <td class="px-4 py-3">197,001元至204,500元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">204,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第47級</td>
+                                            <td class="px-4 py-3">204,501元至212,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">212,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第48級</td>
+                                            <td class="px-4 py-3">212,001元至219,500元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">219,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第49級</td>
+                                            <td class="px-4 py-3">219,501元至228,200元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">228,200元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第50級</td>
+                                            <td class="px-4 py-3">228,201元至236,900元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">236,900元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第51級</td>
+                                            <td class="px-4 py-3">236,901元至245,600元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">245,600元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第52級</td>
+                                            <td class="px-4 py-3">245,601元至254,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">254,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第53級</td>
+                                            <td class="px-4 py-3">254,301元至263,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">263,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第54級</td>
+                                            <td class="px-4 py-3">263,001元至273,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">273,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第55級</td>
+                                            <td class="px-4 py-3">273,001元至283,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">283,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第56級</td>
+                                            <td class="px-4 py-3">283,001元至293,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">293,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第57級</td>
+                                            <td class="px-4 py-3">293,001元至303,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">303,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第58級</td>
+                                            <td class="px-4 py-3">303,001元以上</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">313,000元</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="sv-labor" class="hidden animate-in fade-in">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <div class="text-base font-semibold text-slate-800">勞工保險投保薪資分級表</div>
+                                    <div class="text-xs text-slate-500">115年1月1日起適用</div>
+                                </div>
+                            </div>
+
+                            <div class="overflow-x-auto rounded-lg border border-slate-200">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-slate-50 text-slate-500 border-b">
+                                        <tr>
+                                            <th class="px-4 py-3 font-medium whitespace-nowrap">投保薪資等級</th>
+                                            <th class="px-4 py-3 font-medium whitespace-nowrap">月薪資總額</th>
+                                            <th class="px-4 py-3 font-medium whitespace-nowrap">月投保薪資</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y text-slate-600">
+                                        <tr>
+                                            <td class="px-4 py-3">第1級</td>
+                                            <td class="px-4 py-3">29,500元以下</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">29,500元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第2級</td>
+                                            <td class="px-4 py-3">29,501元至30,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">30,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第3級</td>
+                                            <td class="px-4 py-3">30,301元至31,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">31,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第4級</td>
+                                            <td class="px-4 py-3">31,801元至33,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">33,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第5級</td>
+                                            <td class="px-4 py-3">33,301元至34,800元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">34,800元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第6級</td>
+                                            <td class="px-4 py-3">34,801元至36,300元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">36,300元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第7級</td>
+                                            <td class="px-4 py-3">36,301元至38,200元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">38,200元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第8級</td>
+                                            <td class="px-4 py-3">38,201元至40,100元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">40,100元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第9級</td>
+                                            <td class="px-4 py-3">40,101元至42,000元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">42,000元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第10級</td>
+                                            <td class="px-4 py-3">42,001元至43,900元</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">43,900元</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="px-4 py-3">第11級</td>
+                                            <td class="px-4 py-3">43,901元以上</td>
+                                            <td class="px-4 py-3 font-medium text-slate-700">45,800元</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="sv-pension" class="hidden animate-in fade-in">
+                        <div class="text-slate-500 text-sm p-4 bg-slate-50 rounded-lg">勞退設定內容區塊</div>
+                    </div>
+                    <div id="sv-system" class="hidden animate-in fade-in">
+                        <div class="text-slate-500 text-sm p-4 bg-slate-50 rounded-lg">系統設定內容區塊</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+        </div>
+    </div>
+
+    <!-- Add/Edit Employee Modal -->
+    <div id="modal-employee" class="fixed inset-0 bg-black/50 z-50 hidden flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-white w-[80%] h-[80%] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-200">
+            <!-- Header -->
+            <div class="p-6 border-b flex justify-between items-center bg-slate-50">
+                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fas fa-user-plus text-blue-600"></i>
+                    <span id="modal-title">新增員工資料</span>
+                </h2>
+                <button onclick="closeAddEmployeeModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                    <span class="inline-flex items-center justify-center w-8 h-8 bg-white rounded-full shadow-sm">
+                        <i class="fas fa-times fa-lg text-blue-600"></i>
+                    </span>
+                </button>
+            </div>
+            
+            <!-- Scrollable Content -->
+            <div class="p-8 overflow-y-auto flex-1">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex gap-2 mb-6 border-b border-slate-100 pb-1 overflow-x-auto">
+                        <button onclick="switchEmpTab('basic')" id="emt-basic" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-blue-600 bg-slate-50 text-blue-600">基本</button>
+                        <button onclick="switchEmpTab('salary')" id="emt-salary" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">薪資</button>
+                        <button onclick="switchEmpTab('ins')" id="emt-ins" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">保險</button>
+                        <button onclick="switchEmpTab('bank')" id="emt-bank" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">銀行</button>
+                        <button onclick="switchEmpTab('other')" id="emt-other" class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-transparent hover:text-blue-600 hover:bg-slate-50">其他</button>
+                    </div>
+
+                    <div id="emp-basic" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">員工編號</label>
+                                <input id="f-code" type="text" placeholder="輸入員工編號" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">狀態</label>
+                                <select id="f-status" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white">
+                                    <option value="在職">在職</option>
+                                    <option value="離職">離職</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">所屬公司/社區</label>
+                                <select id="f-unit" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white">
+                                    <option value="">請選擇單位</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">姓名</label>
+                                <input id="f-name" type="text" placeholder="自動帶入或輸入姓名" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">電子郵件</label>
+                                <input id="f-email" type="email" placeholder="name@example.com" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">手機號碼</label>
+                                <input id="f-mobile" type="tel" placeholder="09xxxxxxxx" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">住家地址</label>
+                                <input id="f-address" type="text" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">身分證號</label>
+                                <input id="f-idno" type="text" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">血型</label>
+                                <input id="f-blood" type="text" placeholder="例如：O、A、B、AB" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">緊急聯絡人</label>
+                                <input id="f-em-contact" type="text" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">緊急聯絡人手機號碼</label>
+                                <input id="f-em-mobile" type="tel" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">緊急聯絡人關係</label>
+                                <input id="f-em-relation" type="text" placeholder="例如：父、母、配偶" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 pt-4 mt-2">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">在職起始時間</label>
+                                <input id="f-start-date" type="date" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">離職起始時間</label>
+                                <input id="f-resign-date" type="date" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                <p class="text-xs text-slate-400 mt-1">※ 設定為離職且日期已過時，該員將無法登入系統</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="emp-salary" class="space-y-6 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">本薪 (NT$)</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-base" type="number" value="28590" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">證照津貼</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-license" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">專業津貼</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-pro" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">獎金</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-bonus" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">其他津貼</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-bonus-other" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="emp-ins" class="space-y-6 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">健保費</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-health" type="number" value="400" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">勞保費</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-labor" type="number" value="600" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">勞退費</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-pension-fee" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">團體保險</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-group-ins" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="emp-bank" class="space-y-6 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">銀行代碼</label>
+                                <select id="f-bank-code" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white">
+                                    <option value="">請選擇銀行</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">銀行名稱</label>
+                                <input id="f-bank-name" type="text" readonly class="w-full border rounded-lg px-4 py-3 bg-slate-100 text-slate-500">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">分行名稱</label>
+                                <input id="f-bank-branch" type="text" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">銀行帳號</label>
+                                <input id="f-bank-account" type="text" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">銀行戶名</label>
+                                <input id="f-bank-account-name" type="text" class="w-full border rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block mb-2 text-slate-700 font-medium">匯費</label>
+                                <div class="relative">
+                                    <span class="absolute left-4 top-3 text-slate-400">$</span>
+                                    <input id="f-remit" type="number" value="0" class="w-full border rounded-lg pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="emp-other" class="space-y-6 hidden">
+                        <div class="text-slate-500 text-sm p-4 bg-slate-50 rounded-lg">其他資料設定內容區塊</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="p-6 border-t bg-slate-50 flex justify-end gap-4">
+                 <button onclick="closeAddEmployeeModal()" class="px-6 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium transition-colors">取消</button>
+                 <button onclick="saveEmployee()" class="px-6 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg shadow-blue-200 transition-all flex items-center gap-2">
+                    <i class="fas fa-save"></i> 儲存員工
+                 </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="logout-modal" class="fixed inset-0 bg-black/50 z-50 hidden justify-center items-center">
+        <div class="bg-white rounded-xl p-6 w-[320px]">
+            <div class="text-slate-800 font-semibold mb-3">確認登出</div>
+            <div class="text-slate-600 text-sm mb-6">是否要登出系統？</div>
+            <div class="flex justify-end gap-3">
+                <button id="logout-cancel" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">取消</button>
+                <button id="logout-confirm" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">登出</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let employees = JSON.parse(localStorage.getItem('security_employees') || '[]');
+        let units = JSON.parse(localStorage.getItem('security_units') || '[]');
+        let selectedEmpId = null;
+        let editingEmpId = null;
+        let systemUsersCache = [];
+
+        window.onload = async () => {
+            // Ensure Firebase is initialized
+            const db = getFirestoreDb();
+
+            ensureBankCodeOptions();
+            
+            if (db) {
+                // Wait for Auth state to resolve
+                await new Promise(resolve => {
+                    const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+                        unsubscribe();
+                        if (user) {
+                            console.log("User is signed in:", user.uid);
+                            renderAuthUser(user);
+                        } else {
+                            console.warn("No user signed in. System data may be inaccessible.");
+                            renderAuthUser(null);
+                        }
+                        resolve(user);
+                    });
+                });
+            }
+
+            await refreshFromSystemData();
+            try {
+                const authUser = firebase && firebase.auth ? firebase.auth().currentUser : null;
+                renderSystemUserInNav(authUser);
+            } catch (e) {}
+            renderList();
+            renderSelect();
+            if (typeof renderUnits === 'function') renderUnits();
+            const avatarDiv = document.getElementById('nav-user-avatar');
+            if (avatarDiv) {
+                avatarDiv.addEventListener('click', async () => {
+                    openLogoutModal();
+                });
+            }
+            const btnCancel = document.getElementById('logout-cancel');
+            const btnConfirm = document.getElementById('logout-confirm');
+            if (btnCancel) btnCancel.addEventListener('click', closeLogoutModal);
+            if (btnConfirm) btnConfirm.addEventListener('click', doLogout);
+        };
+
+        function normalizeEmployee(emp) {
+            return {
+                id: String(emp.id || ''),
+                code: (emp.code || '').toString(),
+                name: (emp.name || '').toString(),
+                email: (emp.email || '').toString(),
+                mobile: (emp.mobile || '').toString(),
+                address: (emp.address || '').toString(),
+                idNo: (emp.idNo || '').toString(),
+                bloodType: (emp.bloodType || '').toString(),
+                emergencyContact: (emp.emergencyContact || '').toString(),
+                emergencyMobile: (emp.emergencyMobile || '').toString(),
+                emergencyRelation: (emp.emergencyRelation || '').toString(),
+                status: emp.status || '在職',
+                baseSalary: Number.isFinite(Number(emp.baseSalary)) ? Number(emp.baseSalary) : 28590,
+                licenseBonus: Number.isFinite(Number(emp.licenseBonus)) ? Number(emp.licenseBonus) : 0,
+                laborIns: emp.laborIns === 0 || Number.isFinite(Number(emp.laborIns)) ? Number(emp.laborIns) : 600,
+                healthIns: emp.healthIns === 0 || Number.isFinite(Number(emp.healthIns)) ? Number(emp.healthIns) : 400,
+                professionalBonus: Number.isFinite(Number(emp.professionalBonus)) ? Number(emp.professionalBonus) : 0,
+                awardBonus: Number.isFinite(Number(emp.awardBonus)) ? Number(emp.awardBonus) : 0,
+                otherBonus: Number.isFinite(Number(emp.otherBonus)) ? Number(emp.otherBonus) : 0,
+                insuredGrade: (emp.insuredGrade || '').toString(),
+                pensionFee: Number.isFinite(Number(emp.pensionFee)) ? Number(emp.pensionFee) : 0,
+                groupIns: Number.isFinite(Number(emp.groupIns)) ? Number(emp.groupIns) : 0,
+                remitFee: Number.isFinite(Number(emp.remitFee)) ? Number(emp.remitFee) : 0,
+                bankCode: (emp.bankCode || '').toString(),
+                bankName: (emp.bankName || '').toString(),
+                bankBranch: (emp.bankBranch || '').toString(),
+                bankAccount: (emp.bankAccount || '').toString(),
+                bankAccountName: (emp.bankAccountName || '').toString(),
+                unitId: emp.unitId || '',
+                role: emp.role || '',
+                companyId: emp.companyId || '',
+                communityId: emp.communityId || '',
+                startDate: emp.startDate || '',
+                resignDate: emp.resignDate || '',
+                source: emp.source || 'local'
+            };
+        }
+
+        function getFirestoreDb() {
+            if (!window.firebase || !window.FIREBASE_CONFIG) return null;
+            if (!firebase.apps || firebase.apps.length === 0) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            return firebase.firestore();
+        }
+
+        async function updateSystemUser(id, data) {
+            const db = getFirestoreDb();
+            if (!db) return;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+            try {
+                await db.collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('users')
+                    .doc(id)
+                    .update(data);
+                console.log('System user updated:', id);
+            } catch (e) {
+                console.error('Error updating system user:', e);
+                // alert('更新系統資料失敗: ' + e.message); // Optional: silent fail or alert
+            }
+        }
+
+        async function fetchSystemCollection(collectionName) {
+            const db = getFirestoreDb();
+            if (!db) return [];
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+            try {
+                const snap = await db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection(collectionName)
+                    .get();
+                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            } catch (e) {
+                console.error(`Error fetching ${collectionName}:`, e);
+                return [];
+            }
+        }
+
+        async function refreshFromSystemData() {
+            // 1. Refresh Employees
+            const localList = Array.isArray(employees) ? employees.map(normalizeEmployee) : [];
+            employees = localList;
+
+            const [sysUsers, sysCompanies, sysCommunities] = await Promise.all([
+                fetchSystemCollection('users'),
+                fetchSystemCollection('companies'),
+                fetchSystemCollection('communities')
+            ]);
+            systemUsersCache = Array.isArray(sysUsers) ? sysUsers : [];
+
+            // Process Employees
+            if (Array.isArray(sysUsers) && sysUsers.length > 0) {
+                const localById = new Map(employees.map(e => [e.id, e]));
+                const localByName = new Map(employees.map(e => [e.name, e]));
+
+                const systemEmployees = sysUsers
+                    .map(u => {
+                        const name = (u && u.name ? String(u.name) : '').trim() || (u && u.email ? String(u.email) : '').trim() || '';
+                        if (!name) return null;
+                        const id = String(u.id || '');
+                        const existing = localById.get(id) || localByName.get(name) || null;
+                        const existingNorm = existing ? normalizeEmployee(existing) : null;
+                        // Derive unitId from system data if available
+                        const sysUnitId = u.communityId || u.companyId || '';
+                        
+                        return normalizeEmployee({
+                            id,
+                            name,
+                            email: u.email || '',
+                            mobile: u.mobile || u.phone || '',
+                            source: 'system',
+                            
+                            // Preserve existing data or use defaults
+                            status: existingNorm ? existingNorm.status : '在職',
+                            code: existingNorm ? existingNorm.code : '',
+                            address: existingNorm ? existingNorm.address : '',
+                            idNo: existingNorm ? existingNorm.idNo : '',
+                            bloodType: existingNorm ? existingNorm.bloodType : '',
+                            emergencyContact: existingNorm ? existingNorm.emergencyContact : '',
+                            emergencyMobile: existingNorm ? existingNorm.emergencyMobile : '',
+                            emergencyRelation: existingNorm ? existingNorm.emergencyRelation : '',
+                            
+                            baseSalary: existingNorm ? existingNorm.baseSalary : 28590,
+                            licenseBonus: existingNorm ? existingNorm.licenseBonus : 0,
+                            professionalBonus: existingNorm ? existingNorm.professionalBonus : 0,
+                            awardBonus: existingNorm ? existingNorm.awardBonus : 0,
+                            otherBonus: existingNorm ? existingNorm.otherBonus : 0,
+                            
+                            laborIns: existingNorm ? existingNorm.laborIns : 600,
+                            healthIns: existingNorm ? existingNorm.healthIns : 400,
+                            insuredGrade: existingNorm ? existingNorm.insuredGrade : '',
+                            pensionFee: existingNorm ? existingNorm.pensionFee : 0,
+                            groupIns: existingNorm ? existingNorm.groupIns : 0,
+                            remitFee: existingNorm ? existingNorm.remitFee : 0,
+                            
+                            bankCode: existingNorm ? existingNorm.bankCode : '',
+                            bankName: existingNorm ? existingNorm.bankName : '',
+                            bankBranch: existingNorm ? existingNorm.bankBranch : '',
+                            bankAccount: existingNorm ? existingNorm.bankAccount : '',
+                            bankAccountName: existingNorm ? existingNorm.bankAccountName : '',
+                            
+                            unitId: existingNorm && existingNorm.unitId ? existingNorm.unitId : sysUnitId,
+                            role: u.role || '',
+                            companyId: u.companyId || '',
+                            communityId: u.communityId || '',
+                            startDate: u.startDate || (existingNorm ? existingNorm.startDate : ''),
+                            resignDate: u.resignDate || (existingNorm ? existingNorm.resignDate : '')
+                        });
+                    })
+                    .filter(Boolean);
+
+                systemEmployees.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+
+                const systemIds = new Set(systemEmployees.map(e => e.id));
+                const systemNames = new Set(systemEmployees.map(e => e.name));
+                const remainingLocal = employees
+                    .filter(e => !systemIds.has(e.id) && !systemNames.has(e.name))
+                    .map(e => normalizeEmployee({ ...e, source: e.source || 'local' }));
+
+                employees = [...systemEmployees, ...remainingLocal];
+            }
+
+            // 2. Refresh Units (Companies & Communities)
+            // Strictly replace with system data only (no manual entries like A001)
+            const newUnits = [];
+
+            // Add Companies
+            sysCompanies.forEach(c => {
+                if (!c.name) return;
+                newUnits.push({
+                    id: c.id,
+                    name: c.name,
+                    source: 'system-company'
+                });
+            });
+
+            // Add Communities
+            sysCommunities.forEach(c => {
+                if (!c.name) return;
+                newUnits.push({
+                    id: c.id,
+                    name: c.name,
+                    source: 'system-community'
+                });
+            });
+
+            units = newUnits;
+            // Sort units: System ones first, then local? Or just by ID/Name? 
+            // Let's sort by name for better UX
+            units.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+
+            // Save to local storage
+            localStorage.setItem('security_employees', JSON.stringify(employees));
+            localStorage.setItem('security_units', JSON.stringify(units));
+        }
+
+        function switchTab(tab) {
+            const listTab = document.getElementById('tab-list');
+            const overviewTab = document.getElementById('tab-overview');
+            const ledgerTab = document.getElementById('tab-ledger');
+            const scheduleTab = document.getElementById('tab-schedule');
+            const calcTab = document.getElementById('tab-calc');
+            const settingsTab = document.getElementById('tab-settings');
+            const listView = document.getElementById('view-list');
+            const overviewView = document.getElementById('view-overview');
+            const ledgerView = document.getElementById('view-ledger');
+            const scheduleView = document.getElementById('view-schedule');
+            const calcView = document.getElementById('view-calc');
+            const settingsView = document.getElementById('view-settings');
+
+            const allTabs = [listTab, overviewTab, ledgerTab, scheduleTab, calcTab, settingsTab].filter(Boolean);
+            allTabs.forEach(t => {
+                t.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
+                t.classList.add('hover:bg-slate-100', 'text-slate-600');
+            });
+
+            listView.classList.add('hidden');
+            overviewView.classList.add('hidden');
+            ledgerView.classList.add('hidden');
+            scheduleView.classList.add('hidden');
+            calcView.classList.add('hidden');
+            settingsView.classList.add('hidden');
+
+            if (tab === 'overview') {
+                overviewTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                overviewTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                overviewView.classList.remove('hidden');
+                return;
+            }
+
+            if (tab === 'ledger') {
+                ledgerTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                ledgerTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                ledgerView.classList.remove('hidden');
+                return;
+            }
+
+            if (tab === 'schedule') {
+                scheduleTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                scheduleTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                scheduleView.classList.remove('hidden');
+                return;
+            }
+
+            if (tab === 'calc') {
+                calcTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                calcTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                calcView.classList.remove('hidden');
+                return;
+            }
+
+            if (tab === 'settings') {
+                settingsTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                settingsTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+                settingsView.classList.remove('hidden');
+                // Default to first sub tab if none active
+                switchSettingTab('general');
+                return;
+            }
+
+            listTab.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+            listTab.classList.remove('hover:bg-slate-100', 'text-slate-600');
+            listView.classList.remove('hidden');
+        }
+
+        function switchSettingTab(subTab) {
+            const tabs = ['general', 'unit', 'health', 'labor', 'pension', 'system'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`st-${t}`);
+                const view = document.getElementById(`sv-${t}`);
+                if (t === subTab) {
+                    btn.classList.add('text-blue-600', 'border-blue-600', 'bg-slate-50');
+                    btn.classList.remove('border-transparent');
+                    view.classList.remove('hidden');
+                } else {
+                    btn.classList.remove('text-blue-600', 'border-blue-600', 'bg-slate-50');
+                    btn.classList.add('border-transparent');
+                    view.classList.add('hidden');
+                }
+            });
+        }
+
+        function ensureUnitOptions() {
+            const select = document.getElementById('f-unit');
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = '<option value="">請選擇單位</option>' + 
+                units.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+            select.value = current;
+        }
+
+        function openAddEmployeeModal() {
+            cancelEdit();
+            ensureBankCodeOptions();
+            ensureUnitOptions();
+            document.getElementById('modal-title').innerText = '新增員工資料';
+            document.getElementById('modal-employee').classList.remove('hidden');
+        }
+
+        function closeAddEmployeeModal() {
+            document.getElementById('modal-employee').classList.add('hidden');
+            cancelEdit();
+        }
+
+        function startEditEmp(id, tab = 'basic') {
+            const emp = employees.find(e => e.id === id);
+            if (!emp) return;
+            editingEmpId = id;
+
+            document.getElementById('modal-title').innerText = '編輯員工資料 - ' + (emp.name || '');
+            document.getElementById('modal-employee').classList.remove('hidden');
+            ensureBankCodeOptions();
+            ensureUnitOptions();
+
+            const codeInput = document.getElementById('f-code');
+            const nameInput = document.getElementById('f-name');
+            const emailInput = document.getElementById('f-email');
+            const mobileInput = document.getElementById('f-mobile');
+            const addressInput = document.getElementById('f-address');
+            const idNoInput = document.getElementById('f-idno');
+            const bloodInput = document.getElementById('f-blood');
+            const emContactInput = document.getElementById('f-em-contact');
+            const emMobileInput = document.getElementById('f-em-mobile');
+            const emRelationInput = document.getElementById('f-em-relation');
+            const bankCodeInput = document.getElementById('f-bank-code');
+            const bankNameInput = document.getElementById('f-bank-name');
+            const bankBranchInput = document.getElementById('f-bank-branch');
+            const bankAccountInput = document.getElementById('f-bank-account');
+            const bankAccountNameInput = document.getElementById('f-bank-account-name');
+            const startDateInput = document.getElementById('f-start-date');
+            const resignDateInput = document.getElementById('f-resign-date');
+            const statusInput = document.getElementById('f-status');
+
+            codeInput.value = emp.code || '';
+            if (statusInput) statusInput.value = emp.status || '在職';
+            nameInput.value = emp.name || '';
+            nameInput.readOnly = emp.source === 'system';
+            emailInput.value = emp.email || '';
+            mobileInput.value = emp.mobile || '';
+            addressInput.value = emp.address || '';
+            idNoInput.value = emp.idNo || '';
+            bloodInput.value = emp.bloodType || '';
+            emContactInput.value = emp.emergencyContact || '';
+            emMobileInput.value = emp.emergencyMobile || '';
+            emRelationInput.value = emp.emergencyRelation || '';
+            bankCodeInput.value = emp.bankCode || '';
+            bankNameInput.value = emp.bankName || getBankNameByCode(emp.bankCode);
+            bankBranchInput.value = emp.bankBranch || '';
+            bankAccountInput.value = emp.bankAccount || '';
+            bankAccountNameInput.value = emp.bankAccountName || (emp.name || '');
+            startDateInput.value = emp.startDate || '';
+            resignDateInput.value = emp.resignDate || '';
+
+            document.getElementById('f-unit').value = emp.unitId || '';
+
+            document.getElementById('f-base').value = emp.baseSalary ?? 28590;
+            document.getElementById('f-license').value = emp.licenseBonus ?? 0;
+            document.getElementById('f-labor').value = emp.laborIns ?? 600;
+            document.getElementById('f-health').value = emp.healthIns ?? 400;
+            document.getElementById('f-pro').value = emp.professionalBonus ?? 0;
+            document.getElementById('f-bonus').value = emp.awardBonus ?? 0;
+            document.getElementById('f-bonus-other').value = emp.otherBonus ?? 0;
+            const insGradeEl = document.getElementById('f-ins-grade');
+            if (insGradeEl) insGradeEl.value = emp.insuredGrade || '';
+            document.getElementById('f-pension-fee').value = emp.pensionFee ?? 0;
+            document.getElementById('f-group-ins').value = emp.groupIns ?? 0;
+            document.getElementById('f-remit').value = emp.remitFee ?? 0;
+            
+            // If tab is 'basic' but we want to focus on a specific sub-section if needed, 
+            // but for now just switch to the requested tab.
+            switchEmpTab(tab);
+            updateInsuredGradeFromBase();
+        }
+
+        function cancelEdit() {
+            editingEmpId = null;
+            document.getElementById('f-code').value = '';
+            const statusInput = document.getElementById('f-status');
+            if (statusInput) statusInput.value = '在職';
+            const nameInput = document.getElementById('f-name');
+            nameInput.value = '';
+            nameInput.readOnly = false;
+            document.getElementById('f-email').value = '';
+            document.getElementById('f-mobile').value = '';
+            document.getElementById('f-address').value = '';
+            document.getElementById('f-idno').value = '';
+            document.getElementById('f-blood').value = '';
+            document.getElementById('f-em-contact').value = '';
+            document.getElementById('f-em-mobile').value = '';
+            document.getElementById('f-em-relation').value = '';
+            document.getElementById('f-bank-code').value = '';
+            document.getElementById('f-bank-name').value = '';
+            document.getElementById('f-bank-branch').value = '';
+            document.getElementById('f-bank-account').value = '';
+            document.getElementById('f-bank-account-name').value = '';
+            document.getElementById('f-start-date').value = '';
+            document.getElementById('f-resign-date').value = '';
+            document.getElementById('f-unit').value = '';
+            document.getElementById('f-base').value = 28590;
+            document.getElementById('f-license').value = 0;
+            document.getElementById('f-labor').value = 600;
+            document.getElementById('f-health').value = 400;
+            document.getElementById('f-pro').value = 0;
+            document.getElementById('f-bonus').value = 0;
+            document.getElementById('f-bonus-other').value = 0;
+            const insGradeResetEl = document.getElementById('f-ins-grade');
+            if (insGradeResetEl) insGradeResetEl.value = '';
+            document.getElementById('f-pension-fee').value = 0;
+            document.getElementById('f-group-ins').value = 0;
+            document.getElementById('f-remit').value = 0;
+            switchEmpTab('basic');
+            updateInsuredGradeFromBase();
+        }
+
+        function saveEmployee() {
+            const name = document.getElementById('f-name').value;
+            if (!name) return alert('請輸入姓名');
+
+            const code = document.getElementById('f-code').value;
+            const email = document.getElementById('f-email').value;
+            const mobile = document.getElementById('f-mobile').value;
+            const address = document.getElementById('f-address').value;
+            const idNo = document.getElementById('f-idno').value;
+            const bloodType = document.getElementById('f-blood').value;
+            const emergencyContact = document.getElementById('f-em-contact').value;
+            const emergencyMobile = document.getElementById('f-em-mobile').value;
+            const emergencyRelation = document.getElementById('f-em-relation').value;
+            const bankCode = document.getElementById('f-bank-code').value;
+            const bankName = document.getElementById('f-bank-name').value;
+            const bankBranch = document.getElementById('f-bank-branch').value;
+            const bankAccount = document.getElementById('f-bank-account').value;
+            const bankAccountName = document.getElementById('f-bank-account-name').value || name;
+            const startDate = document.getElementById('f-start-date').value;
+            const resignDate = document.getElementById('f-resign-date').value;
+
+            const unitId = document.getElementById('f-unit').value;
+            const statusInput = document.getElementById('f-status');
+            const status = statusInput ? statusInput.value : '在職';
+            const baseSalary = Number(document.getElementById('f-base').value);
+            const licenseBonus = Number(document.getElementById('f-license').value);
+            const laborIns = Number(document.getElementById('f-labor').value);
+            const healthIns = Number(document.getElementById('f-health').value);
+            const professionalBonus = Number(document.getElementById('f-pro').value);
+            const awardBonus = Number(document.getElementById('f-bonus').value);
+            const otherBonus = Number(document.getElementById('f-bonus-other').value);
+            const insuredGradeEl = document.getElementById('f-ins-grade');
+            const insuredGrade = insuredGradeEl ? insuredGradeEl.value : (() => {
+                if (editingEmpId) {
+                    const current = employees.find(e => e.id === editingEmpId);
+                    return normalizeEmployee(current || {}).insuredGrade || '';
+                }
+                return '';
+            })();
+            const pensionFee = Number(document.getElementById('f-pension-fee').value);
+            const groupIns = Number(document.getElementById('f-group-ins').value);
+            const remitFee = Number(document.getElementById('f-remit').value);
+
+            if (editingEmpId) {
+                const idx = employees.findIndex(e => e.id === editingEmpId);
+                if (idx !== -1) {
+                    const current = normalizeEmployee(employees[idx]);
+                    const next = {
+                        ...current,
+                        code,
+                        status,
+                        baseSalary,
+                        licenseBonus,
+                        laborIns,
+                        healthIns,
+                        email,
+                        mobile,
+                        address,
+                        idNo,
+                        bloodType,
+                        emergencyContact,
+                        emergencyMobile,
+                        emergencyRelation,
+                        professionalBonus,
+                        awardBonus,
+                        otherBonus,
+                        insuredGrade,
+                        pensionFee,
+                        groupIns,
+                        remitFee,
+                        bankCode,
+                        bankName,
+                        bankBranch,
+                        bankAccount,
+                        bankAccountName,
+                        startDate,
+                        resignDate,
+                        unitId
+                    };
+                    if (current.source !== 'system') next.name = name;
+                    employees[idx] = normalizeEmployee(next);
+
+                    if (current.source === 'system') {
+                        updateSystemUser(current.id, { 
+                            status: next.status,
+                            startDate: next.startDate, 
+                            resignDate: next.resignDate 
+                        });
+                    }
+                }
+            } else {
+                const emp = normalizeEmployee({
+                    id: Date.now().toString(),
+                    code,
+                    name,
+                    status,
+                    unitId,
+                    baseSalary,
+                    licenseBonus,
+                    laborIns: Number.isFinite(laborIns) ? laborIns : 600,
+                    healthIns: Number.isFinite(healthIns) ? healthIns : 400,
+                    email,
+                    mobile,
+                    address,
+                    idNo,
+                    bloodType,
+                    emergencyContact,
+                    emergencyMobile,
+                    emergencyRelation,
+                    professionalBonus,
+                    awardBonus,
+                    otherBonus,
+                    insuredGrade,
+                    pensionFee,
+                    groupIns,
+                    remitFee,
+                    bankCode,
+                    bankName,
+                    bankBranch,
+                    bankAccount,
+                    bankAccountName,
+                    startDate,
+                    resignDate,
+                    source: 'local'
+                });
+                employees.push(emp);
+            }
+
+            syncData();
+            closeAddEmployeeModal();
+            renderList();
+            renderSelect();
+        }
+
+        function syncData() {
+            localStorage.setItem('security_employees', JSON.stringify(employees));
+        }
+
+        function renderList() {
+            const tbody = document.getElementById('employee-tbody');
+            tbody.innerHTML = employees.length === 0 
+                ? '<tr><td colspan="6" class="text-center py-8 text-slate-400">尚無員工</td></tr>'
+                : employees.map(emp => {
+                    // Determine display unit based on role
+                    let displayUnitId = emp.unitId;
+                    const role = emp.role;
+                    if (['admin', 'manager', 'hr', 'property', 'officer'].includes(role)) {
+                        displayUnitId = emp.companyId;
+                    } else if (['gm', 'secretary', 'clean', 'mech', 'guard', 'dayGuard', 'nightGuard'].includes(role)) {
+                        displayUnitId = emp.communityId;
+                    }
+                    // Fallback
+                    if (!displayUnitId) displayUnitId = emp.unitId || emp.communityId || emp.companyId;
+
+                    const unitName = units.find(u => u.id === displayUnitId)?.name || displayUnitId || '-';
+                    const totalSalary = emp.baseSalary + emp.licenseBonus + (emp.professionalBonus || 0) + (emp.awardBonus || 0) + (emp.otherBonus || 0);
+                    const totalIns = (emp.laborIns || 0) + (emp.healthIns || 0) + (emp.groupIns || 0);
+                    const bankName = emp.bankName || getBankNameByCode(emp.bankCode) || '-';
+                    
+                    let statusDisplay = '';
+                    if (emp.status === '離職') {
+                        statusDisplay = `
+                            <div class="flex flex-col">
+                                <span class="px-2 py-0.5 rounded text-xs bg-red-100 text-red-600 w-fit mb-1">離職</span>
+                                <span class="text-xs text-slate-500">離: ${emp.resignDate || '-'}</span>
+                                <span class="text-xs text-slate-400">入: ${emp.startDate || '-'}</span>
+                            </div>
+                        `;
+                    } else {
+                        statusDisplay = `
+                            <div class="flex flex-col">
+                                <span class="px-2 py-0.5 rounded text-xs bg-green-100 text-green-600 w-fit mb-1">在職</span>
+                                <span class="text-xs text-slate-500">入: ${emp.startDate || '-'}</span>
+                            </div>
+                        `;
+                    }
+
+                    return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-6 py-4 text-slate-700">${unitName}</td>
+                        <td class="px-6 py-4 font-medium cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'basic')">
+                            ${emp.name}
+                        </td>
+                        <td class="px-6 py-4 cursor-pointer" onclick="startEditEmp('${emp.id}', 'basic')">
+                            ${statusDisplay}
+                        </td>
+                        <td class="px-6 py-4 text-slate-700 cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'salary')">NT$ ${totalSalary.toLocaleString()}</td>
+                        <td class="px-6 py-4 text-slate-700 cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'ins')">NT$ ${totalIns.toLocaleString()}</td>
+                        <td class="px-6 py-4 text-slate-700 cursor-pointer hover:text-blue-600 transition-colors" onclick="startEditEmp('${emp.id}', 'bank')">${bankName}</td>
+                        <td class="px-6 py-4 text-left">
+                            <button onclick="goCalc('${emp.id}')" class="text-blue-600 mr-4 font-medium">核薪</button>
+                            <button onclick="startEditEmp('${emp.id}')" class="text-slate-600 mr-4 font-medium">編輯</button>
+                        </td>
+                    </tr>
+                `}).join('');
+        }
+
+        function renderSelect() {
+            const select = document.getElementById('calc-select');
+            const current = select.value;
+            select.innerHTML = '<option value="">-- 請選擇人員 --</option>' + 
+                employees.map(emp => `<option value="${emp.id}">${emp.name}${emp.status === '離職' ? ' (離職)' : ''}</option>`).join('');
+            select.value = current;
+        }
+
+        function extractAvatarUrl(u) {
+            if (!u || typeof u !== 'object') return '';
+            return u.photoURL || u.avatarUrl || u.avatar || u.photo || u.imageUrl || '';
+        }
+
+        function renderSystemUserInNav(authUser) {
+            const nameEl = document.getElementById('nav-user-name');
+            const avatarDiv = document.getElementById('nav-user-avatar');
+            if (!nameEl || !avatarDiv) return;
+            if (!Array.isArray(systemUsersCache) || systemUsersCache.length === 0) return;
+            let match = null;
+            const authEmail = authUser && authUser.email ? String(authUser.email).toLowerCase() : '';
+            const authName = authUser && authUser.displayName ? String(authUser.displayName) : '';
+            if (authEmail) {
+                match = systemUsersCache.find(u => String(u.email || '').toLowerCase() === authEmail) || null;
+            }
+            if (!match && authName) {
+                match = systemUsersCache.find(u => String(u.name || '') === authName) || null;
+            }
+            if (!match) return;
+            const sysName = match.name || '';
+            const sysAvatar = extractAvatarUrl(match);
+            if (sysName) nameEl.textContent = sysName;
+            if (sysAvatar) {
+                avatarDiv.style.backgroundImage = `url(${sysAvatar})`;
+                avatarDiv.style.backgroundSize = 'cover';
+                avatarDiv.style.backgroundPosition = 'center';
+                avatarDiv.textContent = '';
+            }
+        }
+        function renderAuthUser(user) {
+            const nameEl = document.getElementById('nav-user-name');
+            const avatarDiv = document.getElementById('nav-user-avatar');
+            if (!nameEl || !avatarDiv) return;
+            if (user) {
+                const name = user.displayName || (user.email ? String(user.email).split('@')[0] : '') || '使用者';
+                nameEl.textContent = name;
+                const photo = user.photoURL || '';
+                if (photo) {
+                    avatarDiv.style.backgroundImage = `url(${photo})`;
+                    avatarDiv.style.backgroundSize = 'cover';
+                    avatarDiv.style.backgroundPosition = 'center';
+                    avatarDiv.textContent = '';
+                } else {
+                    avatarDiv.style.backgroundImage = '';
+                    avatarDiv.textContent = String(name || 'U').slice(0, 1).toUpperCase();
+                }
+            } else {
+                nameEl.textContent = '未登入';
+                avatarDiv.style.backgroundImage = '';
+                avatarDiv.textContent = '';
+            }
+        }
+
+        function openLogoutModal() {
+            const m = document.getElementById('logout-modal');
+            if (!m) return;
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+        }
+        function closeLogoutModal() {
+            const m = document.getElementById('logout-modal');
+            if (!m) return;
+            m.classList.add('hidden');
+            m.classList.remove('flex');
+        }
+        async function doLogout() {
+            if (!firebase || !firebase.auth) return;
+            try {
+                await firebase.auth().signOut();
+                renderAuthUser(null);
+                const nameEl = document.getElementById('nav-user-name');
+                const avatar = document.getElementById('nav-user-avatar');
+                if (nameEl) nameEl.textContent = '未登入';
+                if (avatar) {
+                    avatar.style.backgroundImage = '';
+                    avatar.textContent = '';
+                }
+            } catch (e) {
+                alert('登出失敗');
+            } finally {
+                closeLogoutModal();
+            }
+        }
+        function goCalc(id) {
+            switchTab('calc');
+            document.getElementById('calc-select').value = id;
+            loadSelectedEmp();
+        }
+
+        function loadSelectedEmp() {
+            const id = document.getElementById('calc-select').value;
+            const container = document.getElementById('calc-inputs');
+            const payslip = document.getElementById('payslip-container');
+
+            if (!id) {
+                container.classList.add('hidden');
+                payslip.classList.add('hidden');
+                return;
+            }
+
+            const emp = employees.find(e => e.id === id);
+            document.getElementById('disp-base').innerText = `NT$ ${emp.baseSalary.toLocaleString()}`;
+            document.getElementById('disp-bonus').innerText = `NT$ ${(emp.licenseBonus + (emp.professionalBonus || 0) + (emp.awardBonus || 0) + (emp.otherBonus || 0)).toLocaleString()}`;
+            
+            container.classList.remove('hidden');
+            payslip.classList.remove('hidden');
+            doCalc();
+        }
+
+        function doCalc() {
+            const id = document.getElementById('calc-select').value;
+            const emp = employees.find(e => e.id === id);
+            if (!emp) return;
+
+            const otHours = Number(document.getElementById('c-ot').value);
+            const slDays = Number(document.getElementById('c-sl').value);
+            const leaveHrs = Number(document.getElementById('c-leave').value);
+            const other = Number(document.getElementById('c-other').value);
+
+            // Logic
+            const hourlyRate = emp.baseSalary / 240;
+            const otPay = Math.round(otHours * hourlyRate * 1.34);
+            const slPay = Math.round(slDays * (emp.baseSalary / 30));
+            const leaveDec = Math.round(leaveHrs * hourlyRate);
+            const fixBonus = emp.licenseBonus + (emp.professionalBonus || 0) + (emp.awardBonus || 0) + (emp.otherBonus || 0);
+            
+            const gross = emp.baseSalary + fixBonus + otPay + slPay + other;
+            const pensionAmt = emp.pensionFee || 0;
+            const net = gross - emp.laborIns - emp.healthIns - leaveDec - pensionAmt - (emp.groupIns || 0) - (emp.remitFee || 0);
+
+            // UI Update
+            document.getElementById('ps-name').innerText = emp.name;
+            document.getElementById('ps-base').innerText = `NT$ ${emp.baseSalary.toLocaleString()}`;
+            document.getElementById('ps-bonus').innerText = `NT$ ${fixBonus.toLocaleString()}`;
+            document.getElementById('ps-ot-pay').innerText = `+ NT$ ${otPay.toLocaleString()}`;
+            document.getElementById('ps-sl-pay').innerText = `+ NT$ ${slPay.toLocaleString()}`;
+            document.getElementById('ps-ins').innerText = `- NT$ ${(emp.laborIns + emp.healthIns).toLocaleString()}`;
+            document.getElementById('ps-leave-dec').innerText = `- NT$ ${leaveDec.toLocaleString()}`;
+            document.getElementById('ps-gross').innerText = `NT$ ${gross.toLocaleString()}`;
+            document.getElementById('ps-net').innerText = `NT$ ${net.toLocaleString()}`;
+            document.getElementById('print-time').innerText = new Date().toLocaleString();
+
+            if(pensionAmt > 0) {
+                document.getElementById('ps-pension-row').classList.remove('hidden');
+                document.getElementById('ps-pension-label').innerText = '勞退費';
+                document.getElementById('ps-pension-amt').innerText = `- NT$ ${pensionAmt.toLocaleString()}`;
+            } else {
+                document.getElementById('ps-pension-row').classList.add('hidden');
+            }
+        }
+
+        function renderUnits() {
+            const tbody = document.getElementById('unit-tbody');
+            if (!tbody) return;
+            
+            if (units.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-8 text-slate-400">尚無單位資料</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = units.map(u => {
+                // Calculate stats
+                // Note: Employees currently only have 'unitId' which might be Company ID or Community ID or a composite.
+                // Since I populated units with Company IDs and Community IDs, I should check exact match.
+                // However, system logic usually assigns employees to a Community (unitId = Community ID).
+                // Or sometimes to a Company directly?
+                // I will match strictly on unitId === u.id.
+                
+                const unitEmps = employees.filter(e => e.unitId === u.id && e.status === '在職');
+                const count = unitEmps.length;
+                const totalSalary = unitEmps.reduce((sum, e) => sum + e.baseSalary + e.licenseBonus + (e.professionalBonus || 0) + (e.awardBonus || 0) + (e.otherBonus || 0), 0);
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-4 py-3 font-medium text-slate-700">${u.id}</td>
+                        <td class="px-4 py-3 text-slate-700">${u.name}</td>
+                        <td class="px-4 py-3 text-slate-600">${count} 人</td>
+                        <td class="px-4 py-3 text-blue-600 font-medium">NT$ ${totalSalary.toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function switchEmpTab(tab) {
+            const tabs = ['basic', 'salary', 'ins', 'bank', 'other'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`emt-${t}`);
+                const view = document.getElementById(`emp-${t}`);
+                if (!btn || !view) return;
+                if (t === tab) {
+                    btn.classList.add('text-blue-600', 'border-blue-600', 'bg-slate-50');
+                    btn.classList.remove('border-transparent');
+                    view.classList.remove('hidden');
+                } else {
+                    btn.classList.remove('text-blue-600', 'border-blue-600', 'bg-slate-50');
+                    btn.classList.add('border-transparent');
+                    view.classList.add('hidden');
+                }
+            });
+        }
+
+        function updateInsuredGradeFromBase() {
+            const baseEl = document.getElementById('f-base');
+            const gradeEl = document.getElementById('f-ins-grade');
+            if (!baseEl || !gradeEl) return;
+            const base = Number(baseEl.value);
+            if (!Number.isFinite(base) || base <= 0) {
+                gradeEl.value = '';
+                return;
+            }
+            gradeEl.value = String(Math.round(base));
+        }
+
+        const BANK_CODE_LIST = [
+            { code: '000', name: '中央銀行' },
+            { code: '004', name: '臺灣銀行' },
+            { code: '005', name: '臺灣土地銀行' },
+            { code: '006', name: '合作金庫商業銀行' },
+            { code: '007', name: '第一商業銀行' },
+            { code: '008', name: '華南商業銀行' },
+            { code: '009', name: '彰化商業銀行' },
+            { code: '011', name: '上海商業儲蓄銀行' },
+            { code: '012', name: '台北富邦商業銀行' },
+            { code: '013', name: '國泰世華商業銀行' },
+            { code: '015', name: '中國輸出入銀行' },
+            { code: '016', name: '高雄銀行' },
+            { code: '017', name: '兆豐國際商業銀行' },
+            { code: '018', name: '全國農業金庫' },
+            { code: '021', name: '花旗（台灣）商業銀行' },
+            { code: '048', name: '王道商業銀行' },
+            { code: '050', name: '臺灣中小企業銀行' },
+            { code: '052', name: '渣打國際商業銀行' },
+            { code: '053', name: '台中商業銀行' },
+            { code: '054', name: '京城商業銀行' },
+            { code: '081', name: '匯豐（台灣）商業銀行' },
+            { code: '101', name: '瑞興商業銀行' },
+            { code: '102', name: '華泰商業銀行' },
+            { code: '103', name: '臺灣新光商業銀行' },
+            { code: '108', name: '陽信商業銀行' },
+            { code: '118', name: '板信商業銀行' },
+            { code: '147', name: '三信商業銀行' },
+            { code: '803', name: '聯邦商業銀行' },
+            { code: '805', name: '遠東國際商業銀行' },
+            { code: '806', name: '元大商業銀行' },
+            { code: '807', name: '永豐商業銀行' },
+            { code: '808', name: '玉山商業銀行' },
+            { code: '809', name: '凱基商業銀行' },
+            { code: '810', name: '星展（台灣）商業銀行' },
+            { code: '812', name: '台新國際商業銀行' },
+            { code: '816', name: '安泰商業銀行' },
+            { code: '822', name: '中國信託商業銀行' },
+            { code: '823', name: '將來商業銀行' },
+            { code: '824', name: '連線商業銀行' },
+            { code: '826', name: '樂天國際商業銀行' },
+            { code: '700', name: '中華郵政' }
+        ];
+
+        const BANK_CODE_TO_NAME = BANK_CODE_LIST.reduce((acc, b) => {
+            acc[b.code] = b.name;
+            return acc;
+        }, {});
+
+        function ensureBankCodeOptions() {
+            const select = document.getElementById('f-bank-code');
+            if (!select) return;
+            if (select.dataset.bankListVersion === '1') return;
+            const current = select.value;
+            select.innerHTML = '<option value="">請選擇銀行</option>';
+            const items = [...BANK_CODE_LIST].sort((a, b) => Number(a.code) - Number(b.code));
+            items.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.code;
+                opt.textContent = `${b.code} ${b.name}`;
+                select.appendChild(opt);
+            });
+            select.value = current;
+            select.dataset.bankListVersion = '1';
+        }
+
+        function getBankNameByCode(code) {
+            return BANK_CODE_TO_NAME[String(code || '')] || '';
+        }
+
+        document.addEventListener('input', (e) => {
+            if (e && e.target && e.target.id === 'f-base') updateInsuredGradeFromBase();
+            if (e && e.target && e.target.id === 'f-name') {
+                const bankAccountNameEl = document.getElementById('f-bank-account-name');
+                if (bankAccountNameEl && !bankAccountNameEl.value) {
+                    bankAccountNameEl.value = String(e.target.value || '');
+                }
+            }
+        });
+
+        document.addEventListener('change', (e) => {
+            if (!e || !e.target) return;
+            if (e.target.id === 'f-bank-code') {
+                const bankNameEl = document.getElementById('f-bank-name');
+                if (!bankNameEl) return;
+                ensureBankCodeOptions();
+                bankNameEl.value = getBankNameByCode(e.target.value);
+            }
+        });
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>
