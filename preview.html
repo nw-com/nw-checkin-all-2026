@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>公告預覽</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f3f4f6; margin: 0; padding: 0; color: #1f2937; height: 100vh; overflow: hidden; }
+    .container { max-width: 600px; margin: 0 auto; background: #fff; height: 100%; display: flex; flex-direction: column; }
+    .header { background: #e5e7eb; padding: 16px; flex-shrink: 0; z-index: 10; border-bottom: 1px solid #d1d5db; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .header-title { font-size: 18px; font-weight: 600; color: #111; text-align: center; }
+    .list { padding: 16px; display: flex; flex-direction: column; gap: 16px; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); overflow: hidden; }
+    .card-date { font-size: 15px; font-weight: 500; color: #4b5563; margin-bottom: 8px; }
+    .card-header { cursor: pointer; }
+    .card-title-row { display: flex; justify-content: space-between; align-items: center; }
+    .card-title { font-size: 18px; font-weight: 700; color: #111; line-height: 1.4; flex: 1; margin-right: 8px; }
+    .toggle-btn { background: none; border: 1px solid #e5e7eb; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: #6b7280; transition: transform 0.2s; padding: 0; cursor: pointer; }
+    .card.expanded .toggle-btn { transform: rotate(180deg); background: #f3f4f6; }
+    .card-body { margin-top: 12px; display: none; border-top: 1px solid #f3f4f6; padding-top: 12px; }
+    .card.expanded .card-body { display: block; }
+    .card-content { font-size: 15px; color: #374151; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap; }
+    .card-content img { display: none; } /* Hide original big image if present in content */
+    .btn-thumb { display: inline-flex; align-items: center; justify-content: center; width: 60px; height: 60px; padding: 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #f9fafb; margin-top: 12px; cursor: pointer; transition: opacity 0.2s; }
+    .btn-thumb:active { opacity: 0.7; }
+    .btn-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .empty { text-align: center; color: #6b7280; padding: 60px 0; font-size: 15px; }
+    .loading { text-align: center; padding: 40px; color: #6b7280; }
+    .card-footer { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #9ca3af; }
+
+    /* Gallery Modal */
+    .gallery-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    .gallery-modal.active {
+      display: flex;
+    }
+    .gallery-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      color: white;
+      font-size: 30px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      z-index: 1002;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    .gallery-image-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+    }
+    .gallery-img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      user-select: none;
+    }
+    .gallery-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font-size: 24px;
+      z-index: 1001;
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    .gallery-nav:active {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .gallery-prev { left: 16px; }
+    .gallery-next { right: 16px; }
+    .gallery-info {
+      position: absolute;
+      bottom: 24px;
+      color: white;
+      text-align: center;
+      width: 100%;
+      padding: 0 20px;
+      box-sizing: border-box;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+      font-size: 14px;
+      pointer-events: none;
+    }
+    
+    /* Read Status Styles */
+    .card { position: relative; transition: background-color 0.3s; }
+    .card.read { background: #f3f4f6; }
+    .status-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      color: #fff;
+      background: #ef4444; /* Red for Unread */
+      z-index: 5;
+    }
+    .card.read .status-badge {
+      background: #9ca3af; /* Gray for Read */
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-title" id="page-title">公告列表</div>
+    </div>
+    <div class="list" id="list">
+      <div class="loading">載入中...</div>
+    </div>
+  </div>
+
+  <div id="gallery-modal" class="gallery-modal" onclick="closeGallery()">
+    <button class="gallery-close" onclick="closeGallery(); event.stopPropagation();">✕</button>
+    <button class="gallery-nav gallery-prev" id="gallery-prev" onclick="changeGalleryImage(-1); event.stopPropagation();">❮</button>
+    <div class="gallery-image-container">
+       <img id="gallery-img" class="gallery-img" src="" onclick="event.stopPropagation();">
+    </div>
+    <button class="gallery-nav gallery-next" id="gallery-next" onclick="changeGalleryImage(1); event.stopPropagation();">❯</button>
+    <div id="gallery-info" class="gallery-info"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
+    import { getFirestore, collection, getDocs, query, where, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDJKCa2QtJXLiXPsy0P7He_yuZEN__iQ6E",
+      authDomain: "nw-app-all.firebaseapp.com",
+      projectId: "nw-app-all",
+      storageBucket: "nw-app-all.firebasestorage.app",
+      messagingSenderId: "205108931232",
+      appId: "1:205108931232:web:ee7868f73ed883253577c5",
+      measurementId: "G-8F1WD772LP"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get("c");
+    const category = params.get("tab");
+    const title = params.get("title");
+    const cnParam = params.get("cn");
+
+    // Initial title set (will be updated with community name later if needed)
+    if (title) {
+        if (cnParam) {
+             document.getElementById("page-title").textContent = `${cnParam} ${title} 公告列表`;
+             document.title = `${cnParam} ${title} 公告列表`;
+        } else {
+             document.getElementById("page-title").textContent = title + " 公告列表";
+        }
+    }
+
+    // Gallery state
+    let galleryItems = [];
+    let currentGalleryIndex = -1;
+    
+    // Read state
+    const READ_STORAGE_KEY = "nw_app_read_announcements";
+    function getReadList() {
+        try {
+            return JSON.parse(localStorage.getItem(READ_STORAGE_KEY) || "[]");
+        } catch { return []; }
+    }
+    function markAsRead(id) {
+        const list = getReadList();
+        if (!list.includes(id)) {
+            list.push(id);
+            localStorage.setItem(READ_STORAGE_KEY, JSON.stringify(list));
+            updateCardStatus(id);
+        }
+    }
+    function updateCardStatus(id) {
+        const card = document.getElementById(`card-${id}`);
+        if (card) {
+            card.classList.add("read");
+            const badge = card.querySelector(".status-badge");
+            if (badge) badge.textContent = "已讀";
+        }
+    }
+
+    async function load() {
+      if (!slug || !category) {
+        document.getElementById("list").innerHTML = `<div class="empty">無效的連結參數<br><span style="font-size:12px;opacity:0.7">URL: ${window.location.href}</span></div>`;
+        return;
+      }
+
+      // Expose gallery functions to window
+      window.openGallery = openGallery;
+      window.closeGallery = closeGallery;
+      window.changeGalleryImage = changeGalleryImage;
+
+      onAuthStateChanged(auth, async (user) => {
+          if (!user) {
+             // Try anonymous sign in if not logged in
+             try {
+                 await signInAnonymously(auth);
+             } catch(e) {
+                 console.warn("Auth failed", e);
+             }
+          }
+          fetchData();
+      });
+    }
+
+    async function fetchData() {
+      try {
+        // Fetch community name if not provided in param
+        let communityName = cnParam || "";
+        if (!communityName) {
+            try {
+                const commDoc = await getDoc(doc(db, "communities", slug));
+                if (commDoc.exists()) {
+                    communityName = commDoc.data().name || "";
+                }
+            } catch (e) {
+                console.warn("Fetch community name failed", e);
+            }
+        }
+
+        if (title) {
+            document.getElementById("page-title").textContent = `${communityName} ${title} 公告列表`;
+            document.title = `${communityName} ${title} 公告列表`;
+        }
+
+        const q = query(collection(db, "communities", slug, "announcements"), where("category", "==", category));
+        const snap = await getDocs(q);
+        let items = snap.docs.map(d => ({id: d.id, ...d.data()}));
+        items.sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        if (items.length === 0) {
+          document.getElementById("list").innerHTML = '<div class="empty">目前沒有公告</div>';
+          return;
+        }
+
+        // Collect items with images for gallery
+        galleryItems = [];
+        items.forEach(item => {
+            if (item.imageUrl) {
+                galleryItems.push({
+                    id: item.id,
+                    url: item.imageUrl,
+                    title: item.title,
+                    date: item.createdAt ? formatDate(item.createdAt) : ""
+                });
+            }
+        });
+        
+        const readList = getReadList();
+
+        document.getElementById("list").innerHTML = items.map(item => {
+            const dateStr = item.createdAt ? formatDate(item.createdAt) : "";
+            const author = item.author || "管理員";
+            const imgUrl = item.imageUrl || "";
+            const isRead = readList.includes(item.id);
+            const statusText = isRead ? "已讀" : "未讀";
+            const readClass = isRead ? "read" : "";
+            
+            return `
+              <div class="card ${readClass}" id="card-${item.id}">
+                <div class="status-badge">${statusText}</div>
+                <div class="card-header" onclick="window.toggleCard('${item.id}')">
+                  <div class="card-date">時間 : ${dateStr}</div>
+                  <div class="card-title-row">
+                    <div class="card-title">標題 : ${escapeHtml(item.title)}</div>
+                    <button class="toggle-btn" type="button">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="card-content">內容 : ${item.content}</div>
+                  ${imgUrl ? `<button class="btn-thumb" type="button" onclick="window.openGallery('${item.id}'); event.stopPropagation();"><img src="${imgUrl}"></button>` : ""}
+                  <div class="card-footer">
+                     <span>發布：${escapeHtml(author)}</span>
+                  </div>
+                </div>
+              </div>
+            `;
+        }).join("");
+
+      } catch (e) {
+        console.error(e);
+        let msg = "載入失敗";
+        if (e.code === 'permission-denied') msg = "權限不足，無法瀏覽此內容";
+        document.getElementById("list").innerHTML = `<div class="empty">${msg}<br><span style="font-size:12px;opacity:0.7">${e.message}</span></div>`;
+      }
+    }
+
+    function formatDate(ts) {
+        if(!ts) return "";
+        const d = new Date(ts);
+        const pad = n => n.toString().padStart(2,'0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    window.toggleCard = function(id) {
+        const card = document.getElementById(`card-${id}`);
+        if (card) {
+            const isExpanded = card.classList.contains("expanded");
+            card.classList.toggle("expanded");
+            
+            // If expanding (was not expanded), mark as read
+            if (!isExpanded) {
+                markAsRead(id);
+            }
+        }
+    };
+
+    function openGallery(itemId) {
+        if (!galleryItems.length) return;
+        const index = galleryItems.findIndex(i => i.id === itemId);
+        if (index === -1) return;
+        
+        currentGalleryIndex = index;
+        updateGalleryUI();
+        document.getElementById("gallery-modal").classList.add("active");
+        document.body.style.overflow = "hidden"; // Prevent scrolling
+    }
+
+    function closeGallery() {
+        document.getElementById("gallery-modal").classList.remove("active");
+        document.body.style.overflow = "";
+    }
+
+    function changeGalleryImage(step) {
+        if (galleryItems.length <= 1) return;
+        let newIndex = currentGalleryIndex + step;
+        if (newIndex < 0) newIndex = galleryItems.length - 1; // Loop
+        if (newIndex >= galleryItems.length) newIndex = 0; // Loop
+        
+        currentGalleryIndex = newIndex;
+        updateGalleryUI();
+    }
+
+    function updateGalleryUI() {
+        if (currentGalleryIndex < 0 || currentGalleryIndex >= galleryItems.length) return;
+        const item = galleryItems[currentGalleryIndex];
+        
+        const img = document.getElementById("gallery-img");
+        img.src = item.url;
+        
+        const info = document.getElementById("gallery-info");
+        info.innerHTML = `<div>${escapeHtml(item.title)}</div><div style="font-size:12px;opacity:0.8;margin-top:4px;">${item.date} (${currentGalleryIndex + 1} / ${galleryItems.length})</div>`;
+        
+        // Show/Hide navigation buttons based on count
+        const prevBtn = document.getElementById("gallery-prev");
+        const nextBtn = document.getElementById("gallery-next");
+        
+        if (galleryItems.length > 1) {
+            prevBtn.style.display = "flex";
+            nextBtn.style.display = "flex";
+        } else {
+            prevBtn.style.display = "none";
+            nextBtn.style.display = "none";
+        }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return "";
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    load();
+  </script>
+</body>
+</html>
