@@ -1,4 +1,6 @@
-// Version: 1.2 (Manifest Added)
+// Version: 1.3 (Robust Icon)
+const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
+
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -20,8 +22,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || '通知';
   const options = {
     body: payload.body || '',
-    icon: payload.icon || '/logo.svg',
-    badge: '/logo.svg',
+    icon: payload.icon || ICON_DATA_URL,
+    badge: payload.badge || ICON_DATA_URL,
     data: payload.data,
   };
 

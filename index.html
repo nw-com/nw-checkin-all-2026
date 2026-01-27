@@ -6746,15 +6746,19 @@
                                         // if (notif.senderId !== dbUser.id) {
                                             try {
                                                 const showNotif = async () => {
+                                                    const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
                                                     let sent = false;
                                                     // Try Service Worker first
                                                     if ('serviceWorker' in navigator) {
                                                         try {
-                                                            const reg = await navigator.serviceWorker.ready;
+                                                            const getSwReady = navigator.serviceWorker.ready;
+                                                            const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SW Timeout')), 2000));
+                                                            const reg = await Promise.race([getSwReady, timeout]);
+                                                            
                                                             await reg.showNotification('新通知', {
                                                                 body: notif.content,
-                                                                icon: '/logo.svg',
-                                                                badge: '/logo.svg',
+                                                                icon: ICON_DATA_URL,
+                                                                badge: ICON_DATA_URL,
                                                                 data: { url: window.location.href }
                                                             });
                                                             sent = true;
@@ -6767,8 +6771,8 @@
                                                     if (!sent) {
                                                         const n = new Notification('新通知', {
                                                             body: notif.content,
-                                                            icon: '/logo.svg',
-                                                            badge: '/logo.svg'
+                                                            icon: ICON_DATA_URL,
+                                                            badge: ICON_DATA_URL
                                                         });
                                                         n.onclick = function() {
                                                             window.focus();
@@ -10913,6 +10917,7 @@
                                     </h3>
                                     <button 
                                         onClick={async () => {
+                                            const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
                                             try {
                                                 if (Notification.permission !== 'granted') {
                                                     const perm = await Notification.requestPermission();
@@ -10928,25 +10933,31 @@
                                                 // 1. Try Service Worker Method
                                                 if ('serviceWorker' in navigator) {
                                                     try {
-                                                        const reg = await navigator.serviceWorker.ready;
+                                                        // Race condition check: don't wait forever
+                                                        const getSwReady = navigator.serviceWorker.ready;
+                                                        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SW Timeout')), 3000));
+                                                        
+                                                        const reg = await Promise.race([getSwReady, timeout]);
+                                                        
                                                         await reg.showNotification('測試通知 (SW)', {
                                                             body: '這是透過 Service Worker 發送的通知',
-                                                            icon: '/logo.svg',
-                                                            badge: '/logo.svg',
+                                                            icon: ICON_DATA_URL,
+                                                            badge: ICON_DATA_URL,
                                                             data: { url: window.location.href }
                                                         });
                                                         setToast('SW 通知已發送');
                                                         return; 
                                                     } catch (swError) {
                                                         console.error('SW Notification failed:', swError);
+                                                        // If timeout or error, fall through to API
                                                     }
                                                 }
                                                 
                                                 // 2. Fallback to standard Notification API
                                                 const n = new Notification('測試通知 (API)', { 
                                                     body: '這是透過標準 API 發送的通知',
-                                                    icon: '/logo.svg',
-                                                    badge: '/logo.svg'
+                                                    icon: ICON_DATA_URL,
+                                                    badge: ICON_DATA_URL
                                                 });
                                                 n.onclick = () => window.focus();
                                                 setToast('標準 API 通知已發送');
@@ -18694,9 +18705,15 @@
     </script>
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js')
-                .then(reg => console.log('Service Worker registered', reg))
-                .catch(err => console.error('Service Worker registration failed', err));
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => {
+                        console.log('Service Worker registered', reg);
+                        // Check for updates
+                        reg.update();
+                    })
+                    .catch(err => console.error('Service Worker registration failed', err));
+            });
         }
     </script>
 </body>
