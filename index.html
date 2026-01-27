@@ -6610,6 +6610,9 @@
             const [notifications, setNotifications] = useState([]);
             const isFirstSnapshot = useRef(true);
             
+            // Notification Permission State
+            const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+
             // Notification Popup Logic
             const [activePopupNotification, setActivePopupNotification] = useState(null);
             const [ignoredNotificationIds, setIgnoredNotificationIds] = useState(new Set());
@@ -14698,12 +14701,23 @@
                                                     <Bell className="w-5 h-5 mr-2 text-red-600" /> 通知列表
                                                 </h3>
                                                 <div className="flex gap-2">
-                                                    {Notification.permission === 'default' && (
+                                                    {notificationPermission === 'default' && (
                                                         <button 
-                                                            onClick={() => Notification.requestPermission()}
+                                                            onClick={() => {
+                                                                Notification.requestPermission().then(perm => {
+                                                                    setNotificationPermission(perm);
+                                                                });
+                                                            }}
                                                             className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-200 transition-colors"
                                                         >
                                                             開啟桌面通知
+                                                        </button>
+                                                    )}
+                                                    {notificationPermission === 'granted' && (
+                                                        <button 
+                                                            className="px-3 py-1.5 bg-green-50 text-green-600 text-xs font-bold rounded-lg cursor-default"
+                                                        >
+                                                            已開啟通知
                                                         </button>
                                                     )}
                                                     <button 
