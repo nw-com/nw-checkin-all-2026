@@ -7129,6 +7129,8 @@
             const [networkTime, setNetworkTime] = useState(null);
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
+            const [communityTabSelectedId, setCommunityTabSelectedId] = useState(null);
+            const [communitySubtab, setCommunitySubtab] = useState('map');
             const [showCommunityPortal, setShowCommunityPortal] = useState(false);
             const [availableClockInLocations, setAvailableClockInLocations] = useState([]);
             const computeAvailableClockInLocations = () => {
@@ -7149,6 +7151,21 @@
                 const locs = computeAvailableClockInLocations();
                 setAvailableClockInLocations(locs);
             }, [dbUser, companies, communities]);
+
+            useEffect(() => {
+                if (activeTab === 'community' && !communityTabSelectedId && dbUser && communities) {
+                    let userComms = [];
+                    if (dbUser.role === 'admin') userComms = communities;
+                    else {
+                        const commIds = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                        userComms = communities.filter(c => commIds.includes(c.id));
+                    }
+                    if (userComms.length > 0) {
+                        setCommunityTabSelectedId(userComms[0].id);
+                    }
+                }
+            }, [activeTab, communityTabSelectedId, dbUser, communities]);
+
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
             const [showCadreLeaveModal, setShowCadreLeaveModal] = useState(false);
@@ -8941,17 +8958,103 @@
                                       (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('overview');
                 
                 if (hasOverviewPerm) {
+                    const sendPush = async (title, body) => {
+                        if (!('Notification' in window)) return;
+                        if (Notification.permission !== 'granted') return;
+                        
+                        const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
+                        
+                        // Try Service Worker first
+                        if ('serviceWorker' in navigator) {
+                            try {
+                                const getSwReady = navigator.serviceWorker.ready;
+                                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SW Timeout')), 2000));
+                                const reg = await Promise.race([getSwReady, timeout]);
+                                
+                                await reg.showNotification(title, {
+                                    body: body,
+                                    icon: ICON_DATA_URL,
+                                    badge: ICON_DATA_URL,
+                                    data: { url: window.location.href }
+                                });
+                                return;
+                            } catch (e) {
+                                console.warn('SW notification failed', e);
+                            }
+                        }
+                        
+                        // Fallback
+                        try {
+                            const n = new Notification(title, {
+                                body: body,
+                                icon: ICON_DATA_URL,
+                                badge: ICON_DATA_URL
+                            });
+                            n.onclick = () => window.focus();
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    };
+
                     const qOverviewMeetings = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_meetings'));
-                    unsubscribes.push(onSnapshot(qOverviewMeetings, (snap) => setOverviewMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+                    let firstMeetings = true;
+                    unsubscribes.push(onSnapshot(qOverviewMeetings, (snap) => {
+                        setOverviewMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        if (!firstMeetings) {
+                            snap.docChanges().forEach(change => {
+                                if (change.type === 'added') {
+                                    const d = change.doc.data();
+                                    sendPush('新增例會通知', `${d.companyName || ''} ${d.type || '例會'} ${d.date || ''} ${d.time || ''}`);
+                                }
+                            });
+                        }
+                        firstMeetings = false;
+                    }));
 
                     const qOverviewDistrictMeetings = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings'));
-                    unsubscribes.push(onSnapshot(qOverviewDistrictMeetings, (snap) => setOverviewDistrictMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+                    let firstDistrict = true;
+                    unsubscribes.push(onSnapshot(qOverviewDistrictMeetings, (snap) => {
+                        setOverviewDistrictMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        if (!firstDistrict) {
+                            snap.docChanges().forEach(change => {
+                                if (change.type === 'added') {
+                                    const d = change.doc.data();
+                                    sendPush('新增區大通知', `${d.companyName || ''} ${d.type || '區大'} ${d.date || ''} ${d.time || ''}`);
+                                }
+                            });
+                        }
+                        firstDistrict = false;
+                    }));
 
                     const qOverviewActivities = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_activities'));
-                    unsubscribes.push(onSnapshot(qOverviewActivities, (snap) => setOverviewActivities(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+                    let firstActivities = true;
+                    unsubscribes.push(onSnapshot(qOverviewActivities, (snap) => {
+                        setOverviewActivities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        if (!firstActivities) {
+                            snap.docChanges().forEach(change => {
+                                if (change.type === 'added') {
+                                    const d = change.doc.data();
+                                    sendPush('新增活動通知', `${d.companyName || ''} ${d.type || '活動'} ${d.date || ''} ${d.time || ''}`);
+                                }
+                            });
+                        }
+                        firstActivities = false;
+                    }));
 
                     const qOverviewPresentations = query(collection(db, 'artifacts', appId, 'public', 'data', 'overview_presentations'));
-                    unsubscribes.push(onSnapshot(qOverviewPresentations, (snap) => setOverviewPresentations(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+                    let firstPresentations = true;
+                    unsubscribes.push(onSnapshot(qOverviewPresentations, (snap) => {
+                        setOverviewPresentations(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        if (!firstPresentations) {
+                            snap.docChanges().forEach(change => {
+                                if (change.type === 'added') {
+                                    const d = change.doc.data();
+                                    sendPush('新增簡報通知', `${d.companyName || ''} ${d.type || '簡報'} ${d.date || ''} ${d.time || ''}`);
+                                }
+                            });
+                        }
+                        firstPresentations = false;
+                    }));
                 }
 
                 return () => unsubscribes.forEach(u => u());
@@ -9950,6 +10053,16 @@
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>下載</button>}
                                 </div>
                             )}
+                            {activeTab === 'community' && (
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => setCommunitySubtab('map')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'map' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative`}
+                                    >
+                                        地圖
+                                    </button>
+                                </div>
+                            )}
                             {activeTab === 'cadre' && (
                                 <div className="flex gap-2">
                                     {hasSubPermission('cadre', 'map') && (
@@ -10437,19 +10550,59 @@
                             <div className="space-y-6 mb-6">
                                 {overviewSubtab === 'general' && hasSubPermission('overview', 'general') && (
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                                        <h2 className="text-lg font-bold text-gray-800 mb-4">總覽</h2>
-                                        <div className="space-y-4">
-                                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">各社區概況</h3>
-                                            {communities.map(c => (
-                                                <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                                    <span className="text-sm font-bold text-gray-700">{c.name}</span>
-                                                    <div className="flex gap-2 text-[10px] font-bold">
-                                                        <span className="bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-2xl">正常 98%</span>
-                                                        <span className="bg-red-50 text-red-600 px-2 py-1 rounded-2xl">異常 2%</span>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h2 className="text-lg font-bold text-gray-800">社區概況</h2>
+                                            <div className="text-xs text-gray-500">
+                                                所屬公司社區數量：
+                                                {(() => {
+                                                    const targetComp = companies.find(c => c.name === overviewCompany);
+                                                    const compComms = targetComp
+                                                        ? communities.filter(c => c.companyId === targetComp.id)
+                                                        : [];
+                                                    return compComms.length;
+                                                })()}
+                                            </div>
                                         </div>
+
+                                        <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                            <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                            <span className="text-red-600 font-bold">{overviewCompany}</span>
+                                        </div>
+
+                                        {(() => {
+                                            const targetComp = companies.find(c => c.name === overviewCompany);
+                                            const compComms = targetComp 
+                                                ? communities.filter(c => c.companyId === targetComp.id)
+                                                : [];
+
+                                            if (compComms.length === 0) {
+                                                return <div className="text-center text-gray-400 py-8">無社區資料</div>;
+                                            }
+
+                                            return (
+                                                <div className="grid grid-cols-5 gap-2">
+                                                    {compComms.map(c => {
+                                                        const name = c.name || '';
+                                                        const short = name.slice(0, 4);
+                                                        const top = short.slice(0, 2);
+                                                        const bottom = short.slice(2);
+                                                        const displayName = bottom 
+                                                            ? <>{top}<br/>{bottom}</> 
+                                                            : top || name;
+
+                                                        return (
+                                                            <div key={c.id} className="w-full aspect-square flex items-center justify-center">
+                                                                <button 
+                                                                    className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                >
+                                                                    {displayName}
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
                                 {overviewSubtab === 'district' && hasSubPermission('overview', 'district') && (
@@ -12498,12 +12651,439 @@
                             )}
 
                         {activeTab === 'community' && (
-                            <div className="w-full h-[70vh] rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white">
-                                <iframe 
-                                    src="https://nw-com.github.io/nw-checkin-all/" 
-                                    className="w-full h-full border-0"
-                                    title="Community Page"
-                                />
+                            <div className="pb-32">
+                                        <div>
+                                            {(function() {
+                                                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                                
+                                                let displayLocation = null;
+                                                let companyUsers = [];
+
+                                                if (selectedCommunity) {
+                                                    // 1. Set Community Center (Default)
+                                                    if (selectedCommunity.coordLat && selectedCommunity.coordLng) {
+                                                        displayLocation = { lat: selectedCommunity.coordLat, lng: selectedCommunity.coordLng };
+                                                    }
+
+                                                    // 2. Prepare users list with location
+                                                    if (usersList.length > 0) {
+                                                        // Filter: Community + Roles (admin, hr, cadre, staff)
+                                                        // Expand target roles to include custom roles with matching names
+                                                        const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                                        const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                        const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+                                                        
+                                                        const companyMembers = usersList.filter(u => 
+                                                            ((u.communityIds && u.communityIds.includes(selectedCommunity.id)) || 
+                                                            String(u.communityId) === String(selectedCommunity.id)) &&
+                                                            finalTargetRoles.includes(u.role) &&
+                                                            (u.status === '在職' || !u.status)
+                                                        );
+                                                        
+                                                        companyUsers = companyMembers.map(u => {
+                                                            // 僅取當日最新打卡紀錄
+                                                            // Determine Status
+                                                            const now = new Date();
+                                                            const schedule = todaySchedules[u.id];
+                                                            
+                                                            const isRecordToday = (ts) => {
+                                                                if (!ts) return false;
+                                                                const d = new Date(ts * 1000);
+                                                                return d.getFullYear() === now.getFullYear() && 
+                                                                       d.getMonth() === now.getMonth() && 
+                                                                       d.getDate() === now.getDate();
+                                                            };
+
+                                                            const lastRec = attendanceList.find(r => r.userId === u.id && isRecordToday(r.timestamp?.seconds || r.createdAt?.seconds));
+                                                            
+                                                            let statusText = '今日尚未打卡';
+                                                            let statusClass = 'text-red-600';
+                                                            let statusBgClass = 'bg-white/95';
+
+                                                            if (schedule?.type === 'off') {
+                                                                statusText = '今日特休';
+                                                                statusClass = 'text-amber-700';
+                                                                statusBgClass = 'bg-stone-200/95';
+                                                            } else if (schedule?.type === 'leave') {
+                                                                statusText = '今日請假';
+                                                                statusClass = 'text-orange-500';
+                                                                statusBgClass = 'bg-orange-100/95';
+                                                            } else {
+                                                                if (lastRec) {
+                                                                    const typeMap = {
+                                                                        'in': '上班',
+                                                                        'out': '下班',
+                                                                        'outing_start': '外出',
+                                                                        'outing_arrive': '抵達',
+                                                                        'outing_end': '離開',
+                                                                        'leave': '請假',
+                                                                        'late_in': '卡上',
+                                                                        'late_out': '卡下'
+                                                                    };
+                                                                    const typeText = typeMap[lastRec.type] || lastRec.type;
+                                                                    const locName = lastRec.checkInLocationName || lastRec.address || '';
+                                                                    
+                                                                    statusText = `${typeText} ${locName}`.trim();
+                                                                    
+                                                                    if (['in', 'late_in'].includes(lastRec.type)) {
+                                                                        statusClass = 'text-green-600';
+                                                                        statusBgClass = 'bg-green-100/95';
+                                                                    } else if (['out', 'late_out'].includes(lastRec.type)) {
+                                                                        statusClass = 'text-red-600';
+                                                                        statusBgClass = 'bg-gray-800/95';
+                                                                    } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastRec.type)) {
+                                                                        statusClass = 'text-blue-600';
+                                                                        statusBgClass = 'bg-blue-100/95';
+                                                                    } else if (lastRec.type === 'leave') {
+                                                                        statusClass = 'text-orange-500';
+                                                                        statusBgClass = 'bg-orange-100/95';
+                                                                    } else {
+                                                                        statusClass = 'text-gray-600';
+                                                                        statusBgClass = 'bg-white/95';
+                                                                    }
+                                                                } else {
+                                                                    // No record, check schedule for bg
+                                                                    if (schedule?.type === 'work') statusBgClass = 'bg-blue-50/95';
+                                                                    else if (schedule?.type === 'duty' || schedule?.type === 'card') statusBgClass = 'bg-yellow-50/95';
+                                                                }
+                                                            }
+
+                                                            const userData = {
+                                                                id: u.id,
+                                                                avatarUrl: u.avatarUrl,
+                                                                name: u.name,
+                                                                statusText,
+                                                                statusClass,
+                                                                statusBgClass,
+                                                                scheduleType: schedule?.type,
+                                                                phone: u.phone
+                                                            };
+
+                                                            // Calculate Reference Location (Valid Range)
+                                                            let refLat, refLng, refRadius;
+                                                            if (lastRec) {
+                                                                const locName = lastRec.checkInLocationName || lastRec.address || '';
+                                                                const targetCommunity = communities.find(c => c.name === locName);
+                                                                if (targetCommunity && targetCommunity.coordLat && targetCommunity.coordLng) {
+                                                                    refLat = parseFloat(targetCommunity.coordLat);
+                                                                    refLng = parseFloat(targetCommunity.coordLng);
+                                                                    refRadius = targetCommunity.radiusMeters || 100;
+                                                                } else if (selectedCommunity && selectedCommunity.coordLat && selectedCommunity.coordLng) {
+                                                                    refLat = parseFloat(selectedCommunity.coordLat);
+                                                                    refLng = parseFloat(selectedCommunity.coordLng);
+                                                                    refRadius = selectedCommunity.radiusMeters || 100;
+                                                                }
+                                                            } else {
+                                                                // Default to Community if available
+                                                                if (selectedCommunity && selectedCommunity.coordLat && selectedCommunity.coordLng) {
+                                                                    refLat = parseFloat(selectedCommunity.coordLat);
+                                                                    refLng = parseFloat(selectedCommunity.coordLng);
+                                                                    refRadius = selectedCommunity.radiusMeters || 100;
+                                                                }
+                                                            }
+                                                            if (refLat != null && refLng != null) {
+                                                                userData.refLat = refLat;
+                                                                userData.refLng = refLng;
+                                                                userData.refRadius = refRadius;
+                                                            }
+
+                                                            // 僅當 lastRec 有座標且為當日，才顯示地圖位置
+                                                            if (lastRec && lastRec.location && lastRec.location.includes(',')) {
+                                                                const parts = lastRec.location.split(',');
+                                                                userData.lat = parseFloat(parts[0]);
+                                                                userData.lng = parseFloat(parts[1]);
+                                                                userData.time = (lastRec.timestamp?.seconds || lastRec.createdAt?.seconds || Date.now() / 1000) * 1000;
+                                                                userData.locationName = lastRec.checkInLocationName || (selectedCommunity ? selectedCommunity.name : '');
+                                                            }
+                                                            
+                                                            return userData;
+                                                        });
+                                                    }
+                                                }
+
+                                                return (
+                                                    <div className="space-y-4">
+                                                        <div className="w-full aspect-square bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
+                                                            {displayLocation ? (
+                                                                <CompanyMapPreview 
+                                                                    lat={displayLocation.lat} 
+                                                                    lng={displayLocation.lng} 
+                                                                    radius={selectedCommunity?.radiusMeters || 100}
+                                                                    users={companyUsers.filter(u => u.lat && u.lng)}
+                                                                    externalSelectedUserId={cadreMapSelectedUserId}
+                                                                    onUserSelect={(u) => setCadreMapSelectedUserId(u ? u.id : null)}
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4 text-center">
+                                                                    <MapPin className="w-8 h-8 mb-2 text-gray-300" />
+                                                                    <div>{selectedCommunity ? '該社區尚未設定座標' : `找不到選定的社區資料`}</div>
+                                                                    <div className="text-xs mt-1 text-gray-300">請確認後台設定</div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {(function(){ return null; })()}
+
+                                                        {(function(){
+                                                            const now = new Date();
+                                                            const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                            const isToday = (secs) => {
+                                                                if (!secs) return false;
+                                                                const d = new Date(secs * 1000);
+                                                                return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+                                                            };
+
+                                                            // Haversine formula for distance calculation (meters)
+                                                            const calculateDistance = (lat1, lon1, lat2, lon2) => {
+                                                                const R = 6371e3; // Earth radius in meters
+                                                                const φ1 = lat1 * Math.PI / 180;
+                                                                const φ2 = lat2 * Math.PI / 180;
+                                                                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                                                                const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+                                                                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                                                                        Math.cos(φ1) * Math.cos(φ2) *
+                                                                        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                                                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                                                                return R * c;
+                                                            };
+
+                                                            const companyUserIds = (companyUsers || []).map(u => u.id);
+                                                            const companyUserIdsSet = new Set(companyUserIds);
+                                                            const scheduledUserIds = new Set();
+                                                            (schedulesList || []).forEach(s => {
+                                                                if (!['work', 'duty'].includes(s.type)) return;
+                                                                if (s.date !== todayStr) return;
+                                                                if (!companyUserIdsSet.has(s.userId)) return;
+                                                                scheduledUserIds.add(s.userId);
+                                                            });
+
+                                                            // Calculate Leave Users
+                                                            const usersWithLeave = new Set();
+                                                            (leavesList || []).forEach(r => {
+                                                                if (r.approvalStatus !== 'approved') return;
+                                                                
+                                                                const rStartDate = r.leaveStartDate ? r.leaveStartDate.split('T')[0] : (r.leaveDate || (() => {
+                                                                    const d = new Date((r.timestamp?.seconds || Date.now() / 1000) * 1000);
+                                                                    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                                                                })());
+                                                                
+                                                                const rEndDate = r.leaveEndDate ? r.leaveEndDate.split('T')[0] : rStartDate;
+                                                                
+                                                                if (rStartDate <= todayStr && todayStr <= rEndDate) {
+                                                                    usersWithLeave.add(r.userId);
+                                                                }
+                                                            });
+
+                                                            // Filter out leave users from scheduled count
+                                                            const leaveCount = Array.from(usersWithLeave).filter(uid => scheduledUserIds.has(uid)).length;
+                                                            const expectedCount = Math.max(0, scheduledUserIds.size - leaveCount);
+
+
+                                                            let normalCount = 0;
+                                                            let abnormalCount = 0;
+
+                                                            const clockedInUsers = (companyUsers || []).map(u => {
+                                                                const recs = attendanceList.filter(r => {
+                                                                    const secs = r.timestamp?.seconds || r.createdAt?.seconds;
+                                                                    if (!secs) return false;
+                                                                    if (r.userId !== u.id) return false;
+                                                                    if (!isToday(secs)) return false;
+                                                                    return ['in','out','late_in','late_out'].includes(r.type);
+                                                                });
+                                                                if (recs.length === 0) return null;
+                                                                recs.sort((a, b) => {
+                                                                    const aSecs = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                                                                    const bSecs = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                                                                    return bSecs - aSecs;
+                                                                });
+                                                                const lastRec = recs[0];
+                                                                const lastSecs = lastRec.timestamp?.seconds || lastRec.createdAt?.seconds || 0;
+                                                                
+                                                                // Pre-calculate status for statistics
+                                                                let isAbnormal = false;
+                                                                const locName = lastRec.checkInLocationName || lastRec.address || '';
+                                                                const targetCommunity = communities.find(c => c.name === locName);
+                                                                let refLat, refLng, refRadius;
+                                                                if (targetCommunity && targetCommunity.coordLat && targetCommunity.coordLng) {
+                                                                    refLat = parseFloat(targetCommunity.coordLat);
+                                                                    refLng = parseFloat(targetCommunity.coordLng);
+                                                                    refRadius = targetCommunity.radiusMeters || 100;
+                                                                } else if (selectedCommunity && selectedCommunity.coordLat && selectedCommunity.coordLng) {
+                                                                    refLat = parseFloat(selectedCommunity.coordLat);
+                                                                    refLng = parseFloat(selectedCommunity.coordLng);
+                                                                    refRadius = selectedCommunity.radiusMeters || 100;
+                                                                }
+                                                                if (refLat != null && refLng != null) {
+                                                                    if (lastRec.location && lastRec.location.includes(',')) {
+                                                                        const [rLat, rLng] = lastRec.location.split(',').map(Number);
+                                                                        const dist = calculateDistance(refLat, refLng, rLat, rLng);
+                                                                        if (dist > refRadius) isAbnormal = true;
+                                                                    } else {
+                                                                        isAbnormal = true;
+                                                                    }
+                                                                } else {
+                                                                    isAbnormal = true;
+                                                                }
+                                                                
+                                                                if (isAbnormal) abnormalCount++;
+                                                                else normalCount++;
+
+                                                                return { user: u, secs: lastSecs, record: lastRec, isAbnormal };
+                                                            }).filter(Boolean).sort((a, b) => b.secs - a.secs);
+
+                                                            const clockedInCount = clockedInUsers.length;
+
+                                                            const notClockedInCount = Math.max(0, expectedCount - clockedInCount);
+
+                                                            if (clockedInUsers.length === 0 && notClockedInCount === 0) return null;
+                                                            
+                                                            const typeMap = {
+                                                                'in': '上班', 'out': '下班', 'outing_start': '外出',
+                                                                'outing_arrive': '抵達', 'outing_end': '離開',
+                                                                'late_in': '卡上', 'late_out': '卡下',
+                                                                'leave': '請假'
+                                                            };
+
+                                                            return (
+                                                            <div className="bg-white rounded-2xl shadow-sm p-3">
+                                                                    <div className="text-xs font-bold text-gray-500 mb-1">
+                                                                        {(() => {
+                                                                            const d = new Date();
+                                                                            const y = d.getFullYear();
+                                                                            const m = String(d.getMonth() + 1).padStart(2, '0');
+                                                                            const day = String(d.getDate()).padStart(2, '0');
+                                                                            const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+                                                                            const w = weekdays[d.getDay()];
+                                                                            return `今日${y}-${m}-${day}(星期${w})最新打卡紀錄`;
+                                                                        })()}
+                                                                    </div>
+                                                                    <div className="text-xs font-bold text-gray-500 mb-1">
+                                                                        本日應上班 : {expectedCount}
+                                                                    </div>
+                                                                    {(function() {
+                                                                        if (scheduledUserIds.size === 0) return null;
+
+                                                                        const scheduledUsers = Array.from(scheduledUserIds).map(uid => {
+                                                                            if (usersWithLeave.has(uid)) return null;
+                                                                            const user = (companyUsers || []).find(u => u.id === uid);
+                                                                            if (!user) return null;
+                                                                            const sched = (schedulesList || []).find(s => s.userId === uid && s.date === todayStr && ['work', 'duty'].includes(s.type));
+                                                                            return { user, scheduleType: sched?.type || 'work' };
+                                                                        }).filter(Boolean).sort((a, b) => {
+                                                                            const an = a.user.name || '';
+                                                                            const bn = b.user.name || '';
+                                                                            return an.localeCompare(bn, 'zh-Hant');
+                                                                        });
+                                                                        return (
+                                                                            <div className="mt-1 mb-2 border border-gray-100 rounded-xl p-2 bg-gray-50">
+                                                                                <div className="text-xs font-bold text-gray-500 mb-1">
+                                                                                    今日上班/值班人員清單
+                                                                                </div>
+                                                                                <div className="flex flex-wrap gap-2">
+                                                                                    {scheduledUsers.map(({ user, scheduleType }) => (
+                                                                                        <div
+                                                                                            key={user.id}
+                                                                                            className={`px-2 py-1 rounded-full border border-gray-200 text-[11px] ${clockedInUsers.some(u => u.user.id === user.id) ? 'bg-green-100' : 'bg-white'} text-gray-700 flex items-center gap-1`}
+                                                                                        >
+                                                                                            <span className="font-bold">{user.name}</span>
+                                                                                            <span className={scheduleType === 'work' ? 'text-blue-600' : 'text-yellow-600'}
+>
+                                                                                                {scheduleType === 'work' ? '上班' : '值班'}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })()}
+                                                                    <div className="text-xs font-bold text-gray-500 mb-2 flex items-center flex-wrap gap-1">
+                                                                        <span className="text-gray-800">已打卡 : {clockedInCount}</span>
+                                                                        <span className="text-gray-400">(</span>
+                                                                        <span className="text-green-600">正常 : {normalCount}</span>
+                                                                        <span className="text-gray-300">|</span>
+                                                                        <span className="text-red-600">異常 : {abnormalCount}</span>
+                                                                        <span className="text-gray-400">)</span>
+                                                                        <span className="text-red-600 ml-1">未打卡 : {notClockedInCount}</span>
+                                                                        <span className="text-gray-400">(</span>
+                                                                        <span className="text-red-600">異常 : {notClockedInCount}</span>
+                                                                        <span className="text-gray-300">|</span>
+                                                                        <span className="text-red-600">請假 : {leaveCount}</span>
+                                                                        <span className="text-gray-400">)</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-2">
+                                                                        {clockedInUsers.map(({user: u, secs, record, isAbnormal}) => {
+                                                                            const timeStr = new Date(secs * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                            const locationName = record.checkInLocationName || record.address || '未顯示位置';
+                                                                            const typeText = typeMap[record.type] || record.type;
+                                                                            
+                                                                            // Status logic (re-use calculation or stored flag)
+                                                                            let statusText = '正常';
+                                                                            let statusClass = 'text-green-600 bg-green-50';
+                                                                            
+                                                                            if (isAbnormal) {
+                                                                                const locName2 = record.checkInLocationName || record.address || '';
+                                                                                const targetCommunity2 = communities.find(c => c.name === locName2);
+                                                                                let refLat2, refLng2, refRadius2;
+                                                                                if (targetCommunity2 && targetCommunity2.coordLat && targetCommunity2.coordLng) {
+                                                                                    refLat2 = parseFloat(targetCommunity2.coordLat);
+                                                                                    refLng2 = parseFloat(targetCommunity2.coordLng);
+                                                                                    refRadius2 = targetCommunity2.radiusMeters || 100;
+                                                                                } else if (selectedCommunity && selectedCommunity.coordLat && selectedCommunity.coordLng) {
+                                                                                    refLat2 = parseFloat(selectedCommunity.coordLat);
+                                                                                    refLng2 = parseFloat(selectedCommunity.coordLng);
+                                                                                    refRadius2 = selectedCommunity.radiusMeters || 100;
+                                                                                }
+                                                                                if (refLat2 != null && refLng2 != null) {
+                                                                                    if (record.location && record.location.includes(',')) {
+                                                                                        const [rLat, rLng] = record.location.split(',').map(Number);
+                                                                                        const dist = calculateDistance(refLat2, refLng2, rLat, rLng);
+                                                                                        statusText = `異常-距離過遠(${Math.round(dist)}m)`;
+                                                                                    } else {
+                                                                                        statusText = '異常-無打卡座標';
+                                                                                    }
+                                                                                } else {
+                                                                                    statusText = '異常-無座標設定';
+                                                                                }
+                                                                                statusClass = 'text-red-600 bg-red-50';
+                                                                            }
+
+                                                                            return (
+                                                                                <div key={u.id} className={`flex flex-col p-3 rounded-xl border border-gray-100 shadow-sm w-full gap-2 ${isAbnormal ? 'bg-red-50' : 'bg-white'}`}>
+                                                                                    <div className={`flex items-center gap-2 border-b pb-2 ${isAbnormal ? 'border-red-100' : 'border-gray-50'}`}>
+                                                                                        <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-100 shrink-0">
+                                                                                            {u.avatarUrl ? (
+                                                                                                <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
+                                                                                            ) : (
+                                                                                                <div className="w-full h-full flex items-center justify-center font-bold text-gray-500 text-xs select-none">
+                                                                                                    {u.name?.[0]}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        <div className="font-bold text-sm text-gray-800">{u.name}</div>
+                                                                                    </div>
+                                                                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                                                                                        <div className="text-gray-500">打卡位置: <span className="text-gray-800">{locationName}</span></div>
+                                                                                        <div className="text-gray-500">打卡時間: <span className="text-gray-800 font-mono">{timeStr}</span></div>
+                                                                                        <div className="text-gray-500">打卡: <span className="font-bold text-blue-600">{typeText}</span></div>
+                                                                                        <div className="text-gray-500">狀態: <span className={`px-1.5 py-0.5 rounded ${statusClass} font-bold`}>{statusText}</span></div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+
+                                                        {(function(){ return null; })()}
+
+
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
                             </div>
                         )}
 
@@ -15174,8 +15754,51 @@
                         </div>
                     )}
 
-                    {/* Overview District Meeting Company Selection Bar */}
-                    {activeTab === 'overview' && overviewSubtab === 'district_meeting' && (
+                    {/* Community Tab - Community Selection Bar */}
+                    {activeTab === 'community' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar w-fit mx-auto max-w-full">
+                                    {(function(){
+                                        let userComms = [];
+                                        if (!dbUser) userComms = [];
+                                        else if (dbUser.role === 'admin') userComms = communities || [];
+                                        else {
+                                            const commIds = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                                            userComms = (communities || []).filter(c => commIds.includes(c.id));
+                                        }
+                                        
+                                        return userComms.map(comm => {
+                                            const name = comm.name || '';
+                                            const short = name.slice(0, 4);
+                                            const top = short.slice(0, 2);
+                                            const bottom = short.slice(2);
+                                            const displayName = bottom 
+                                                ? <>{top}<br/>{bottom}</> 
+                                                : top || name;
+
+                                            return (
+                                                <button 
+                                                    key={comm.id}
+                                                    onClick={() => setCommunityTabSelectedId(comm.id)}
+                                                    className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                        communityTabSelectedId === comm.id 
+                                                            ? 'bg-red-600 text-white' 
+                                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                    }`}
+                                                >
+                                                    {displayName}
+                                                </button>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Overview District Meeting & General Company Selection Bar */}
+                    {activeTab === 'overview' && (overviewSubtab === 'district_meeting' || overviewSubtab === 'general') && (
                         <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
@@ -15378,7 +16001,7 @@
                             {hasPermission('community') && (
                                 <div className="flex-1 flex justify-center">
                                     <button
-                                        onClick={() => setShowCommunityPortal(true)}
+                                        onClick={() => switchTab('community')}
                                         className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}
                                     >
                                         <Building2 className="w-5 h-5 mb-1" /> 社區
