@@ -6613,7 +6613,12 @@
             const isFirstSnapshot = useRef(true);
             
             // Notification Permission State
-            const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+            const [notificationPermission, setNotificationPermission] = useState(() => {
+                if ('Notification' in window) {
+                    return Notification.permission;
+                }
+                return 'default';
+            });
             const [enableSystemNotification, setEnableSystemNotification] = useState(true); // Default on
 
             // Notification Popup Logic
@@ -6788,7 +6793,8 @@
                                 const notif = { id: change.doc.id, ...data };
                                 if (isNotificationTarget(notif)) {
                                     // Check for system notification permission
-                                    if (Notification.permission === 'granted' && enableSystemNotification) {
+                                    const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+                                    if (hasPermission && enableSystemNotification) {
                                         // Remove senderId check to allow testing self-notifications
                                         // if (notif.senderId !== dbUser.id) {
                                             try {
@@ -6815,7 +6821,7 @@
                                                     }
                                                     
                                                     // Fallback to standard API
-                                                    if (!sent) {
+                                                    if (!sent && 'Notification' in window) {
                                                         const n = new Notification('新通知', {
                                                             body: notif.content,
                                                             icon: ICON_DATA_URL,
@@ -9715,7 +9721,7 @@
                                                         onChange={(e) => {
                                                             const isChecked = e.target.checked;
                                                             setEnableSystemNotification(isChecked);
-                                                            if (isChecked && Notification.permission !== 'granted') {
+                                                            if (isChecked && 'Notification' in window && Notification.permission !== 'granted') {
                                                                 Notification.requestPermission().then(perm => {
                                                                     setNotificationPermission(perm);
                                                                     if (perm !== 'granted') {
@@ -9723,6 +9729,9 @@
                                                                         setEnableSystemNotification(false);
                                                                     }
                                                                 });
+                                                            } else if (isChecked && !('Notification' in window)) {
+                                                                setToast('此裝置不支援通知');
+                                                                setEnableSystemNotification(false);
                                                             }
                                                         }}
                                                     />
@@ -10975,6 +10984,11 @@
                                         onClick={async () => {
                                             const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
                                             try {
+                                                if (!('Notification' in window)) {
+                                                    setToast('此裝置不支援通知');
+                                                    return;
+                                                }
+
                                                 if (Notification.permission !== 'granted') {
                                                     const perm = await Notification.requestPermission();
                                                     setNotificationPermission(perm);
@@ -11010,13 +11024,15 @@
                                                 }
                                                 
                                                 // 2. Fallback to standard Notification API
-                                                const n = new Notification('測試通知 (API)', { 
-                                                    body: '這是透過標準 API 發送的通知',
-                                                    icon: ICON_DATA_URL,
-                                                    badge: ICON_DATA_URL
-                                                });
-                                                n.onclick = () => window.focus();
-                                                setToast('標準 API 通知已發送');
+                                                if ('Notification' in window) {
+                                                    const n = new Notification('測試通知 (API)', { 
+                                                        body: '這是透過標準 API 發送的通知',
+                                                        icon: ICON_DATA_URL,
+                                                        badge: ICON_DATA_URL
+                                                    });
+                                                    n.onclick = () => window.focus();
+                                                    setToast('標準 API 通知已發送');
+                                                }
                                                 
                                             } catch (e) {
                                                 console.error('Test Notification Error:', e);
@@ -14865,6 +14881,10 @@
                                                     {notificationPermission === 'default' && (
                                                         <button 
                                                             onClick={() => {
+                                                                if (!('Notification' in window)) {
+                                                                    setToast('此裝置不支援通知');
+                                                                    return;
+                                                                }
                                                                 Notification.requestPermission().then(perm => {
                                                                     setNotificationPermission(perm);
                                                                 });
