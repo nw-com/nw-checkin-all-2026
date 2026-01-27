@@ -6612,6 +6612,7 @@
             
             // Notification Permission State
             const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+            const [enableSystemNotification, setEnableSystemNotification] = useState(true); // Default on
 
             // Notification Popup Logic
             const [activePopupNotification, setActivePopupNotification] = useState(null);
@@ -6739,7 +6740,7 @@
                                 const notif = { id: change.doc.id, ...data };
                                 if (isNotificationTarget(notif)) {
                                     // Check for system notification permission
-                                    if (Notification.permission === 'granted') {
+                                    if (Notification.permission === 'granted' && enableSystemNotification) {
                                         // Only show if sender is not me (avoid double notification)
                                         if (notif.senderId !== dbUser.id) {
                                             try {
@@ -9630,7 +9631,24 @@
                                         <div className="flex items-center justify-between p-3 bg-gray-50 rounded-2xl">
                                             <span className="text-sm font-bold text-gray-600">通知</span>
                                             <label className="relative inline-flex items-center cursor-pointer">
-                                                <input type="checkbox" defaultChecked className="sr-only peer" />
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="sr-only peer" 
+                                                    checked={enableSystemNotification}
+                                                    onChange={(e) => {
+                                                        const isChecked = e.target.checked;
+                                                        setEnableSystemNotification(isChecked);
+                                                        if (isChecked && Notification.permission !== 'granted') {
+                                                            Notification.requestPermission().then(perm => {
+                                                                setNotificationPermission(perm);
+                                                                if (perm !== 'granted') {
+                                                                    setToast('請允許瀏覽器通知權限');
+                                                                    setEnableSystemNotification(false);
+                                                                }
+                                                            });
+                                                        }
+                                                    }}
+                                                />
                                                 <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
                                             </label>
                                         </div>
