@@ -6608,6 +6608,7 @@
             const [notificationForm, setNotificationForm] = useState({ target: '', content: '' });
             const [notificationLoading, setNotificationLoading] = useState(false);
             const [notifications, setNotifications] = useState([]);
+            const isFirstSnapshot = useRef(true);
             
             // Notification Popup Logic
             const [activePopupNotification, setActivePopupNotification] = useState(null);
@@ -6724,8 +6725,41 @@
                     setNotifications([]);
                     return;
                 }
+                isFirstSnapshot.current = true;
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), orderBy('createdAt', 'desc'));
                 const unsubscribe = onSnapshot(q, (snapshot) => {
+                    // System Notification Logic
+                    if (!isFirstSnapshot.current) {
+                        snapshot.docChanges().forEach((change) => {
+                            if (change.type === 'added') {
+                                const data = change.doc.data();
+                                const notif = { id: change.doc.id, ...data };
+                                if (isNotificationTarget(notif)) {
+                                    // Check for system notification permission
+                                    if (Notification.permission === 'granted') {
+                                        // Only show if sender is not me (avoid double notification)
+                                        if (notif.senderId !== dbUser.id) {
+                                            try {
+                                                const n = new Notification('新通知', {
+                                                    body: notif.content,
+                                                    icon: '/icon.png' // Adjust if you have an icon
+                                                });
+                                                n.onclick = function() {
+                                                    window.focus();
+                                                    n.close();
+                                                };
+                                            } catch (e) {
+                                                console.error("Notification error:", e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        isFirstSnapshot.current = false;
+                    }
+
                     const list = [];
                     snapshot.forEach((doc) => {
                         list.push({ id: doc.id, ...doc.data() });
@@ -14663,12 +14697,22 @@
                                                 <h3 className="text-lg font-bold text-gray-800 flex items-center">
                                                     <Bell className="w-5 h-5 mr-2 text-red-600" /> 通知列表
                                                 </h3>
-                                                <button 
-                                                    onClick={() => setShowNotificationModal(true)}
-                                                    className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors"
-                                                >
-                                                    + 新增
-                                                </button>
+                                                <div className="flex gap-2">
+                                                    {Notification.permission === 'default' && (
+                                                        <button 
+                                                            onClick={() => Notification.requestPermission()}
+                                                            className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-200 transition-colors"
+                                                        >
+                                                            開啟桌面通知
+                                                        </button>
+                                                    )}
+                                                    <button 
+                                                        onClick={() => setShowNotificationModal(true)}
+                                                        className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors"
+                                                    >
+                                                        + 新增
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="overflow-x-auto">
                                                 <table className="w-full text-left text-sm">
