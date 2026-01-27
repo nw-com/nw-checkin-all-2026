@@ -184,7 +184,8 @@
             Gavel,
             XCircle,
             CheckSquare,
-            Phone
+            Phone,
+            Download
         } from 'lucide-react';
 
         if ('serviceWorker' in navigator) {
@@ -6620,6 +6621,52 @@
             const [ignoredNotificationIds, setIgnoredNotificationIds] = useState(new Set());
             const [dontShowAgain, setDontShowAgain] = useState(false);
 
+            // PWA Install State
+            const [deferredPrompt, setDeferredPrompt] = useState(null);
+            const [showInstallButton, setShowInstallButton] = useState(false);
+            const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+
+            // PWA Install Listener
+            useEffect(() => {
+                const handler = (e) => {
+                    // Prevent the mini-infobar from appearing on mobile
+                    e.preventDefault();
+                    // Stash the event so it can be triggered later.
+                    setDeferredPrompt(e);
+                    // Update UI notify the user they can install the PWA
+                    setShowInstallButton(true);
+                    
+                    // Auto-prompt logic:
+                    // If the user hasn't dismissed it recently (session based for now), show our custom prompt
+                    // We only show if it's not already installed (which the event implies)
+                    setShowInstallPrompt(true);
+                };
+
+                window.addEventListener('beforeinstallprompt', handler);
+                
+                // Detect if app is installed to hide button
+                window.addEventListener('appinstalled', () => {
+                    setDeferredPrompt(null);
+                    setShowInstallButton(false);
+                    setShowInstallPrompt(false);
+                    setToast('應用程式已安裝');
+                });
+
+                return () => window.removeEventListener('beforeinstallprompt', handler);
+            }, []);
+
+            const handleInstallClick = async () => {
+                if (!deferredPrompt) return;
+                // Show the install prompt
+                deferredPrompt.prompt();
+                // Wait for the user to respond to the prompt
+                const { outcome } = await deferredPrompt.userChoice;
+                // We've used the prompt, and can't use it again, throw it away
+                setDeferredPrompt(null);
+                setShowInstallButton(false);
+                setShowInstallPrompt(false);
+            };
+
             useEffect(() => {
                 if (!notifications || !dbUser) {
                     if (activePopupNotification) setActivePopupNotification(null);
@@ -9690,6 +9737,15 @@
                                         >
                                             <Shield className="w-4 h-4" /> 重設密碼
                                         </button>
+
+                                        {showInstallButton && (
+                                            <button 
+                                                onClick={handleInstallClick}
+                                                className="w-full flex items-center justify-center gap-2 p-3 bg-blue-50 text-blue-700 font-bold rounded-2xl hover:bg-blue-100 transition text-sm"
+                                            >
+                                                <Download className="w-4 h-4" /> 安裝應用程式
+                                            </button>
+                                        )}
 
                                         <button 
                                             onClick={handleLogout}
@@ -18685,6 +18741,34 @@
                                     >
                                         確認
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showInstallPrompt && (
+                        <div className="fixed bottom-4 left-4 right-4 z-[90] bg-white p-4 rounded-2xl shadow-2xl border border-gray-100 animate-fade-in-up md:max-w-sm md:left-auto md:right-4">
+                            <div className="flex items-start gap-3">
+                                <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
+                                    <Download className="w-6 h-6" />
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-gray-800">安裝應用程式</h3>
+                                    <p className="text-sm text-gray-500 mt-1">安裝到桌面或手機主畫面，體驗更佳且方便使用。</p>
+                                    <div className="flex gap-2 mt-3">
+                                        <button 
+                                            onClick={() => setShowInstallPrompt(false)}
+                                            className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg font-bold text-sm hover:bg-gray-200"
+                                        >
+                                            稍後
+                                        </button>
+                                        <button 
+                                            onClick={handleInstallClick}
+                                            className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-md shadow-blue-200"
+                                        >
+                                            立即安裝
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
