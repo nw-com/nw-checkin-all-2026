@@ -185,7 +185,8 @@
             XCircle,
             CheckSquare,
             Phone,
-            Download
+            Download,
+            Share
         } from 'lucide-react';
 
         if ('serviceWorker' in navigator) {
@@ -6630,9 +6631,24 @@
             const [deferredPrompt, setDeferredPrompt] = useState(null);
             const [showInstallButton, setShowInstallButton] = useState(false);
             const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+            const [isIOSDevice, setIsIOSDevice] = useState(false);
 
             // PWA Install Listener
             useEffect(() => {
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+                if (isIOS) {
+                    setIsIOSDevice(true);
+                    if (!isStandalone) {
+                        setShowInstallButton(true);
+                        // Auto-prompt for iOS if not installed
+                        // Only show if user hasn't dismissed it this session? 
+                        // For now, consistent with Android logic: show it.
+                        setShowInstallPrompt(true);
+                    }
+                }
+
                 const handler = (e) => {
                     // Prevent the mini-infobar from appearing on mobile
                     e.preventDefault();
@@ -6661,6 +6677,13 @@
             }, []);
 
             const handleInstallClick = async () => {
+                if (isIOSDevice) {
+                    // On iOS, we can't programmatically prompt.
+                    // Instead, we show the instructions again.
+                    setShowInstallPrompt(true);
+                    return;
+                }
+
                 if (!deferredPrompt) return;
                 // Show the install prompt
                 deferredPrompt.prompt();
@@ -18774,7 +18797,17 @@
                                 </div>
                                 <div className="flex-1">
                                     <h3 className="font-bold text-gray-800">安裝應用程式</h3>
-                                    <p className="text-sm text-gray-500 mt-1">安裝到桌面或手機主畫面，體驗更佳且方便使用。</p>
+                                    {isIOSDevice ? (
+                                        <div className="text-sm text-gray-500 mt-1">
+                                            <p className="mb-2">在 iOS 上安裝請依照以下步驟：</p>
+                                            <ol className="list-decimal pl-4 space-y-1">
+                                                <li>點擊瀏覽器底部的 <span className="inline-block px-1 bg-gray-100 rounded border border-gray-200"><Share className="w-3 h-3 inline align-middle mb-0.5" /> 分享</span> 按鈕</li>
+                                                <li>向下滑動並選擇 <span className="font-bold">加入主畫面</span></li>
+                                            </ol>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-500 mt-1">安裝到桌面或手機主畫面，體驗更佳且方便使用。</p>
+                                    )}
                                     <div className="flex gap-2 mt-3">
                                         <button 
                                             onClick={() => setShowInstallPrompt(false)}
@@ -18782,12 +18815,22 @@
                                         >
                                             稍後
                                         </button>
-                                        <button 
-                                            onClick={handleInstallClick}
-                                            className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-md shadow-blue-200"
-                                        >
-                                            立即安裝
-                                        </button>
+                                        {!isIOSDevice && (
+                                            <button 
+                                                onClick={handleInstallClick}
+                                                className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-md shadow-blue-200"
+                                            >
+                                                立即安裝
+                                            </button>
+                                        )}
+                                        {isIOSDevice && (
+                                            <button 
+                                                onClick={() => setShowInstallPrompt(false)}
+                                                className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-md shadow-blue-200"
+                                            >
+                                                知道了
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
