@@ -19,7 +19,7 @@ self.addEventListener('push', (event) => {
   const title = payload.title || '通知';
   const options = {
     body: payload.body || '',
-    icon: payload.icon,
+    icon: payload.icon || '/logo.svg',
     data: payload.data,
   };
 
