@@ -9653,46 +9653,73 @@
                                             <div className="flex items-center gap-2">
                                                 <button 
                                                     onClick={async () => {
+                                                        const logs = [];
+                                                        const log = (msg) => {
+                                                            console.log(msg);
+                                                            logs.push(msg);
+                                                        };
+
                                                         try {
+                                                            log('開始通知測試...');
+                                                            
+                                                            // 1. Check Secure Context
+                                                            if (!window.isSecureContext) {
+                                                                alert('錯誤: 網頁未在安全環境 (HTTPS/localhost) 執行，無法使用通知功能。');
+                                                                return;
+                                                            }
+
+                                                            // 2. Check Permission
                                                             if (Notification.permission !== 'granted') {
+                                                                log('權限狀態: ' + Notification.permission + '，嘗試請求...');
                                                                 const perm = await Notification.requestPermission();
                                                                 setNotificationPermission(perm);
                                                                 if (perm !== 'granted') {
-                                                                    setToast('權限被拒絕');
+                                                                    alert('錯誤: 通知權限被拒絕。請至瀏覽器設定開啟。');
                                                                     return;
                                                                 }
                                                             }
                                                             
-                                                            setToast('嘗試發送通知...');
-                                                            
-                                                            // 1. Try Service Worker Method (Best for Mobile)
+                                                            // 3. Service Worker Check
+                                                            let swSuccess = false;
                                                             if ('serviceWorker' in navigator) {
                                                                 try {
+                                                                    log('檢查 Service Worker...');
                                                                     const reg = await navigator.serviceWorker.ready;
+                                                                    log('SW 就緒: ' + (reg.active ? 'Yes' : 'No'));
+                                                                    
                                                                     await reg.showNotification('測試通知 (SW)', {
-                                                                        body: '這是透過 Service Worker 發送的通知',
-                                                                        data: { url: window.location.href }
-                                                                        // icon removed to avoid errors
+                                                                        body: '如果您看到這則訊息，代表 Service Worker 通知功能正常！',
+                                                                        data: { url: window.location.href },
+                                                                        vibrate: [200, 100, 200]
                                                                     });
-                                                                    setToast('SW 通知已發送');
-                                                                    return; 
-                                                                } catch (swError) {
-                                                                    console.error('SW Notification failed:', swError);
-                                                                    // Fallback continues below
+                                                                    swSuccess = true;
+                                                                    log('SW 通知指令已發送');
+                                                                } catch (err) {
+                                                                    log('SW 通知失敗: ' + err.message);
                                                                 }
+                                                            } else {
+                                                                log('瀏覽器不支援 Service Worker');
+                                                            }
+
+                                                            // 4. Fallback API Check
+                                                            try {
+                                                                const n = new Notification('測試通知 (API)', { 
+                                                                    body: '如果您看到這則訊息，代表標準 API 通知功能正常！'
+                                                                });
+                                                                n.onclick = () => window.focus();
+                                                                log('API 通知指令已發送');
+                                                            } catch (err) {
+                                                                log('API 通知失敗: ' + err.message);
+                                                            }
+
+                                                            if (swSuccess) {
+                                                                setToast('測試完成：SW 通知已發送 (請檢查手機/電腦通知中心)');
+                                                            } else {
+                                                                alert('測試報告:\n' + logs.join('\n'));
                                                             }
                                                             
-                                                            // 2. Fallback to standard Notification API (Best for Desktop)
-                                                            const n = new Notification('測試通知 (API)', { 
-                                                                body: '這是透過標準 API 發送的通知'
-                                                                // icon removed
-                                                            });
-                                                            n.onclick = () => window.focus();
-                                                            setToast('標準 API 通知已發送');
-                                                            
                                                         } catch (e) {
-                                                            console.error('Test Notification Error:', e);
-                                                            setToast('錯誤: ' + e.message);
+                                                            alert('未預期的錯誤: ' + e.message);
                                                         }
                                                     }}
                                                     className="px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded hover:bg-blue-200 transition"
