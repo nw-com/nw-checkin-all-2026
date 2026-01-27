@@ -6741,8 +6741,8 @@
                                 if (isNotificationTarget(notif)) {
                                     // Check for system notification permission
                                     if (Notification.permission === 'granted' && enableSystemNotification) {
-                                        // Only show if sender is not me (avoid double notification)
-                                        if (notif.senderId !== dbUser.id) {
+                                        // Remove senderId check to allow testing self-notifications
+                                        // if (notif.senderId !== dbUser.id) {
                                             try {
                                                 const n = new Notification('新通知', {
                                                     body: notif.content,
@@ -6755,7 +6755,7 @@
                                             } catch (e) {
                                                 console.error("Notification error:", e);
                                             }
-                                        }
+                                        // }
                                     }
                                 }
                             }
@@ -9630,27 +9630,47 @@
                                         
                                         <div className="flex items-center justify-between p-3 bg-gray-50 rounded-2xl">
                                             <span className="text-sm font-bold text-gray-600">通知</span>
-                                            <label className="relative inline-flex items-center cursor-pointer">
-                                                <input 
-                                                    type="checkbox" 
-                                                    className="sr-only peer" 
-                                                    checked={enableSystemNotification}
-                                                    onChange={(e) => {
-                                                        const isChecked = e.target.checked;
-                                                        setEnableSystemNotification(isChecked);
-                                                        if (isChecked && Notification.permission !== 'granted') {
-                                                            Notification.requestPermission().then(perm => {
-                                                                setNotificationPermission(perm);
-                                                                if (perm !== 'granted') {
-                                                                    setToast('請允許瀏覽器通知權限');
-                                                                    setEnableSystemNotification(false);
-                                                                }
-                                                            });
+                                            <div className="flex items-center gap-2">
+                                                <button 
+                                                    onClick={() => {
+                                                        if (Notification.permission === 'granted') {
+                                                            try {
+                                                                const n = new Notification('測試通知', { body: '這是一則測試通知，確認您的裝置可接收推播。', icon: '/icon.png' });
+                                                                n.onclick = () => window.focus();
+                                                            } catch (e) {
+                                                                setToast('發送測試通知失敗: ' + e.message);
+                                                            }
+                                                        } else {
+                                                            setToast('請先開啟並允許通知權限');
+                                                            Notification.requestPermission().then(perm => setNotificationPermission(perm));
                                                         }
                                                     }}
-                                                />
-                                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
-                                            </label>
+                                                    className="px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded hover:bg-blue-200 transition"
+                                                >
+                                                    測試
+                                                </button>
+                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="sr-only peer" 
+                                                        checked={enableSystemNotification}
+                                                        onChange={(e) => {
+                                                            const isChecked = e.target.checked;
+                                                            setEnableSystemNotification(isChecked);
+                                                            if (isChecked && Notification.permission !== 'granted') {
+                                                                Notification.requestPermission().then(perm => {
+                                                                    setNotificationPermission(perm);
+                                                                    if (perm !== 'granted') {
+                                                                        setToast('請允許瀏覽器通知權限');
+                                                                        setEnableSystemNotification(false);
+                                                                    }
+                                                                });
+                                                            }
+                                                        }}
+                                                    />
+                                                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
+                                                </label>
+                                            </div>
                                         </div>
 
                                         <button 
