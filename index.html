@@ -4235,6 +4235,16 @@
                                     {leaveData.leaveStartDate ? `${leaveData.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${leaveData.leaveEndDate ? leaveData.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(leaveData.leaveDate || '').replace(/-/g, '/')} ${leaveData.leaveTime}`}
                                 </div>
                             </div>
+                            <div className="mb-4">
+                                <input 
+                                    type="text" 
+                                    placeholder="批示內容 (選填)"
+                                    className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50"
+                                    value={leaveReviewComments[leaveData.id] || ''}
+                                    onChange={e => setLeaveReviewComments(prev => ({...prev, [leaveData.id]: e.target.value}))}
+                                    onClick={e => e.stopPropagation()} 
+                                />
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
                                 {leaveData.approvalStatus === 'rejected' ? (
                                     <button 
@@ -4784,7 +4794,7 @@
                 if (recordsInWindow.length > 0) {
                     let lastInNight = null;
                     for (let i = recordsInWindow.length - 1; i >= 0; i--) {
-                        if (recordsInWindow[i].type === 'in') {
+                        if (['in', 'work_in', 'duty_in', 'card_in', 'late_in'].includes(recordsInWindow[i].type)) {
                             const r = recordsInWindow[i];
                             lastInNight = typeof r.isNightShift === 'boolean' ? r.isNightShift : defaultNight;
                             break;
@@ -5127,14 +5137,14 @@
                 // 3. If no 'in' in window -> not working
                 const lastInIndex = (() => {
                     for (let i = recordsInWindow.length - 1; i >= 0; i--) {
-                        if (recordsInWindow[i].type === 'in') return i;
+                        if (['in', 'work_in', 'duty_in'].includes(recordsInWindow[i].type)) return i;
                     }
                     return -1;
                 })();
                 if (lastInIndex === -1) return false;
 
                 // 4. If has 'out' after last 'in' -> not working; otherwise working
-                const hasOutAfterIn = recordsInWindow.slice(lastInIndex + 1).some(r => r.type === 'out');
+                const hasOutAfterIn = recordsInWindow.slice(lastInIndex + 1).some(r => ['out', 'work_out', 'duty_out'].includes(r.type));
                 return !hasOutAfterIn;
             }, [sourceHistory, mySchedules, currentTime]);
 
@@ -5325,7 +5335,11 @@
             const getTypeLabel = (type) => {
                 const map = {
                     'in': { text: '上班', color: 'bg-green-100 text-green-700' },
+                    'work_in': { text: '上班(補)', color: 'bg-green-50 text-green-600 border border-green-200' },
+                    'duty_in': { text: '值班(補)', color: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
                     'out': { text: '下班', color: 'bg-red-100 text-red-700' },
+                    'work_out': { text: '下班(補)', color: 'bg-red-50 text-red-600 border border-red-200' },
+                    'duty_out': { text: '值班(補)', color: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
                     'outing_start': { text: '外出', color: 'bg-blue-100 text-blue-700' },
                     'outing_arrive': { text: '抵達', color: 'bg-blue-100 text-blue-700' },
                     'outing_end': { text: '離開', color: 'bg-blue-100 text-blue-700' },
@@ -5493,11 +5507,11 @@
                                             const type = lastRec.type;
                                             
                                             // Determine Text and Color based on type
-                                            if (type === 'in') {
-                                                statusText = '上班';
+                                            if (type === 'in' || type === 'work_in' || type === 'duty_in') {
+                                                statusText = type === 'in' ? '上班' : (type === 'work_in' ? '上班(補)' : '值班(補)');
                                                 statusClass = 'bg-green-600 text-white';
-                                            } else if (type === 'out') {
-                                                statusText = '下班';
+                                            } else if (type === 'out' || type === 'work_out' || type === 'duty_out') {
+                                                statusText = type === 'out' ? '下班' : (type === 'work_out' ? '下班(補)' : '值班(補)');
                                                 statusClass = 'bg-red-600 text-white';
                                             } else if (type === 'outing_start') {
                                                 statusText = '外出';
@@ -5508,10 +5522,10 @@
                                             } else if (type === 'outing_end') {
                                                 statusText = '離開';
                                                 statusClass = 'bg-blue-600 text-white';
-                                            } else if (type === 'late_in') {
+                                            } else if (type === 'late_in' || type === 'card_in') {
                                                 statusText = '卡上';
                                                 statusClass = 'bg-green-600 text-white';
-                                            } else if (type === 'late_out') {
+                                            } else if (type === 'late_out' || type === 'card_out') {
                                                 statusText = '卡下';
                                                 statusClass = 'bg-red-600 text-white';
                                             } else if (type === 'leave') {
@@ -5748,17 +5762,7 @@
                                                             {!isLeave && r.modification ? (
                                                                 <>
                                                                     <div className="flex items-center gap-1 mb-1 font-bold text-blue-600">
-                                                                        <Clock className="w-3 h-3" /> 修改時間: {r.modification.time}
-                                                                    </div>
-                                                                    <div className="flex items-center gap-1 mb-1">
-                                                                        <Clock className="w-3 h-3" /> 原始時間: {(function(){
-                                                                            if (r.modification.status === 'approved' && r.modification.originalTimestamp) {
-                                                                                const ot = r.modification.originalTimestamp;
-                                                                                const s = ot.seconds || (ot instanceof Date ? ot.getTime()/1000 : 0);
-                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                                                            }
-                                                                            return timeStr;
-                                                                        })()}
+                                                                        <Clock className="w-3 h-3" /> 補打卡時間: {r.modification.time || timeStr.substring(0, 5)}
                                                                     </div>
                                                                 </>
                                                             ) : (
@@ -6572,6 +6576,8 @@
             const [usersList, setUsersList] = useState([]);
             const [attendanceList, setAttendanceList] = useState([]);
             const [makeupRequests, setMakeupRequests] = useState([]);
+            const [reviewComments, setReviewComments] = useState({});
+            const [leaveReviewComments, setLeaveReviewComments] = useState({});
             const [myMakeupRequests, setMyMakeupRequests] = useState([]);
             const [myLeaves, setMyLeaves] = useState([]);
             const [leavesList, setLeavesList] = useState([]);
@@ -6603,6 +6609,19 @@
                 otherParticipants: ''
             });
             const [overviewMeetings, setOverviewMeetings] = useState([]);
+
+            const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+            const [addUserForm, setAddUserForm] = useState({
+                name: '',
+                email: '',
+                password: '',
+                role: 'staff',
+                title: '',
+                phone: '',
+                status: '在職',
+                startDate: '',
+                communityIds: []
+            });
 
             const [meetingReminder, setMeetingReminder] = useState(null);
 
@@ -6799,7 +6818,8 @@
                                         // if (notif.senderId !== dbUser.id) {
                                             try {
                                                 const showNotif = async () => {
-                                                    const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
+                                                    const ICON_URL = 'logo.svg';
+                                                    const BADGE_URL = 'badge.svg';
                                                     let sent = false;
                                                     // Try Service Worker first
                                                     if ('serviceWorker' in navigator) {
@@ -7229,25 +7249,68 @@
             const handleExportExcel = () => {
                 const el = document.getElementById('attendance-report');
                 if (!el) return;
-                const rows = Array.from(el.querySelectorAll('.divide-y > div.grid'));
-                const header = ['日期','星期','上班時間','下班時間','判定工時','狀況','備註'];
-                const data = rows.map(row => {
-                    const cells = Array.from(row.children).map(c => (c.textContent || '').replace(/\s+/g, ' ').trim());
-                    return [
-                        cells[0] || '',
-                        cells[1] || '',
-                        cells[2] || '',
-                        cells[3] || '',
-                        cells[4] || '',
-                        cells[5] || '',
-                        cells[6] || ''
-                    ];
-                });
-                const u = usersList.find(x => x.id === cadreMapSelectedUserId);
+
+                let csvContent = '';
+                let filename = '報表.csv';
                 const ym = (cadreRecordDate || '').split('-').slice(0,2).join('-');
-                const filename = `${ym}_${u?.name || '報表'}_出缺勤月報表.csv`;
-                const csv = [header].concat(data).map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
-                const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+
+                if (reportModalType === 'attendance' || !reportModalType) {
+                    // Horizontal Grid Report (Attendance)
+                    // Structure: Name (1) + 31 Days (31) + 7 Stats (7) + Remarks (1) = 40 columns
+                    // The grid container has class "grid ... border-b border-r ..."
+                    // We select the grid container to iterate its children
+                    // Note: The structure in DOM is flattened children of the grid container
+                    
+                    // Find the grid container that contains the cells
+                    // It has 40 columns definition in class
+                    const gridDivs = Array.from(el.querySelectorAll('div.grid'));
+                    // The main grid is the one with many children. Or look for specific class.
+                    const gridDiv = gridDivs.find(d => d.className.includes('border-b') && d.className.includes('border-r'));
+                    
+                    if (!gridDiv) return;
+                    
+                    const cells = Array.from(gridDiv.children);
+                    const cols = 40;
+                    const rows = [];
+                    
+                    for (let i = 0; i < cells.length; i += cols) {
+                        const rowCells = cells.slice(i, i + cols);
+                        const rowData = rowCells.map(c => {
+                             let txt = c.innerText || c.textContent || '';
+                             txt = txt.replace(/\s+/g, ' ').trim();
+                             return txt;
+                        });
+                        rows.push(rowData);
+                    }
+                    
+                    csvContent = rows.map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+                    filename = `${ym}_${cadreCompany || '公司'}_出勤月報表.csv`;
+                    
+                } else {
+                    // Vertical List Reports (Card, Outing, Leave)
+                    // Dynamically get headers from the header row (usually bg-gray-50)
+                    const headerDiv = el.querySelector('.grid.bg-gray-50');
+                    let header = [];
+                    if (headerDiv) {
+                        header = Array.from(headerDiv.children).map(c => (c.textContent || '').trim());
+                    } else {
+                        header = ['日期','星期','上班時間','下班時間','判定工時','狀況','備註'];
+                    }
+
+                    const dataRows = Array.from(el.querySelectorAll('.divide-y > div.grid'));
+                    const data = dataRows.map(row => {
+                        return Array.from(row.children).map(c => (c.textContent || '').replace(/\s+/g, ' ').trim());
+                    });
+
+                    csvContent = [header, ...data].map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+                    
+                    const u = usersList.find(x => x.id === cadreMapSelectedUserId);
+                    const typeMap = { 'duty': '卡班', 'card': '卡班', 'outing': '外出', 'leave': '請假' };
+                    const typeName = typeMap[reportModalType] || '報表';
+                    filename = `${ym}_${u?.name || ''}_${typeName}月報表.csv`;
+                }
+
+                const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -7912,8 +7975,14 @@
                             ...r.modification,
                             status: 'rejected',
                             reviewTime: new Date(),
-                            reviewerName: dbUser.name
+                            reviewerName: dbUser.name,
+                            approvalComment: reviewComments[r.id] || ''
                         }
+                    });
+                    setReviewComments(prev => {
+                        const next = { ...prev };
+                        delete next[r.id];
+                        return next;
                     });
                     setToast('已駁回');
                 } catch (e) {
@@ -7952,8 +8021,14 @@
                             reviewTime: new Date(),
                             reviewerName: dbUser.name,
                             originalType: originalType,
-                            originalTimestamp: originalTimestamp
+                            originalTimestamp: originalTimestamp,
+                            approvalComment: reviewComments[r.id] || ''
                         }
+                    });
+                    setReviewComments(prev => {
+                        const next = { ...prev };
+                        delete next[r.id];
+                        return next;
                     });
                     setToast('已核准');
                 } catch (e) {
@@ -8962,7 +9037,8 @@
                         if (!('Notification' in window)) return;
                         if (Notification.permission !== 'granted') return;
                         
-                        const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
+                        const ICON_URL = 'logo.svg';
+                        const BADGE_URL = 'badge.svg';
                         
                         // Try Service Worker first
                         if ('serviceWorker' in navigator) {
@@ -9571,9 +9647,15 @@
                         approvalStatus: status,
                         approvalTime: serverTimestamp(),
                         approverId: dbUser.id,
-                        approverName: dbUser.name
+                        approverName: dbUser.name,
+                        approvalComment: leaveReviewComments[target.id] || ''
                     });
 
+                    setLeaveReviewComments(prev => {
+                        const next = { ...prev };
+                        delete next[target.id];
+                        return next;
+                    });
                     if (!record) {
                         setShowApprovalModal(false);
                         setSelectedApprovalLeave(null);
@@ -9685,11 +9767,45 @@
                     email: user.email || '',
                     companyId: user.companyId || '',
                     companyIds: user.companyIds || [],
+                    communityId: user.communityId || '',
+                    communityIds: user.communityIds || [],
                     status: user.status || '在職',
                     startDate: user.startDate || '',
                     resignDate: user.resignDate || ''
                 });
                 setIsEditUserModalOpen(true);
+            };
+
+            const handleAddUserClick = () => {
+                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                setAddUserForm({
+                    name: '',
+                    email: '',
+                    password: '',
+                    role: 'staff',
+                    title: '',
+                    phone: '',
+                    status: '在職',
+                    startDate: new Date().toISOString().split('T')[0],
+                    communityIds: selectedCommunity ? [selectedCommunity.id] : []
+                });
+                setIsAddUserModalOpen(true);
+            };
+
+            const handleAddUserSubmit = async () => {
+                if (!addUserForm.email || !addUserForm.password || !addUserForm.name) {
+                    setToast('請填寫必要欄位 (Email, 密碼, 姓名)');
+                    return;
+                }
+                
+                try {
+                    await handleAddUser(addUserForm);
+                    setIsAddUserModalOpen(false);
+                    setToast('新增帳號成功');
+                } catch (error) {
+                    console.error(error);
+                    setToast('新增失敗: ' + error.message);
+                }
             };
 
             const handleUpdateUserSubmit = async () => {
@@ -10061,6 +10177,43 @@
                                     >
                                         地圖
                                     </button>
+                                    <button 
+                                        onClick={() => setCommunitySubtab('account')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                    >
+                                        帳號
+                                    </button>
+                                    <button 
+                                        onClick={() => setCommunitySubtab('makeup')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'makeup' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative`}
+                                    >
+                                        補打卡
+                                        {(function(){
+                                            const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                            if (!selectedCommunity) return null;
+                                            
+                                            const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                            const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                            const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+
+                                            const commUsers = usersList.filter(u => 
+                                                ((u.communityIds && u.communityIds.includes(selectedCommunity.id)) || 
+                                                String(u.communityId) === String(selectedCommunity.id)) &&
+                                                finalTargetRoles.includes(u.role)
+                                            );
+                                            const commUserIds = commUsers.map(u => u.id);
+                                            const pendingCount = makeupRequests.filter(r => commUserIds.includes(r.userId) && r.status === 'pending').length;
+                                            
+                                            if (pendingCount > 0) {
+                                                return (
+                                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[10px] rounded-full flex items-center justify-center border border-white">
+                                                        {pendingCount}
+                                                    </span>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </button>
                                 </div>
                             )}
                             {activeTab === 'cadre' && (
@@ -10347,7 +10500,7 @@
                                                 return tA - tB;
                                             });
                                             const lastRecord = sortedRecords[sortedRecords.length - 1];
-                                            const hasClockedInToday = userRecords.some(r => r.type === 'in' || r.type === 'late_in');
+                                            const hasClockedInToday = userRecords.some(r => ['in', 'late_in', 'work_in', 'duty_in'].includes(r.type));
                                             
                                             // Determine Status & Color
                                             let bgColorClass = 'bg-gray-100'; // Default fallback
@@ -10364,7 +10517,7 @@
                                                     const [sh, sm] = schedule.startTime.split(':').map(Number);
                                                     const schedStartMins = sh * 60 + sm;
                                                     // Check if any IN record exists (work or duty)
-                                                    const hasIn = userRecords.some(r => r.type === 'in' || r.type === 'late_in');
+                                                    const hasIn = userRecords.some(r => ['in', 'late_in', 'work_in', 'duty_in'].includes(r.type));
                                                     
                                                     if (!hasIn && nowMins > schedStartMins + 30) {
                                                         isAbnormal = true;
@@ -10374,7 +10527,7 @@
                                                 // Check Early Out
                                                 if ((schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') && schedule.endTime) {
                                                     // Check if any OUT record exists
-                                                    const outRecord = userRecords.find(r => r.type === 'out' || r.type === 'late_out');
+                                                    const outRecord = userRecords.find(r => ['out', 'late_out', 'work_out', 'duty_out'].includes(r.type));
                                                     if (outRecord) {
                                                         const [eh, em] = schedule.endTime.split(':').map(Number);
                                                         const schedEndMins = eh * 60 + em;
@@ -10398,14 +10551,12 @@
                                                 // 2. Normal Status (Priority: Last Action > Schedule Type)
                                                 if (lastRecord) {
                                                     const type = lastRecord.type;
-                                                    if (type === 'in') {
-                                                        bgColorClass = 'bg-green-100'; // 上班 -> 淺綠色
-                                                    } else if (type === 'late_in') {
-                                                        bgColorClass = 'bg-green-100'; // 卡上 -> 淺綠色
-                                                    } else if (type === 'out') {
-                                                        bgColorClass = 'bg-gray-800 text-white'; // 下班 -> 深灰色 (Add text-white for contrast)
-                                                    } else if (type === 'late_out') {
-                                                        bgColorClass = 'bg-gray-800 text-white'; // 卡下 -> 深灰色 (Add text-white for contrast)
+                                                    if (['in', 'late_in', 'work_in'].includes(type)) {
+                                                        bgColorClass = 'bg-green-100'; // 上班/卡上/補上班 -> 淺綠色
+                                                    } else if (type === 'duty_in') {
+                                                        bgColorClass = 'bg-yellow-100'; // 補值班 -> 淺黃色
+                                                    } else if (['out', 'late_out', 'work_out', 'duty_out'].includes(type)) {
+                                                        bgColorClass = 'bg-gray-800 text-white'; // 下班/卡下/補下班 -> 深灰色
                                                     } else if (type === 'outing_start' || type === 'outing_arrive' || type === 'outing_end') {
                                                         bgColorClass = 'bg-blue-100'; // 外出/抵達/離開 -> 淺藍色
                                                     } else if (type === 'leave') {
@@ -10885,6 +11036,258 @@
                                                     </div>
                                                 );
                                             })()}
+
+                                            {communitySubtab === 'account' && (
+                                                <div className="space-y-4">
+                                                    <div className="flex justify-end">
+                                                        <button
+                                                            onClick={handleAddUserClick}
+                                                            className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 flex items-center gap-2"
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                            新增帳號
+                                                        </button>
+                                                    </div>
+                                                    {cadreMapSelectedUserId && (
+                                                        <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                            <div className="flex items-center gap-2">
+                                                                <Users className="w-4 h-4" />
+                                                                <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => setCadreMapSelectedUserId(null)}
+                                                                className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                            >
+                                                                清除篩選
+                                                            </button>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-3">
+                                                        {(function() {
+                                                            const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                                            if (!selectedCommunity) return <div className="text-center text-gray-400 py-8">請選擇社區</div>;
+
+                                                            const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                                            const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                            const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+                                                            
+                                                            const filteredUsers = usersList.filter(u => {
+                                                                const inCommunity = ((u.communityIds && u.communityIds.some(cid => String(cid) === String(selectedCommunity.id))) || 
+                                                                                    String(u.communityId) === String(selectedCommunity.id));
+                                                                if (!inCommunity) return false;
+                                                                
+                                                                if (!finalTargetRoles.includes(u.role)) return false;
+                                                                
+                                                                if (cadreMapSelectedUserId && u.id !== cadreMapSelectedUserId) return false;
+                                                                return true;
+                                                            }).sort((a, b) => {
+                                                                const getRolePriority = (u) => {
+                                                                    if (u.role === 'admin') return 1;
+                                                                    const rName = roles.find(r => r.id === u.role)?.name;
+                                                                    if (rName === '管理層') return 2;
+                                                                    if (rName === '人事') return 3;
+                                                                    if (rName === '幹部') return 4;
+                                                                    if (rName === '員工') return 5;
+                                                                    return 99;
+                                                                };
+                                                                return getRolePriority(a) - getRolePriority(b);
+                                                            });
+
+                                                            if (filteredUsers.length === 0) return <div className="text-center text-gray-400 py-8">尚無符合條件的帳號</div>;
+
+                                                            return filteredUsers.map(u => (
+                                                                <div key={u.id} className="p-3 bg-gray-50 rounded-2xl flex items-center gap-3">
+                                                                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 overflow-hidden shrink-0">
+                                                                        {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : (u.name?.[0] || '?')}
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="font-bold text-gray-800 flex items-center gap-2 flex-wrap">
+                                                                            <span className="truncate">{u.name}</span>
+                                                                            <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${u.role === 'admin' ? 'bg-purple-100 text-purple-600' : 'bg-red-100 text-red-600'}`}>
+                                                                                {u.role === 'admin' ? '系統管理員' : (roles.find(r => r.id === u.role)?.name || u.role)}
+                                                                            </span>
+                                                                            {u.status === '離職' ? (
+                                                                                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 whitespace-nowrap">離職</span>
+                                                                            ) : (
+                                                                                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-600 whitespace-nowrap">在職</span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-xs text-gray-500 truncate">{u.title || '未設定職稱'}</div>
+                                                                        <div className="flex gap-2 mt-1 text-[10px] text-gray-400 flex-wrap">
+                                                                            {u.startDate && <span className="whitespace-nowrap">入: {u.startDate}</span>}
+                                                                            {u.resignDate && <span className="whitespace-nowrap">離: {u.resignDate}</span>}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="text-right text-xs text-gray-500 flex flex-col items-end gap-1 shrink-0">
+                                                                        <div className="hidden sm:block">{u.email}</div>
+                                                                        <div>{u.phone}</div>
+                                                                        <div className="flex gap-2 mt-1">
+                                                                            {u.role !== 'admin' && (
+                                                                                <>
+                                                                                    <button 
+                                                                                        onClick={() => handleEditUserClick(u)}
+                                                                                        className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors"
+                                                                                    >
+                                                                                        編輯
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={() => handleDeleteUser(u.id)}
+                                                                                        className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                                                                                    >
+                                                                                        刪除
+                                                                                    </button>
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ));
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {communitySubtab === 'makeup' && (
+                                                <div className="space-y-4">
+                                                    {(function() {
+                                                        const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                                        if (!selectedCommunity) return <div className="text-center text-gray-400 py-8">請選擇社區</div>;
+
+                                                        const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                                        const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                        const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+                                                        
+                                                        const commUsers = usersList.filter(u => 
+                                                            ((u.communityIds && u.communityIds.includes(selectedCommunity.id)) || 
+                                                            String(u.communityId) === String(selectedCommunity.id)) &&
+                                                            finalTargetRoles.includes(u.role)
+                                                        );
+                                                        const commUserIds = commUsers.map(u => u.id);
+                                                        
+                                                        const requests = makeupRequests.filter(r => commUserIds.includes(r.userId))
+                                                            .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+                                                        if (requests.length === 0) return <div className="text-center text-gray-400 py-8">尚無補打卡申請</div>;
+
+                                                        return (
+                                                            <div className="space-y-3">
+                                                                {requests.map(req => (
+                                                                    <div key={req.id} className="p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 border-gray-100">
+                                                                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 overflow-hidden shrink-0">
+                                                                            {req.userAvatar ? <img src={req.userAvatar} className="w-full h-full object-cover" /> : (req.userName?.[0] || '?')}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="flex justify-between items-center mb-1">
+                                                                                <div className="font-bold text-gray-800">{req.userName}</div>
+                                                                                <div className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                                                                                    req.status === 'approved' ? 'bg-green-100 text-green-600' :
+                                                                                    req.status === 'rejected' ? 'bg-red-100 text-red-600' :
+                                                                                    'bg-yellow-100 text-yellow-600'
+                                                                                }`}>
+                                                                                    {req.status === 'approved' ? '已核准' : req.status === 'rejected' ? '已駁回' : '待審核'}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-sm text-gray-600 mb-1">
+                                                                                申請 <span className="font-bold text-gray-800">{req.date}</span> 的 
+                                                                                <span className={`mx-1 font-bold ${req.target === 'out' ? 'text-red-600' : 'text-green-600'}`}>
+                                                                                    {req.target === 'out' ? '下班' : '上班'}
+                                                                                </span>
+                                                                                補打卡
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded-lg mb-2">
+                                                                                <div>時間: {req.target === 'out' ? req.endTime : req.startTime}</div>
+                                                                                <div>原因: {req.reasonType === 'forgot' ? '忘記打卡' : (req.reasonRemark || '其他')}</div>
+                                                                            </div>
+                                                                            
+                                                                            {req.status === 'pending' && (
+                                                                                <div className="flex gap-2 mt-2">
+                                                                                    <button
+                                                                                        onClick={async () => {
+                                                                                            const targetText = req.target === 'out' ? '下班' : '上班';
+                                                                                            if (!confirm(`確認核准 ${req.userName} 的補打卡申請？\n系統將自動補入 ${req.date} 的${targetText}打卡紀錄。`)) return;
+                                                                                            try {
+                                                                                                const batch = writeBatch(db);
+                                                                                                
+                                                                                                // 1. Update Request
+                                                                                                const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id);
+                                                                                                batch.update(reqRef, { 
+                                                                                                    status: 'approved',
+                                                                                                    approvedBy: dbUser.name,
+                                                                                                    approvedAt: serverTimestamp()
+                                                                                                });
+
+                                                                                                // 2. Create Record based on target
+                                                                                                if (req.target !== 'out') {
+                                                                                                    const inTime = new Date(`${req.date}T${req.startTime}:00`);
+                                                                                                    const inRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                                    batch.set(inRef, {
+                                                                                                        userId: req.userId,
+                                                                                                        userName: req.userName,
+                                                                                                        companyId: req.userCompanyId || '',
+                                                                                                        type: req.scheduleType === 'duty' ? 'duty_in' : 'work_in',
+                                                                                                        checkInTime: inTime.toISOString(),
+                                                                                                        timestamp: inTime,
+                                                                                                        createdAt: serverTimestamp(),
+                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准', time: req.startTime }
+                                                                                                    });
+                                                                                                }
+
+                                                                                                if (req.target === 'out') {
+                                                                                                    const outTime = new Date(`${req.date}T${req.endTime}:00`);
+                                                                                                    const outRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                                    batch.set(outRef, {
+                                                                                                        userId: req.userId,
+                                                                                                        userName: req.userName,
+                                                                                                        companyId: req.userCompanyId || '',
+                                                                                                        type: req.scheduleType === 'duty' ? 'duty_out' : 'work_out',
+                                                                                                        checkInTime: outTime.toISOString(),
+                                                                                                        timestamp: outTime,
+                                                                                                        createdAt: serverTimestamp(),
+                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准', time: req.endTime }
+                                                                                                    });
+                                                                                                }
+
+                                                                                                await batch.commit();
+                                                                                                alert('已核准並補入打卡紀錄');
+                                                                                            } catch (err) {
+                                                                                                console.error(err);
+                                                                                                alert('核准失敗: ' + err.message);
+                                                                                            }
+                                                                                        }}
+                                                                                        className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-200"
+                                                                                    >
+                                                                                        核准
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={async () => {
+                                                                                            if (!confirm('確認拒絕此申請？')) return;
+                                                                                            try {
+                                                                                                const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id);
+                                                                                                await updateDoc(reqRef, { 
+                                                                                                    status: 'rejected',
+                                                                                                    rejectedBy: dbUser.name,
+                                                                                                    rejectedAt: serverTimestamp()
+                                                                                                });
+                                                                                            } catch (err) {
+                                                                                                console.error(err);
+                                                                                                alert('操作失敗: ' + err.message);
+                                                                                            }
+                                                                                        }}
+                                                                                        className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50"
+                                                                                    >
+                                                                                        拒絕
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -11135,7 +11538,8 @@
                                     </h3>
                                     <button 
                                         onClick={async () => {
-                                            const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
+                                            const ICON_URL = 'logo.svg';
+                                            const BADGE_URL = 'badge.svg';
                                             try {
                                                 if (!('Notification' in window)) {
                                                     setToast('此裝置不支援通知');
@@ -11164,8 +11568,8 @@
                                                         
                                                         await reg.showNotification('測試通知 (SW)', {
                                                             body: '這是透過 Service Worker 發送的通知',
-                                                            icon: ICON_DATA_URL,
-                                                            badge: ICON_DATA_URL,
+                                                            icon: ICON_URL,
+                                                            badge: BADGE_URL,
                                                             data: { url: window.location.href }
                                                         });
                                                         setToast('SW 通知已發送');
@@ -11180,8 +11584,8 @@
                                                 if ('Notification' in window) {
                                                     const n = new Notification('測試通知 (API)', { 
                                                         body: '這是透過標準 API 發送的通知',
-                                                        icon: ICON_DATA_URL,
-                                                        badge: ICON_DATA_URL
+                                                        icon: ICON_URL,
+                                                        badge: BADGE_URL
                                                     });
                                                     n.onclick = () => window.focus();
                                                     setToast('標準 API 通知已發送');
@@ -11724,7 +12128,7 @@
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
                                         onDeleteRecord={handleAdminDeleteRecord}
-                                        attendanceHistory={myAttendance.filter(r => ['in', 'out'].includes(r.type))}
+                                        attendanceHistory={myAttendance.filter(r => ['in', 'out', 'work_in', 'work_out'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         timeSynced={timeSynced}
                                         networkTime={networkTime}
@@ -11768,7 +12172,7 @@
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
                                         onDeleteRecord={handleAdminDeleteRecord}
-                                        attendanceHistory={myAttendance.filter(r => ['late_in', 'late_out'].includes(r.type))}
+                                        attendanceHistory={myAttendance.filter(r => ['late_in', 'late_out', 'duty_in', 'duty_out'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         timeSynced={timeSynced}
                                         networkTime={networkTime}
@@ -12059,8 +12463,8 @@
                                                             return t.getFullYear() === year && t.getMonth() === month && t.getDate() === d;
                                                         });
                                                         const tFrom = (r) => r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
-                                                        const inRecords = dayRecords.filter(r => ['in','work_in','late_in'].includes(r.type));
-                                                        const outRecords = dayRecords.filter(r => ['out','work_out','late_out'].includes(r.type));
+                                                        const inRecords = dayRecords.filter(r => ['in','work_in','late_in','duty_in'].includes(r.type));
+                                                        const outRecords = dayRecords.filter(r => ['out','work_out','late_out','duty_out'].includes(r.type));
                                                         const inTimes = inRecords.map(tFrom).filter(Boolean).sort((a,b)=>a-b);
                                                         const outTimes = outRecords.map(tFrom).filter(Boolean).sort((a,b)=>a-b);
                                                         const inTime = inTimes[0] || null;
@@ -12354,7 +12758,12 @@
                                                                                     <span className="font-mono font-bold text-gray-800 text-lg">
                                                                                         {(() => {
                                                                                             const t = record.checkInTime ? new Date(record.checkInTime) : (record.timestamp?.seconds ? new Date(record.timestamp.seconds * 1000) : null);
-                                                                                            return t ? t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--';
+                                                                                            return (
+                                                                                                <>
+                                                                                                    {t ? t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--'}
+                                                                                                    {record.modification && <span className="text-xs text-blue-600 ml-1">(補)</span>}
+                                                                                                </>
+                                                                                            );
                                                                                         })()}
                                                                                     </span>
                                                                                 </div>
@@ -12429,10 +12838,15 @@
                                                                                                 
                                                                                                 const isCrossDay = rDateStr !== dateStr;
 
-                                                                                                if (isCrossDay) {
-                                                                                                    return `${rM}-${rD} ${t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}`;
-                                                                                                }
-                                                                                                return t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+                                                                                                return (
+                                                                                                    <>
+                                                                                                        {isCrossDay 
+                                                                                                            ? `${rM}-${rD} ${t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}`
+                                                                                                            : t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})
+                                                                                                        }
+                                                                                                        {record.modification && <span className="text-xs text-blue-600 ml-1">(補)</span>}
+                                                                                                    </>
+                                                                                                );
                                                                                             })()}
                                                                                         </span>
                                                                                     </div>
@@ -12653,8 +13067,8 @@
                         {activeTab === 'community' && (
                             <div className="pb-32">
                                         <div>
-                                            {(function() {
-                                                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                        {(!communitySubtab || communitySubtab === 'map') && (function() {
+                                            const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
                                                 
                                                 let displayLocation = null;
                                                 let companyUsers = [];
@@ -12713,6 +13127,10 @@
                                                                     const typeMap = {
                                                                         'in': '上班',
                                                                         'out': '下班',
+                                                                        'work_in': '上班(補)',
+                                                                        'work_out': '下班(補)',
+                                                                        'duty_in': '值班(補)',
+                                                                        'duty_out': '值班(補)',
                                                                         'outing_start': '外出',
                                                                         'outing_arrive': '抵達',
                                                                         'outing_end': '離開',
@@ -12725,10 +13143,10 @@
                                                                     
                                                                     statusText = `${typeText} ${locName}`.trim();
                                                                     
-                                                                    if (['in', 'late_in'].includes(lastRec.type)) {
+                                                                    if (['in', 'late_in', 'work_in', 'duty_in'].includes(lastRec.type)) {
                                                                         statusClass = 'text-green-600';
                                                                         statusBgClass = 'bg-green-100/95';
-                                                                    } else if (['out', 'late_out'].includes(lastRec.type)) {
+                                                                    } else if (['out', 'late_out', 'work_out', 'duty_out'].includes(lastRec.type)) {
                                                                         statusClass = 'text-red-600';
                                                                         statusBgClass = 'bg-gray-800/95';
                                                                     } else if (['outing_start', 'outing_arrive', 'outing_end'].includes(lastRec.type)) {
@@ -12890,7 +13308,7 @@
                                                                     if (!secs) return false;
                                                                     if (r.userId !== u.id) return false;
                                                                     if (!isToday(secs)) return false;
-                                                                    return ['in','out','late_in','late_out'].includes(r.type);
+                                                                    return ['in','out','late_in','late_out','work_in','work_out','duty_in','duty_out'].includes(r.type);
                                                                 });
                                                                 if (recs.length === 0) return null;
                                                                 recs.sort((a, b) => {
@@ -14005,7 +14423,7 @@
                                                                                                         checkInTime: inTime.toISOString(),
                                                                                                         timestamp: inTime,
                                                                                                         createdAt: serverTimestamp(),
-                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
+                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准', time: req.startTime }
                                                                                                     });
                                                                                                 }
 
@@ -14021,7 +14439,7 @@
                                                                                                         checkInTime: outTime.toISOString(),
                                                                                                         timestamp: outTime,
                                                                                                         createdAt: serverTimestamp(),
-                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准' }
+                                                                                                        modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准', time: req.endTime }
                                                                                                     });
                                                                                                 }
 
@@ -14095,17 +14513,17 @@
                                                                         const rDate = new Date(seconds * 1000);
                                                                         const dateStr = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
                                                                         const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                                                        const modifiedTime = r.modification?.time || '無修改時間';
+                                                                        const modifiedTime = r.modification?.time || timeStr.substring(0, 5);
                                                                         
                                                                         const typeMap = {
                                                                             'in': { text: '上班', class: 'bg-green-100 text-green-700' },
-                                                                            'work_in': { text: '上班', class: 'bg-green-100 text-green-700' },
-                                                                            'duty_in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                            'work_in': { text: '上班(補)', class: 'bg-green-50 text-green-600 border border-green-200' },
+                                                                            'duty_in': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
                                                                             'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
                                                                             'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
                                                                             'out': { text: '下班', class: 'bg-red-100 text-red-700' },
-                                                                            'work_out': { text: '下班', class: 'bg-red-100 text-red-700' },
-                                                                            'duty_out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                            'work_out': { text: '下班(補)', class: 'bg-red-50 text-red-600 border border-red-200' },
+                                                                            'duty_out': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
                                                                             'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
                                                                             'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
                                                                             'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
@@ -14142,29 +14560,36 @@
                                                                                             申請修改: {dateStr}
                                                                                         </div>
                                                                                         <div className="text-xs font-bold text-blue-600 mt-0.5">
-                                                                                            修改時間: {modifiedTime}
-                                                                                        </div>
-                                                                                        <div className="text-xs text-gray-600 mt-0.5">
-                                                                                            原始時間: {timeStr}
-                                                                                        </div>
+                                                            補打卡時間: {modifiedTime}
+                                                        </div>
                                                                                         <div className="text-[11px] text-gray-600 mt-0.5">
                                                                                             原因: {r.modification?.reason || '無'}
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="mt-3 flex gap-2">
-                                                                                    <button 
-                                                                                        onClick={() => handleQuickApprove(r)}
-                                                                                        className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                                    >
-                                                                                        核准
-                                                                                    </button>
-                                                                                    <button 
-                                                                                        onClick={() => handleQuickReject(r)}
-                                                                                        className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                                    >
-                                                                                        拒絕
-                                                                                    </button>
+                                                                                <div className="mt-3">
+                                                                                    <input 
+                                                                                        type="text" 
+                                                                                        placeholder="批示內容 (選填)"
+                                                                                        className="w-full text-xs p-2 mb-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                                                                                        value={reviewComments[r.id] || ''}
+                                                                                        onChange={e => setReviewComments(prev => ({...prev, [r.id]: e.target.value}))}
+                                                                                        onClick={e => e.stopPropagation()} 
+                                                                                    />
+                                                                                    <div className="flex gap-2">
+                                                                                        <button 
+                                                                                            onClick={() => handleQuickApprove(r)}
+                                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                                        >
+                                                                                            核准
+                                                                                        </button>
+                                                                                        <button 
+                                                                                            onClick={() => handleQuickReject(r)}
+                                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                                        >
+                                                                                            拒絕
+                                                                                        </button>
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
                                                                         );
@@ -14222,13 +14647,13 @@
                                                                                 {(function(){
                                                     const typeMap = {
                                                         'in': { text: '上班', class: 'bg-green-100 text-green-700' },
-                                                        'work_in': { text: '上班', class: 'bg-green-100 text-green-700' },
-                                                        'duty_in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                        'work_in': { text: '上班(補)', class: 'bg-green-50 text-green-600 border border-green-200' },
+                                                        'duty_in': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
                                                         'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
                                                         'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
                                                         'out': { text: '下班', class: 'bg-red-100 text-red-700' },
-                                                        'work_out': { text: '下班', class: 'bg-red-100 text-red-700' },
-                                                        'duty_out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                        'work_out': { text: '下班(補)', class: 'bg-red-50 text-red-600 border border-red-200' },
+                                                        'duty_out': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
                                                         'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
                                                         'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
                                                         'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
@@ -14270,17 +14695,7 @@
                                                                             {r.modification ? (
                                                                                 <>
                                                                                     <div className="text-sm font-bold text-blue-600 mt-0.5 flex items-center gap-1">
-                                                                                        <Clock className="w-3 h-3" /> 修改時間: {r.modification.time}
-                                                                                    </div>
-                                                                                    <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
-                                                                                        <Clock className="w-3 h-3" /> 原始時間: {(function(){
-                                                                                            if (r.modification.status === 'approved' && r.modification.originalTimestamp) {
-                                                                                                const ot = r.modification.originalTimestamp;
-                                                                                                const s = ot.seconds || (ot instanceof Date ? ot.getTime()/1000 : 0);
-                                                                                                if (s) return new Date(s * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                                                                            }
-                                                                                            return timeStr;
-                                                                                        })()}
+                                                                                        <Clock className="w-3 h-3" /> 補打卡時間: {r.modification.time || timeStr.substring(0, 5)}
                                                                                     </div>
                                                                                 </>
                                                                             ) : (
@@ -14403,19 +14818,29 @@
                                                                 </div>
                                                                 
                                                                 {r.modification?.status === 'pending' && (
-                                                                    <div className="flex gap-3 border-t border-gray-100 pt-3">
-                                                                        <button 
-                                                                            onClick={() => handleQuickReject(r)}
-                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                        >
-                                                                            拒絕
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => handleQuickApprove(r)}
-                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                        >
-                                                                            核准
-                                                                        </button>
+                                                                    <div className="border-t border-gray-100 pt-3">
+                                                                        <input 
+                                                                            type="text" 
+                                                                            placeholder="批示內容 (選填)"
+                                                                            className="w-full text-xs p-2 mb-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                                                                            value={reviewComments[r.id] || ''}
+                                                                            onChange={e => setReviewComments(prev => ({...prev, [r.id]: e.target.value}))}
+                                                                            onClick={e => e.stopPropagation()} 
+                                                                        />
+                                                                        <div className="flex gap-3">
+                                                                            <button 
+                                                                                onClick={() => handleQuickReject(r)}
+                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                            >
+                                                                                拒絕
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleQuickApprove(r)}
+                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                            >
+                                                                                核准
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 )}
                                                                 {r.modification?.status !== 'pending' && r.modification?.reviewerName && (
@@ -14737,19 +15162,29 @@
                                                                 )}
 
                                                                 {(r.approvalStatus === 'pending' || !r.approvalStatus) && (
-                                                                    <div className="flex gap-3 border-t border-gray-100 pt-3">
-                                                                        <button 
-                                                                            onClick={() => handleUpdateLeaveStatus('rejected', r)}
-                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                        >
-                                                                            拒絕
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => handleUpdateLeaveStatus('approved', r)}
-                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                        >
-                                                                            核准
-                                                                        </button>
+                                                                    <div className="border-t border-gray-100 pt-3">
+                                                                        <input 
+                                                                            type="text" 
+                                                                            placeholder="批示內容 (選填)"
+                                                                            className="w-full text-xs p-2 mb-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                                                                            value={leaveReviewComments[r.id] || ''}
+                                                                            onChange={e => setLeaveReviewComments(prev => ({...prev, [r.id]: e.target.value}))}
+                                                                            onClick={e => e.stopPropagation()} 
+                                                                        />
+                                                                        <div className="flex gap-3">
+                                                                            <button 
+                                                                                onClick={() => handleUpdateLeaveStatus('rejected', r)}
+                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                            >
+                                                                                拒絕
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleUpdateLeaveStatus('approved', r)}
+                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                            >
+                                                                                核准
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 )}
                                                                 
@@ -15162,7 +15597,7 @@
                                                                     }
                                                                     const dt = new Date(seconds * 1000);
                                                                     return dt >= dayStart && dt <= dayEnd;
-                                                                }).filter(r => r.type === 'in' || r.type === 'out').sort((a, b) => {
+                                                                }).filter(r => ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(r.type)).sort((a, b) => {
                                                                     const sa = (a.timestamp?.seconds) || (a.createdAt?.seconds) || (Date.now()/1000);
                                                                     const sb = (b.timestamp?.seconds) || (b.createdAt?.seconds) || (Date.now()/1000);
                                                                     return sa - sb;
@@ -15189,11 +15624,21 @@
                                                                                         seconds = Date.now() / 1000;
                                                                                     }
                                                                                     const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                                                                    const isIn = r.type === 'in';
+                                                                                    
+                                                                                    const typeInfo = {
+                                                                                        'in': { label: '上班', color: 'bg-green-100 text-green-700' },
+                                                                                        'out': { label: '下班', color: 'bg-red-100 text-red-700' },
+                                                                                        'work_in': { label: '上班(補)', color: 'bg-green-50 text-green-600 border border-green-200' },
+                                                                                        'work_out': { label: '下班(補)', color: 'bg-red-50 text-red-600 border border-red-200' },
+                                                                                        'duty_in': { label: '值班(補)', color: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                                        'duty_out': { label: '值班(補)', color: 'bg-yellow-50 text-yellow-600 border border-yellow-200' }
+                                                                                    };
+                                                                                    const info = typeInfo[r.type] || { label: '未知', color: 'bg-gray-100 text-gray-700' };
+
                                                                                     return (
                                                                                         <div key={r.id} className="flex items-center gap-3">
-                                                                                            <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isIn ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                                                                {isIn ? '上班' : '下班'}
+                                                                                            <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${info.color}`}>
+                                                                                                {info.label}
                                                                                             </div>
                                                                                             <div className="font-mono font-bold text-gray-700">
                                                                                                 {timeStr}
@@ -15758,7 +16203,21 @@
                     {activeTab === 'community' && (
                         <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white bg-opacity-80 border-t border-gray-100 shadow-lg transform transition-transform duration-300">
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
-                                <div className="flex gap-2 overflow-x-auto no-scrollbar w-fit mx-auto max-w-full">
+                                <div 
+                                    className="flex gap-2 overflow-x-auto no-scrollbar w-fit mx-auto max-w-full" 
+                                    id="community-selection-scroll-container"
+                                    onScroll={(e) => {
+                                        const container = e.target;
+                                        if (container.scrollWidth > container.clientWidth) {
+                                            const oneSetWidth = container.scrollWidth / 3;
+                                            if (container.scrollLeft < 10) {
+                                                container.scrollLeft += oneSetWidth;
+                                            } else if (container.scrollLeft + container.clientWidth > container.scrollWidth - 10) {
+                                                container.scrollLeft -= oneSetWidth;
+                                            }
+                                        }
+                                    }}
+                                >
                                     {(function(){
                                         let userComms = [];
                                         if (!dbUser) userComms = [];
@@ -15768,29 +16227,60 @@
                                             userComms = (communities || []).filter(c => commIds.includes(c.id));
                                         }
                                         
-                                        return userComms.map(comm => {
-                                            const name = comm.name || '';
-                                            const short = name.slice(0, 4);
-                                            const top = short.slice(0, 2);
-                                            const bottom = short.slice(2);
-                                            const displayName = bottom 
-                                                ? <>{top}<br/>{bottom}</> 
-                                                : top || name;
+                                        if (userComms.length === 0) return null;
 
-                                            return (
-                                                <button 
-                                                    key={comm.id}
-                                                    onClick={() => setCommunityTabSelectedId(comm.id)}
-                                                    className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
-                                                        communityTabSelectedId === comm.id 
-                                                            ? 'bg-red-600 text-white' 
-                                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                    }`}
-                                                >
-                                                    {displayName}
-                                                </button>
-                                            );
-                                        });
+                                        return [0, 1, 2].flatMap(setIndex => 
+                                            userComms.map(comm => {
+                                                const name = comm.name || '';
+                                                const short = name.slice(0, 4);
+                                                const top = short.slice(0, 2);
+                                                const bottom = short.slice(2);
+                                                const displayName = bottom 
+                                                    ? <>{top}<br/>{bottom}</> 
+                                                    : top || name;
+    
+                                                return (
+                                                    <button 
+                                                        key={`${setIndex}-${comm.id}`}
+                                                        id={`community-btn-${setIndex}-${comm.id}`}
+                                                        onClick={() => {
+                                                            setCommunityTabSelectedId(comm.id);
+                                                            // Center logic: Jump to middle set if needed, then smooth scroll
+                                                            setTimeout(() => {
+                                                                const container = document.getElementById('community-selection-scroll-container');
+                                                                const targetBtn = document.getElementById(`community-btn-1-${comm.id}`);
+                                                                
+                                                                if (container && targetBtn) {
+                                                                    const oneSetWidth = container.scrollWidth / 3;
+                                                                    
+                                                                    // 1. Seamlessly jump to middle set (index 1) if user clicked in set 0 or 2
+                                                                    // This ensures we have scroll space on both sides and avoids long-distance panning
+                                                                    if (setIndex === 0) {
+                                                                        container.scrollLeft += oneSetWidth;
+                                                                    } else if (setIndex === 2) {
+                                                                        container.scrollLeft -= oneSetWidth;
+                                                                    }
+                                                                    
+                                                                    // 2. Smooth scroll the target button (in the middle set) to the exact center
+                                                                    targetBtn.scrollIntoView({
+                                                                        behavior: 'smooth',
+                                                                        block: 'nearest',
+                                                                        inline: 'center'
+                                                                    });
+                                                                }
+                                                            }, 50);
+                                                        }}
+                                                        className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                            communityTabSelectedId === comm.id 
+                                                                ? 'bg-red-600 text-white' 
+                                                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                        }`}
+                                                    >
+                                                        {displayName}
+                                                    </button>
+                                                );
+                                            })
+                                        );
                                     })()}
                                 </div>
                             </div>
@@ -16002,9 +16492,41 @@
                                 <div className="flex-1 flex justify-center">
                                     <button
                                         onClick={() => switchTab('community')}
-                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}
+                                        className={`relative flex flex-col items-center font-bold text-xs ${activeTab === 'community' ? 'text-red-600' : 'text-gray-600'}`}
                                     >
                                         <Building2 className="w-5 h-5 mb-1" /> 社區
+                                        {(function() {
+                                            if (!dbUser) return null;
+                                            let userComms = [];
+                                            if (dbUser.role === 'admin') userComms = communities || [];
+                                            else {
+                                                const commIds = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                                                userComms = (communities || []).filter(c => commIds.includes(c.id));
+                                            }
+                                            
+                                            if (userComms.length === 0) return null;
+                                            const commIds = userComms.map(c => String(c.id));
+                                            
+                                            const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
+                                            const targetRoleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                            const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
+                                            
+                                            const managedUsers = usersList.filter(u => 
+                                                ((u.communityIds && u.communityIds.some(cid => commIds.includes(String(cid)))) || 
+                                                (u.communityId && commIds.includes(String(u.communityId)))) &&
+                                                finalTargetRoles.includes(u.role)
+                                            );
+                                            const managedUserIds = managedUsers.map(u => u.id);
+                                            
+                                            const count = makeupRequests.filter(r => managedUserIds.includes(r.userId) && r.status === 'pending').length;
+                                            
+                                            if (count > 0) {
+                                                return (
+                                                    <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500"></span>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                     </button>
                                 </div>
                             )}
@@ -16945,14 +17467,14 @@
                                             const d = new Date(ts * 1000);
                                             return d >= monthStart && d <= monthEnd;
                                         });
-                                        const cardRecords = monthRecords.filter(r => ['late_in','late_out'].includes(r.type));
+                                        const cardRecords = monthRecords.filter(r => ['late_in','late_out','duty_in','duty_out','work_in','work_out'].includes(r.type));
                                         const byDay = {};
                                         cardRecords.forEach(r => {
                                             const d = new Date(r.timestamp.seconds * 1000);
                                             const day = d.getDate();
                                             byDay[day] = byDay[day] || { ins: [], outs: [], locationName: '' };
-                                            if (r.type === 'late_in') byDay[day].ins.push(r);
-                                            if (r.type === 'late_out') byDay[day].outs.push(r);
+                                            if (['late_in', 'duty_in', 'work_in'].includes(r.type)) byDay[day].ins.push(r);
+                                            if (['late_out', 'duty_out', 'work_out'].includes(r.type)) byDay[day].outs.push(r);
                                             const comm = communities.find(c => String(c.id) === String(r.communityId));
                                             const locName = r.checkInLocationName || (comm ? comm.name : '') || r.address || '';
                                             if (!byDay[day].locationName && locName) byDay[day].locationName = locName;
@@ -16977,8 +17499,18 @@
                                                     workStr = `${actualHours.toFixed(1)} hr`;
                                                 }
                                             }
-                                            const inTimeStr = firstIn ? new Date(firstIn.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-                                            const outTimeStr = lastOut ? new Date(lastOut.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                                            let inTimeStr = '-';
+                                            if (firstIn) {
+                                                inTimeStr = new Date(firstIn.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                if (['work_in', 'duty_in'].includes(firstIn.type)) inTimeStr += ' (補)';
+                                            }
+                                            
+                                            let outTimeStr = '-';
+                                            if (lastOut) {
+                                                outTimeStr = new Date(lastOut.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                if (['work_out', 'duty_out'].includes(lastOut.type)) outTimeStr += ' (補)';
+                                            }
+                                            
                                             return {
                                                 day,
                                                 week: weekMap[dateObj.getDay()],
@@ -17369,13 +17901,21 @@
                                                                     
                                                                     // Split records into Card Shift (late_in/late_out) and Regular
                                                                     // Card Shift Report Logic: uses late_in and late_out types
-                                                                    const cardShiftRecords = dayRecords.filter(r => ['late_in', 'late_out'].includes(r.type));
-                                                                    const regularRecords = dayRecords.filter(r => !['late_in', 'late_out'].includes(r.type));
+                                                                    // Makeup Logic: work_in/work_out count as Card Shift if schedule is Card/Duty
+                                                                    const isCardOrDuty = isCardDay || isDutyDay;
+                                                                    const cardShiftRecords = dayRecords.filter(r => 
+                                                                        ['late_in', 'late_out', 'duty_in', 'duty_out'].includes(r.type) || 
+                                                                        (['work_in', 'work_out'].includes(r.type) && isCardOrDuty)
+                                                                    );
+                                                                    const regularRecords = dayRecords.filter(r => 
+                                                                        !['late_in', 'late_out', 'duty_in', 'duty_out'].includes(r.type) && 
+                                                                        !(['work_in', 'work_out'].includes(r.type) && isCardOrDuty)
+                                                                    );
 
                                                                     // 1. Calculate Card Shift Hours (Replicating Card Shift Report logic)
                                                                     if (cardShiftRecords.length > 0) {
-                                                                        const ins = cardShiftRecords.filter(r => r.type === 'late_in').sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
-                                                                        const outs = cardShiftRecords.filter(r => r.type === 'late_out').sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
+                                                                        const ins = cardShiftRecords.filter(r => ['late_in', 'duty_in', 'work_in'].includes(r.type)).sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
+                                                                        const outs = cardShiftRecords.filter(r => ['late_out', 'duty_out', 'work_out'].includes(r.type)).sort((a,b) => a.timestamp.seconds - b.timestamp.seconds);
                                                                         
                                                                         if (ins.length > 0 && outs.length > 0) {
                                                                             const firstIn = ins[0];
@@ -17879,8 +18419,8 @@
                                         
                                         const sortByTimestamp = (a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0);
                                         const getFirstInLastOut = recs => {
-                                            const ins = recs.filter(r => r.type === 'in').sort(sortByTimestamp);
-                                            const outs = recs.filter(r => r.type === 'out').sort(sortByTimestamp);
+                                            const ins = recs.filter(r => ['in', 'work_in', 'duty_in', 'card_in', 'late_in'].includes(r.type)).sort(sortByTimestamp);
+                                            const outs = recs.filter(r => ['out', 'work_out', 'duty_out', 'card_out', 'late_out', 'leave_early'].includes(r.type)).sort(sortByTimestamp);
                                             return {
                                                 firstIn: ins[0],
                                                 lastOut: outs.length > 0 ? outs[outs.length - 1] : null
@@ -19121,6 +19661,132 @@
                             </div>
                         );
                     })()}
+
+                    {isAddUserModalOpen && (
+                        <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setIsAddUserModalOpen(false)}>
+                            <div className="bg-white rounded-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-bold text-lg mb-4 text-gray-800">新增帳號</h3>
+                                <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">姓名 *</label>
+                                        <input
+                                            type="text"
+                                            value={addUserForm.name}
+                                            onChange={e => setAddUserForm({ ...addUserForm, name: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                            placeholder="請輸入姓名"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email (帳號) *</label>
+                                        <input
+                                            type="email"
+                                            value={addUserForm.email}
+                                            onChange={e => setAddUserForm({ ...addUserForm, email: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                            placeholder="example@email.com"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">密碼 *</label>
+                                        <input
+                                            type="text"
+                                            value={addUserForm.password}
+                                            onChange={e => setAddUserForm({ ...addUserForm, password: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                            placeholder="預設密碼"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">角色</label>
+                                        <select
+                                            value={addUserForm.role}
+                                            onChange={e => setAddUserForm({ ...addUserForm, role: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                        >
+                                            <option value="staff">員工</option>
+                                            <option value="cadre">幹部</option>
+                                            <option value="hr">人事</option>
+                                            <option value="manager">管理層</option>
+                                            <option value="admin">系統管理員</option>
+                                            {roles.filter(r => !['staff','cadre','hr','manager','admin'].includes(r.id)).map(r => (
+                                                <option key={r.id} value={r.id}>{r.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">職稱</label>
+                                        <input
+                                            type="text"
+                                            value={addUserForm.title}
+                                            onChange={e => setAddUserForm({ ...addUserForm, title: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">電話</label>
+                                        <input
+                                            type="text"
+                                            value={addUserForm.phone}
+                                            onChange={e => setAddUserForm({ ...addUserForm, phone: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">到職日期</label>
+                                        <input
+                                            type="date"
+                                            value={addUserForm.startDate}
+                                            onChange={e => setAddUserForm({ ...addUserForm, startDate: e.target.value })}
+                                            className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-blue-100"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">所屬社區</label>
+                                        <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
+                                            {(communities || []).map(c => (
+                                                <label key={c.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={addUserForm.communityIds && addUserForm.communityIds.includes(c.id)}
+                                                        onChange={e => {
+                                                            const checked = e.target.checked;
+                                                            setAddUserForm(prev => {
+                                                                const currentIds = prev.communityIds || [];
+                                                                let newIds;
+                                                                if (checked) {
+                                                                    newIds = [...currentIds, c.id];
+                                                                } else {
+                                                                    newIds = currentIds.filter(id => id !== c.id);
+                                                                }
+                                                                return { ...prev, communityIds: newIds };
+                                                            });
+                                                        }}
+                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    />
+                                                    <span className="text-sm text-gray-700 font-bold">{c.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-6 flex justify-end gap-2">
+                                    <button 
+                                        onClick={() => setIsAddUserModalOpen(false)}
+                                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        onClick={handleAddUserSubmit}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200"
+                                    >
+                                        新增
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {isEditUserModalOpen && (
                         <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setIsEditUserModalOpen(false)}>

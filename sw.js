@@ -1,5 +1,6 @@
-// Version: 1.3 (Robust Icon)
-const ICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALUlEQVRYR+3QQREAAAgCMPy7aQo38AB1sJvp268BBAQEBAQEBAQEBAQEBAQEHguWfwJ/eXw6OAAAAABJRU5ErkJggg==';
+// Version: 1.4 (Fixed Icon)
+const ICON_URL = '/logo.svg';
+const BADGE_URL = '/badge.svg';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -22,8 +23,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || '通知';
   const options = {
     body: payload.body || '',
-    icon: payload.icon || ICON_DATA_URL,
-    badge: payload.badge || ICON_DATA_URL,
+    icon: payload.icon || ICON_URL,
+    badge: payload.badge || BADGE_URL,
     data: payload.data,
   };
 
