@@ -224,7 +224,6 @@
         const auth = getAuth(app);
         const db = initializeFirestore(app, {
             ignoreUndefinedProperties: true,
-            experimentalForceLongPolling: true,
         });
         const storage = getStorage(app);
         
@@ -18106,6 +18105,16 @@
                                                                     }
                                                                     
                                                                     // 3. Check Leave
+                                                                    const sortByTimestamp = (a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0);
+                                                                    const getFirstInLastOut = recs => {
+                                                                        const ins = recs.filter(r => ['in', 'work_in', 'duty_in', 'card_in', 'late_in'].includes(r.type)).sort(sortByTimestamp);
+                                                                        const outs = recs.filter(r => ['out', 'work_out', 'duty_out', 'card_out', 'late_out', 'leave_early'].includes(r.type)).sort(sortByTimestamp);
+                                                                        return {
+                                                                            firstIn: ins[0],
+                                                                            lastOut: outs.length > 0 ? outs[outs.length - 1] : null
+                                                                        };
+                                                                    };
+                                                                    
                                                                     const getLeaveRange = (l) => {
                                                                         let s, e;
                                                                         
@@ -18261,6 +18270,43 @@
                                                                     let cellContent = '';
                                                                     let bgClass = 'bg-white';
                                                                     let fontSizeClass = 'text-xs';
+                                                                    let missingHoursAbnormal = false; // 新增變數：判定工時異常
+                                                                    
+                                                                    // 計算工時異常 (邏輯與 attendance-report 一致)
+                                                                    if (schedule && (schedule.type === 'work' || schedule.type === 'duty') && schedule.startTime != null && schedule.endTime != null) {
+                                                                        const { firstIn, lastOut } = getFirstInLastOut(dayRecords); // records 包含 dayRecords 和 nightRecords
+                                                                        if (firstIn && lastOut) {
+                                                                            let diffMs = (lastOut.timestamp.seconds - firstIn.timestamp.seconds) * 1000;
+                                                                            const parseToMin = (t) => {
+                                                                                const parts = String(t).split(':');
+                                                                                return parseInt(parts[0], 10) * 60 + (parts[1] ? parseInt(parts[1], 10) : 0);
+                                                                            };
+                                                                            const sStartMin = parseToMin(schedule.startTime);
+                                                                            const sEndMin = parseToMin(schedule.endTime);
+                                                                            let sDurationMin = sEndMin - sStartMin;
+                                                                            if (sDurationMin < 0) sDurationMin += 24 * 60;
+                                                                            
+                                                                            if (sDurationMin > 0) {
+                                                                                let scheduleMs = sDurationMin * 60000;
+                                                                                // 這裡未考慮 leaveHours，簡化處理：若有 leaveObj 則不視為未請假
+                                                                                // 嚴謹邏輯應扣除請假時數
+                                                                                if (leaveObj) {
+                                                                                     // 有請假就不算未請假異常
+                                                                                } else {
+                                                                                    if (diffMs > scheduleMs) diffMs = scheduleMs;
+                                                                                    const originalScheduleHours = sDurationMin / 60;
+                                                                                    const calculatedHours = diffMs / 3600000;
+                                                                                    if ((originalScheduleHours - calculatedHours) > 1) {
+                                                                                        missingHoursAbnormal = true;
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+
+                                                                    if (missingHoursAbnormal) {
+                                                                        currentRemarks.push(`${d}日 未請假`);
+                                                                    }
                                                                     
                                                                     if (leaveObj) {
                                                                         fontSizeClass = 'text-xs';
@@ -18331,11 +18377,7 @@
                                                                             cellContent = workVal.endsWith('.0') ? workVal.slice(0, -2) : workVal;
                                                                         } else {
                                                                             if (isCardDay || cardCalcHours > 0 || cardShiftRecords.length > 0) cellContent = 'V';
-                                                                            else if (isWorkDay) cellContent = '上班';
-                                                                            else if (isDutyDay) cellContent = '值班';
-                                                                            else if (isOff) cellContent = '公休';
-                                                                            else if (isHoliday) cellContent = '假日';
-                                                                            else cellContent = '上班';
+                                                                            else cellContent = '請假';
                                                                         }
                                                                     } else if (isV) {
                                                                         // Attendance logic
@@ -18731,6 +18773,8 @@
                                         const schedule = userSchedules[dateStr] || null;
 
                                         let workStr = '-';
+                                        let missingHoursAbnormal = false; // 新增變數
+
                                         if (firstIn && lastOut) {
                                             let diffMs = (lastOut.timestamp.seconds - firstIn.timestamp.seconds) * 1000;
                                             
@@ -18756,6 +18800,16 @@
                                                     }
 
                                                     if (diffMs > scheduleMs) diffMs = scheduleMs;
+
+                                                    // 若實際工時 (diffMs) 比 班表工時 (sDurationMin * 60000) 少了 1 小時以上 (3600000ms)
+                                                    // 且當天未請假 (leaveHoursForDay === 0)
+                                                    // 則標記為「未請假」
+                                                    const originalScheduleHours = sDurationMin / 60;
+                                                    const calculatedHours = diffMs / 3600000; // 這是最終判定工時 (已被班表截斷)
+                                                    
+                                                    if ((originalScheduleHours - calculatedHours) > 1 && leaveHoursForDay === 0) {
+                                                        missingHoursAbnormal = true;
+                                                    }
                                                 }
                                             }
 
@@ -18824,9 +18878,15 @@
                                                 }
                                             }
                                         }
+
+                                        // 若符合未請假條件 (實際工時 < 班表工時 - 1 且未請假)，覆蓋狀態
+                                        // if (missingHoursAbnormal) {
+                                        //     status = '未請假';
+                                        // }
                                         
                                         let statusClass = 'text-gray-700';
                                         if (status && status.startsWith('請假')) statusClass = 'text-gray-900';
+                                        // if (status === '未請假') statusClass = 'text-red-500 font-bold';
 
                                         // 處理備註：異常 + 請假 + 外出/卡班
                                         let finalRemarks = remarks;
@@ -18843,6 +18903,7 @@
                                         
                                         if (hasOuting) extraRemarks.push('外出');
                                         if (hasDuty) extraRemarks.push('卡班');
+                                        if (missingHoursAbnormal) extraRemarks.push('未請假');
                                         
                                         // 組合備註顯示 HTML
                                         const remarkContent = (
@@ -18852,7 +18913,11 @@
                                                 {extraRemarks.map((r, i) => (
                                                     <span key={i}>
                                                         {i > 0 && <span>、</span>}
-                                                        <span className={r === '外出' ? 'text-blue-600 font-bold' : 'text-purple-600 font-bold'}>{r}</span>
+                                                        <span className={
+                                                            r === '外出' ? 'text-blue-600 font-bold' : 
+                                                            r === '未請假' ? 'text-red-500 font-bold' :
+                                                            'text-purple-600 font-bold'
+                                                        }>{r}</span>
                                                     </span>
                                                 ))}
                                             </>
