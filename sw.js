@@ -23,8 +23,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || '通知';
   const options = {
     body: payload.body || '',
-    icon: payload.icon || ICON_URL,
-    badge: payload.badge || BADGE_URL,
+    icon: payload.icon || ICON_DATA_URL,
+    badge: payload.badge || ICON_DATA_URL,
     data: payload.data,
   };
 

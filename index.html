@@ -1845,6 +1845,119 @@
                                     placeholder="請輸入詳細內容..."
                                 />
                             </div>
+                            
+                            {/* 圖片上傳區塊 */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">
+                                    附件圖片 (最多20張，單張限1MB)
+                                </label>
+                                <div className="grid grid-cols-4 gap-2 mb-2">
+                                    {form.images && form.images.map((img, idx) => (
+                                        <div key={idx} className="relative aspect-square rounded-lg overflow-hidden group border border-gray-200">
+                                            <img src={img} alt={`附件 ${idx + 1}`} className="w-full h-full object-cover" />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newImages = [...form.images];
+                                                    newImages.splice(idx, 1);
+                                                    setForm({...form, images: newImages});
+                                                }}
+                                                className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {(!form.images || form.images.length < 20) && (
+                                        <label className="aspect-square rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-red-500 hover:bg-red-50 transition-colors">
+                                            <i className="fas fa-plus text-gray-400 mb-1"></i>
+                                            <span className="text-[10px] text-gray-400">上傳</span>
+                                            <input
+                                                type="file"
+                                                accept="image/png, image/jpeg"
+                                                multiple
+                                                className="hidden"
+                                                onChange={async (e) => {
+                                                    const files = Array.from(e.target.files);
+                                                    const currentCount = form.images ? form.images.length : 0;
+                                                    
+                                                    if (currentCount + files.length > 20) {
+                                                        alert('圖片總數不能超過20張');
+                                                        return;
+                                                    }
+
+                                                    const processFile = (file) => {
+                                                        return new Promise((resolve) => {
+                                                            if (file.size > 1024 * 1024) {
+                                                                // 超過 1MB 進行壓縮
+                                                                const reader = new FileReader();
+                                                                reader.onload = (event) => {
+                                                                    const img = new Image();
+                                                                    img.onload = () => {
+                                                                        const canvas = document.createElement('canvas');
+                                                                        let width = img.width;
+                                                                        let height = img.height;
+                                                                        
+                                                                        // 簡單縮放邏輯，確保最大邊不超過 1920
+                                                                        const maxSize = 1920;
+                                                                        if (width > maxSize || height > maxSize) {
+                                                                            if (width > height) {
+                                                                                height = Math.round((height * maxSize) / width);
+                                                                                width = maxSize;
+                                                                            } else {
+                                                                                width = Math.round((width * maxSize) / height);
+                                                                                height = maxSize;
+                                                                            }
+                                                                        }
+                                                                        
+                                                                        canvas.width = width;
+                                                                        canvas.height = height;
+                                                                        const ctx = canvas.getContext('2d');
+                                                                        ctx.drawImage(img, 0, 0, width, height);
+                                                                        
+                                                                        // 嘗試壓縮至 1MB 以下，初始品質 0.7
+                                                                        let quality = 0.7;
+                                                                        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+                                                                        
+                                                                        while (dataUrl.length > 1024 * 1024 && quality > 0.1) {
+                                                                            quality -= 0.1;
+                                                                            dataUrl = canvas.toDataURL('image/jpeg', quality);
+                                                                        }
+                                                                        
+                                                                        resolve(dataUrl);
+                                                                    };
+                                                                    img.src = event.target.result;
+                                                                };
+                                                                reader.readAsDataURL(file);
+                                                            } else {
+                                                                // 未超過 1MB 直接讀取
+                                                                const reader = new FileReader();
+                                                                reader.onload = (e) => resolve(e.target.result);
+                                                                reader.readAsDataURL(file);
+                                                            }
+                                                        });
+                                                    };
+
+                                                    const newImages = [];
+                                                    for (const file of files) {
+                                                        try {
+                                                            const result = await processFile(file);
+                                                            newImages.push(result);
+                                                        } catch (err) {
+                                                            console.error('圖片處理失敗', err);
+                                                        }
+                                                    }
+                                                    
+                                                    setForm(prev => ({
+                                                        ...prev,
+                                                        images: [...(prev.images || []), ...newImages]
+                                                    }));
+                                                }}
+                                            />
+                                        </label>
+                                    )}
+                                </div>
+                            </div>
 
                             {error && <div className="text-red-500 text-xs font-bold bg-red-50 p-2 rounded-lg">{error}</div>}
 
@@ -4235,16 +4348,6 @@
                                     {leaveData.leaveStartDate ? `${leaveData.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${leaveData.leaveEndDate ? leaveData.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(leaveData.leaveDate || '').replace(/-/g, '/')} ${leaveData.leaveTime}`}
                                 </div>
                             </div>
-                            <div className="mb-4">
-                                <input 
-                                    type="text" 
-                                    placeholder="批示內容 (選填)"
-                                    className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50"
-                                    value={leaveReviewComments[leaveData.id] || ''}
-                                    onChange={e => setLeaveReviewComments(prev => ({...prev, [leaveData.id]: e.target.value}))}
-                                    onClick={e => e.stopPropagation()} 
-                                />
-                            </div>
                             <div className="grid grid-cols-2 gap-3">
                                 {leaveData.approvalStatus === 'rejected' ? (
                                     <button 
@@ -6568,6 +6671,7 @@
         };
 
         const App = () => {
+            const [signatureComments, setSignatureComments] = useState({});
             const [user, setUser] = useState(null);
             const [dbUser, setDbUser] = useState(null);
             const [view, setView] = useState('login');
@@ -6576,8 +6680,6 @@
             const [usersList, setUsersList] = useState([]);
             const [attendanceList, setAttendanceList] = useState([]);
             const [makeupRequests, setMakeupRequests] = useState([]);
-            const [reviewComments, setReviewComments] = useState({});
-            const [leaveReviewComments, setLeaveReviewComments] = useState({});
             const [myMakeupRequests, setMyMakeupRequests] = useState([]);
             const [myLeaves, setMyLeaves] = useState([]);
             const [leavesList, setLeavesList] = useState([]);
@@ -7402,13 +7504,14 @@
                         userAvatar: dbUser.avatarUrl || '',
                         type: signatureForm.type,
                         content,
+                        images: signatureForm.images || [],
                         status: 'pending',
                         createdAt: serverTimestamp(),
                         responses: []
                     });
                     setToast('簽呈已送出');
                     setShowSignatureModal(false);
-                    setSignatureForm({ type: signatureTypes.length > 0 ? signatureTypes[0].name : '', content: '' });
+                    setSignatureForm({ type: signatureTypes.length > 0 ? signatureTypes[0].name : '', content: '', images: [] });
                 } catch (e) {
                     console.error(e);
                     setSignatureError(e.message);
@@ -7435,7 +7538,7 @@
                 return () => unsubscribe();
             }, [activeTab]);
 
-            const handleUpdateSignatureStatus = async (signatureId, newStatus) => {
+            const handleUpdateSignatureStatus = async (signatureId, newStatus, comment = '') => {
                 if (!signatureId) return;
                 try {
                     const label = newStatus === 'approved' ? '核准' : '駁回';
@@ -7449,9 +7552,16 @@
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signatures', signatureId), {
                         status: newStatus,
                         reviewedBy: dbUser.id,
-                        reviewedAt: serverTimestamp()
+                        reviewedAt: serverTimestamp(),
+                        reviewComment: comment
                     });
                     setToast(newStatus === 'approved' ? '已核准' : '已駁回');
+                    
+                    setSignatureComments(prev => {
+                        const next = { ...prev };
+                        delete next[signatureId];
+                        return next;
+                    });
                 } catch (e) {
                     console.error(e);
                     setToast('更新失敗: ' + e.message);
@@ -7975,14 +8085,8 @@
                             ...r.modification,
                             status: 'rejected',
                             reviewTime: new Date(),
-                            reviewerName: dbUser.name,
-                            approvalComment: reviewComments[r.id] || ''
+                            reviewerName: dbUser.name
                         }
-                    });
-                    setReviewComments(prev => {
-                        const next = { ...prev };
-                        delete next[r.id];
-                        return next;
                     });
                     setToast('已駁回');
                 } catch (e) {
@@ -8021,14 +8125,8 @@
                             reviewTime: new Date(),
                             reviewerName: dbUser.name,
                             originalType: originalType,
-                            originalTimestamp: originalTimestamp,
-                            approvalComment: reviewComments[r.id] || ''
+                            originalTimestamp: originalTimestamp
                         }
-                    });
-                    setReviewComments(prev => {
-                        const next = { ...prev };
-                        delete next[r.id];
-                        return next;
                     });
                     setToast('已核准');
                 } catch (e) {
@@ -9647,15 +9745,9 @@
                         approvalStatus: status,
                         approvalTime: serverTimestamp(),
                         approverId: dbUser.id,
-                        approverName: dbUser.name,
-                        approvalComment: leaveReviewComments[target.id] || ''
+                        approverName: dbUser.name
                     });
 
-                    setLeaveReviewComments(prev => {
-                        const next = { ...prev };
-                        delete next[target.id];
-                        return next;
-                    });
                     if (!record) {
                         setShowApprovalModal(false);
                         setSelectedApprovalLeave(null);
@@ -14567,29 +14659,19 @@
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="mt-3">
-                                                                                    <input 
-                                                                                        type="text" 
-                                                                                        placeholder="批示內容 (選填)"
-                                                                                        className="w-full text-xs p-2 mb-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
-                                                                                        value={reviewComments[r.id] || ''}
-                                                                                        onChange={e => setReviewComments(prev => ({...prev, [r.id]: e.target.value}))}
-                                                                                        onClick={e => e.stopPropagation()} 
-                                                                                    />
-                                                                                    <div className="flex gap-2">
-                                                                                        <button 
-                                                                                            onClick={() => handleQuickApprove(r)}
-                                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                                        >
-                                                                                            核准
-                                                                                        </button>
-                                                                                        <button 
-                                                                                            onClick={() => handleQuickReject(r)}
-                                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                                        >
-                                                                                            拒絕
-                                                                                        </button>
-                                                                                    </div>
+                                                                                <div className="mt-3 flex gap-2">
+                                                                                    <button 
+                                                                                        onClick={() => handleQuickApprove(r)}
+                                                                                        className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                                    >
+                                                                                        核准
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={() => handleQuickReject(r)}
+                                                                                        className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                                    >
+                                                                                        拒絕
+                                                                                    </button>
                                                                                 </div>
                                                                             </div>
                                                                         );
@@ -14818,29 +14900,19 @@
                                                                 </div>
                                                                 
                                                                 {r.modification?.status === 'pending' && (
-                                                                    <div className="border-t border-gray-100 pt-3">
-                                                                        <input 
-                                                                            type="text" 
-                                                                            placeholder="批示內容 (選填)"
-                                                                            className="w-full text-xs p-2 mb-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
-                                                                            value={reviewComments[r.id] || ''}
-                                                                            onChange={e => setReviewComments(prev => ({...prev, [r.id]: e.target.value}))}
-                                                                            onClick={e => e.stopPropagation()} 
-                                                                        />
-                                                                        <div className="flex gap-3">
-                                                                            <button 
-                                                                                onClick={() => handleQuickReject(r)}
-                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                            >
-                                                                                拒絕
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={() => handleQuickApprove(r)}
-                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                            >
-                                                                                核准
-                                                                            </button>
-                                                                        </div>
+                                                                    <div className="flex gap-3 border-t border-gray-100 pt-3">
+                                                                        <button 
+                                                                            onClick={() => handleQuickReject(r)}
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                        >
+                                                                            拒絕
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => handleQuickApprove(r)}
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                        >
+                                                                            核准
+                                                                        </button>
                                                                     </div>
                                                                 )}
                                                                 {r.modification?.status !== 'pending' && r.modification?.reviewerName && (
@@ -15162,29 +15234,19 @@
                                                                 )}
 
                                                                 {(r.approvalStatus === 'pending' || !r.approvalStatus) && (
-                                                                    <div className="border-t border-gray-100 pt-3">
-                                                                        <input 
-                                                                            type="text" 
-                                                                            placeholder="批示內容 (選填)"
-                                                                            className="w-full text-xs p-2 mb-2 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
-                                                                            value={leaveReviewComments[r.id] || ''}
-                                                                            onChange={e => setLeaveReviewComments(prev => ({...prev, [r.id]: e.target.value}))}
-                                                                            onClick={e => e.stopPropagation()} 
-                                                                        />
-                                                                        <div className="flex gap-3">
-                                                                            <button 
-                                                                                onClick={() => handleUpdateLeaveStatus('rejected', r)}
-                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                            >
-                                                                                拒絕
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={() => handleUpdateLeaveStatus('approved', r)}
-                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                            >
-                                                                                核准
-                                                                            </button>
-                                                                        </div>
+                                                                    <div className="flex gap-3 border-t border-gray-100 pt-3">
+                                                                        <button 
+                                                                            onClick={() => handleUpdateLeaveStatus('rejected', r)}
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                        >
+                                                                            拒絕
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => handleUpdateLeaveStatus('approved', r)}
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                        >
+                                                                            核准
+                                                                        </button>
                                                                     </div>
                                                                 )}
                                                                 
@@ -15748,20 +15810,48 @@
                                                                     {sig.content}
                                                                 </div>
 
+                                                                {/* 圖片預覽區塊 */}
+                                                                {sig.images && sig.images.length > 0 && (
+                                                                    <div className="grid grid-cols-4 gap-2 mb-4">
+                                                                        {sig.images.map((img, idx) => (
+                                                                            <div 
+                                                                                key={idx} 
+                                                                                className="aspect-square rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
+                                                                                onClick={() => {
+                                                                                    const w = window.open('');
+                                                                                    w.document.write(`<img src="${img}" style="max-width:100%;max-height:100vh;margin:auto;display:block">`);
+                                                                                }}
+                                                                            >
+                                                                                <img src={img} alt={`附件 ${idx + 1}`} className="w-full h-full object-cover" />
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
                                                                 {sig.status === 'pending' && (
-                                                                    <div className="flex gap-3 border-t border-gray-100 pt-3">
-                                                                        <button 
-                                                                            onClick={() => handleUpdateSignatureStatus(sig.id, 'rejected')}
-                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                        >
-                                                                            拒絕
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => handleUpdateSignatureStatus(sig.id, 'approved')}
-                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                        >
-                                                                            核准
-                                                                        </button>
+                                                                    <div className="border-t border-gray-100 pt-3">
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="批示..."
+                                                                            className="w-full mb-3 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                                                                            value={signatureComments[sig.id] || ''}
+                                                                            onChange={(e) => setSignatureComments(prev => ({ ...prev, [sig.id]: e.target.value }))}
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        />
+                                                                        <div className="flex gap-3">
+                                                                            <button 
+                                                                                onClick={() => handleUpdateSignatureStatus(sig.id, 'rejected', signatureComments[sig.id])}
+                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                            >
+                                                                                拒絕
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleUpdateSignatureStatus(sig.id, 'approved', signatureComments[sig.id])}
+                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                            >
+                                                                                核准
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 )}
                                                                 
@@ -15781,6 +15871,12 @@
                                                                                 刪除
                                                                             </button>
                                                                         </div>
+                                                                        {sig.reviewComment && (
+                                                                            <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">
+                                                                                <span className="font-bold block mb-1">批示內容：</span>
+                                                                                {sig.reviewComment}
+                                                                            </div>
+                                                                        )}
                                                                         <div className="text-right text-xs text-gray-400 mt-2">
                                                                             審核人: {usersList.find(u => u.id === sig.reviewedBy)?.name || '未知'}
                                                                         </div>
@@ -16117,6 +16213,31 @@
                                                                     </div>
                                                                 </div>
                                                                 <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap line-clamp-3">{sig.content}</p>
+
+                                                                {/* 圖片預覽區塊 */}
+                                                                {sig.images && sig.images.length > 0 && (
+                                                                    <div className="grid grid-cols-4 gap-2 mt-3">
+                                                                        {sig.images.map((img, idx) => (
+                                                                            <div 
+                                                                                key={idx} 
+                                                                                className="aspect-square rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
+                                                                                onClick={() => {
+                                                                                    const w = window.open('');
+                                                                                    w.document.write(`<img src="${img}" style="max-width:100%;max-height:100vh;margin:auto;display:block">`);
+                                                                                }}
+                                                                            >
+                                                                                <img src={img} alt={`附件 ${idx + 1}`} className="w-full h-full object-cover" />
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                {sig.status !== 'pending' && sig.reviewComment && (
+                                                                    <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">
+                                                                        <span className="font-bold block mb-1">批示內容：</span>
+                                                                        {sig.reviewComment}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))
