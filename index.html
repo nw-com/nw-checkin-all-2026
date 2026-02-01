@@ -26,7 +26,7 @@
     </script>
     
     <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.8/babel.min.js"></script>
 
     <!-- SheetJS for Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
@@ -213,7 +213,7 @@
         };
 
         const firebaseConfig = getFirebaseConfig();
-        const __DEBUG__ = false;
+        const __DEBUG__ = true;
         if (!__DEBUG__) {
             try { console.log = function(){}; } catch(e){}
             try { console.info = function(){}; } catch(e){}
@@ -677,6 +677,7 @@
                 };
 
                 users.forEach(u => {
+                    if ((u.status || '在職') === '離職') return;
                     const roleMap = {
                         'admin': '系統管理員',
                         'manager': '管理層',
@@ -5321,6 +5322,48 @@
                      if (schedule) {
                          // 'work' or 'duty' -> Allow Clock In (Button Active)
                          if (schedule.type === 'work' || schedule.type === 'duty') {
+                             const startTimeStr = schedule.startTime || '09:00';
+                             const endTimeStr = schedule.endTime || '18:00';
+                             
+                             const [sh, sm] = startTimeStr.split(':').map(Number);
+                             const [eh, em] = endTimeStr.split(':').map(Number);
+                             
+                             const startDateTime = new Date(currentTime);
+                             startDateTime.setHours(sh, sm, 0, 0);
+                             
+                             const endDateTime = new Date(currentTime);
+                             endDateTime.setHours(eh, em, 0, 0);
+                             
+                             // Handle crossDay or implied crossDay
+                             if (schedule.crossDay || endDateTime <= startDateTime) {
+                                 endDateTime.setDate(endDateTime.getDate() + 1);
+                             }
+
+                             const lateThreshold = new Date(startDateTime.getTime() + 30 * 60000); // +30 mins
+                             const leaveEarlyThreshold = new Date(endDateTime.getTime() - 60 * 60000); // -60 mins
+                             
+                             if (currentTime > lateThreshold && currentTime < leaveEarlyThreshold) {
+                                 return { 
+                                     type: 'work_in', 
+                                     text: '補上班打卡', 
+                                     sub: '紀錄補上班時間', 
+                                     icon: MapPin, 
+                                     colorClass: 'bg-gray-100 text-gray-600 border-2 border-gray-200', 
+                                     iconBg: 'bg-gray-200', 
+                                     iconColor: 'text-gray-500' 
+                                 };
+                             } else if (currentTime >= leaveEarlyThreshold) {
+                                 return { 
+                                     type: 'out', 
+                                     text: '下班打卡', 
+                                     sub: '結束今日勤務', 
+                                     icon: LogOut, 
+                                     colorClass: 'bg-white text-red-600 border-2 border-red-100', 
+                                     iconBg: 'bg-red-50', 
+                                     iconColor: 'text-red-600' 
+                                 };
+                             }
+
                              return { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
                          }
                          // 'off' -> Allow Clock In but will trigger Confirmation (Button Active)
@@ -11143,13 +11186,13 @@
                                                         <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
                                                             <div className="flex items-center gap-2">
                                                                 <Users className="w-4 h-4" />
-                                                                <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                                <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
                                                             </div>
                                                             <button 
                                                                 onClick={() => setCadreMapSelectedUserId(null)}
                                                                 className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
                                                             >
-                                                                清除篩選
+                                                                取消選取
                                                             </button>
                                                         </div>
                                                     )}
@@ -14392,13 +14435,13 @@
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
                                                     <div className="flex items-center gap-2">
                                                         <Users className="w-4 h-4" />
-                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                        <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
                                                     </div>
                                                     <button 
                                                         onClick={() => setCadreMapSelectedUserId(null)}
                                                         className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
                                                     >
-                                                        清除篩選
+                                                        取消選取
                                                     </button>
                                                 </div>
                                             )}
@@ -15008,13 +15051,13 @@
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
                                                     <div className="flex items-center gap-2">
                                                         <Users className="w-4 h-4" />
-                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                        <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
                                                     </div>
                                                     <button 
                                                         onClick={() => setCadreMapSelectedUserId(null)}
                                                         className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
                                                     >
-                                                        清除篩選
+                                                        取消選取
                                                     </button>
                                                 </div>
                                             )}
@@ -15742,7 +15785,20 @@
                                     )}
                                     {cadreSubtab === 'approval' && hasSubPermission('cadre', 'approval') && (
                                         <div>
-
+                                            {cadreMapSelectedUserId && (
+                                                <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Users className="w-4 h-4" />
+                                                        <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setCadreMapSelectedUserId(null)}
+                                                        className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                    >
+                                                        取消選取
+                                                    </button>
+                                                </div>
+                                            )}
 
                                             <div className="space-y-3 pb-24">
                                                 {(function() {
@@ -15756,8 +15812,7 @@
 
                                                     const displaySignatures = cadreSignatures.filter(s => {
                                                         if (!companyUserIds.includes(s.userId)) return false;
-                                                        
-
+                                                        if (cadreMapSelectedUserId && s.userId !== cadreMapSelectedUserId) return false;
 
                                                         return true;
                                                     });
@@ -15897,13 +15952,13 @@
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
                                                     <div className="flex items-center gap-2">
                                                         <Users className="w-4 h-4" />
-                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                        <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
                                                     </div>
                                                     <button 
                                                         onClick={() => setCadreMapSelectedUserId(null)}
                                                         className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
                                                     >
-                                                        清除篩選
+                                                        取消選取
                                                     </button>
                                                 </div>
                                             )}
@@ -16088,13 +16143,13 @@
                                                 <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
                                                     <div className="flex items-center gap-2">
                                                         <Users className="w-4 h-4" />
-                                                        <span>已篩選人員: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                        <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
                                                     </div>
                                                     <button 
                                                         onClick={() => setCadreMapSelectedUserId(null)}
                                                         className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
                                                     >
-                                                        清除篩選
+                                                        取消選取
                                                     </button>
                                                 </div>
                                             )}
