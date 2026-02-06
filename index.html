@@ -9375,9 +9375,8 @@
                 }
                 
                 const hasCadrePermission = (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('cadre');
-                const shouldFetch = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role) || hasCadrePermission;
-                if (!shouldFetch) return;
-
+                const isAdminOrCadre = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role) || hasCadrePermission;
+                
                 const targetYear = targetDate.getFullYear();
                 const targetMonth = targetDate.getMonth();
                 // Format YYYY-MM-DD
@@ -9385,11 +9384,22 @@
                 const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
                 const endOfMonthStr = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-${lastDay}`;
 
-                const q = query(
-                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
-                    where('date', '>=', startOfMonthStr),
-                    where('date', '<=', endOfMonthStr)
-                );
+                let q;
+                if (isAdminOrCadre) {
+                    q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                        where('date', '>=', startOfMonthStr),
+                        where('date', '<=', endOfMonthStr)
+                    );
+                } else {
+                    // For normal users, fetch only their own schedules
+                    q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                        where('date', '>=', startOfMonthStr),
+                        where('date', '<=', endOfMonthStr),
+                        where('userId', '==', dbUser.id)
+                    );
+                }
 
                 const unsubscribe = onSnapshot(q, (snap) => {
                     setSchedulesList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -10383,7 +10393,14 @@
                                 <div className="flex gap-2">
                                     {hasSubPermission('clock', 'work') && <button onClick={() => setClockSubtab('work')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'work' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>上下班</button>}
                                     {hasSubPermission('clock', 'out') && <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>外出</button>}
-                                    {hasSubPermission('clock', 'card') && <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>}
+                                    {hasSubPermission('clock', 'card') && (function(){
+                                        if (!dbUser) return null;
+                                        const now = new Date();
+                                        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                        const mySchedule = (typeof schedulesList !== 'undefined' ? schedulesList : []).find(s => s.userId === dbUser.id && s.date === todayStr);
+                                        if (mySchedule && (mySchedule.type === 'work' || mySchedule.type === 'duty')) return null;
+                                        return <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>;
+                                    })()}
                                     {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>}
                                     <button onClick={() => setClockSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>
                                 </div>
@@ -12427,9 +12444,20 @@
                                                     }
 
                                                     // Days
+                                                    let dbUserStartDateStr = null;
+                                                    if (dbUser?.startDate) {
+                                                        if (typeof dbUser.startDate === 'object' && dbUser.startDate.seconds) {
+                                                            const d = new Date(dbUser.startDate.seconds * 1000);
+                                                            dbUserStartDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                                        } else if (typeof dbUser.startDate === 'string') {
+                                                            dbUserStartDateStr = dbUser.startDate.replace(/\//g, '-');
+                                                        }
+                                                    }
+
                                                     for (let d = 1; d <= daysInMonth; d++) {
                                                         const currentDate = new Date(year, month, d);
                                                         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                                        const isBeforeStartDate = dbUserStartDateStr && dateStr < dbUserStartDateStr;
                                                         const isToday = new Date().toDateString() === currentDate.toDateString();
                                                         const isPastDateGrid = currentDate < new Date(new Date().setHours(0,0,0,0));
                                                         const isHoliday = holidays.includes(dateStr);
@@ -12606,6 +12634,7 @@
                                                                 else if (schedule.type === 'duty') cellClass = 'bg-purple-100 text-purple-700 border border-purple-200';
                                                                 else if (schedule.type === 'card') cellClass = 'bg-green-100 text-green-700 border border-green-200';
                                                                 else if (schedule.type === 'off') cellClass = 'bg-gray-100 text-gray-400 border border-gray-200';
+                                                                else if (schedule.type === 'comp_leave') cellClass = 'bg-indigo-100 text-indigo-700 border border-indigo-200';
                                                             }
 
                                                     let attendanceStatus = null;
@@ -12641,7 +12670,7 @@
                                                         } else if (inTime && outTime) {
                                                             cellClass = 'bg-green-100 text-green-700 border border-green-200';
                                                             attendanceStatus = 'normal';
-                                                        } else if (!inTime && !outTime && isPastDateGrid) {
+                                                        } else if (!inTime && !outTime && isPastDateGrid && !isBeforeStartDate) {
                                                             cellClass = 'bg-red-100 text-red-700 border border-red-200';
                                                             attendanceStatus = 'abnormal';
                                                             statusType = 'absent';
@@ -12656,7 +12685,11 @@
                                                                     className={`h-14 rounded-lg flex flex-col items-center justify-center relative transition-colors cursor-pointer ${cellClass} ${isToday ? 'ring-2 ring-red-500' : ''} ${clockScheduleSelectedDate && clockScheduleSelectedDate.toDateString() === currentDate.toDateString() ? 'ring-2 ring-blue-500 z-10' : ''}`}
                                                                 >
                                                                     <span className={`text-xs font-bold ${isHoliday || isWeekend ? 'text-red-500' : ''}`}>{d}</span>
-                                                            {leaveInfo ? (
+                                                            {isBeforeStartDate ? (
+                                                                <div className="flex flex-col items-center justify-center w-full h-full pb-3">
+                                                                    <span className="text-[10px] text-gray-300 scale-90">未到職</span>
+                                                                </div>
+                                                            ) : leaveInfo ? (
                                                                 <span className="text-[10px] scale-90 font-bold w-[115%] text-center leading-none">
                                                                     {leaveInfo.sequence === 'full' ? '請假' : 
                                                                      leaveInfo.sequence === 'leave_work' ? '請假、上班' : 
@@ -12670,9 +12703,10 @@
                                                                          attendanceStatus === 'abnormal' ? (statusType === 'absent' ? '異常-曠職' : '異常') :
                                                                          schedule.type === 'work' ? '上班' : 
                                                                          schedule.type === 'duty' ? '值班' : 
-                                                                         schedule.type === 'card' ? '卡班' : '特休'}
+                                                                         schedule.type === 'card' ? '卡班' : 
+                                                                         schedule.type === 'comp_leave' ? '補休' : '特休'}
                                                                             </span>
-                                                                            {schedule.type !== 'off' && (
+                                                                            {schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
                                                                                 <span className="text-[9px] scale-75 opacity-80 leading-none">
                                                                                     {schedule.startTime}-{schedule.endTime}
                                                                                 </span>
@@ -12700,6 +12734,9 @@
                                                     </div>
                                                     <div className="flex items-center gap-1 text-xs text-gray-500">
                                                         <div className="w-3 h-3 rounded bg-gray-100 border border-gray-200"></div> 休假
+                                                    </div>
+                                                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                        <div className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200"></div> 補休
                                                     </div>
                                                 </div>
                                                 <button 
@@ -15685,7 +15722,7 @@
                                                             let cellStyle = {};
                                                             
                                                             const isFridayOff = currentDate.getDay() === 5 && (!schedule || schedule.type === 'off');
-                                                            const isWorkingDay = !isHoliday && !isWeekend && !(schedule && (schedule.type === 'off' || schedule.type === 'rest' || schedule.type === 'holiday')) && !isFridayOff;
+                                                            const isWorkingDay = !isHoliday && !isWeekend && !(schedule && (schedule.type === 'off' || schedule.type === 'rest' || schedule.type === 'holiday' || schedule.type === 'comp_leave')) && !isFridayOff;
 
                                                             const isApprovedActualLeave = (function() {
                                                                 if (!isWorkingDay) return false;
@@ -15765,6 +15802,8 @@
                                                                 } else {
                                                                     segments.push({ type: schedule.type, ratio: 1 });
                                                                 }
+                                                            } else if (schedule && schedule.type === 'comp_leave') {
+                                                                segments.push({ type: 'comp_leave', ratio: 1 });
                                                             } else if (schedule && schedule.type === 'off') {
                                                                 segments.push({ type: 'off', ratio: 1 });
                                                             } else {
@@ -15780,6 +15819,7 @@
                                                                     leave: 'rgb(255, 237, 213)', // orange-100
                                                                     holiday: 'rgb(243, 244, 246)', // gray-100
                                                                     off: 'rgb(87, 83, 78)', // stone-600 (for bg)
+                                                                    comp_leave: 'rgb(224, 231, 255)', // indigo-100
                                                                 };
                                                                 if (segments.length === 1) {
                                                                     if (segments[0].type === 'off') {
@@ -15790,6 +15830,8 @@
                                                                         cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
                                                                     } else if (segments[0].type === 'duty') {
                                                                         cellClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+                                                                    } else if (segments[0].type === 'comp_leave') {
+                                                                        cellClass = 'bg-indigo-100 text-indigo-700 border border-indigo-200';
                                                                     } else {
                                                                         cellClass = 'bg-gray-100 text-gray-800';
                                                                     }
@@ -15849,6 +15891,9 @@
                                                         </div>
                                                         <div className="flex items-center gap-1 text-xs text-gray-500">
                                                             <div className="w-3 h-3 rounded bg-stone-500 border border-stone-600"></div> 休假
+                                                        </div>
+                                                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                            <div className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200"></div> 補休
                                                         </div>
                                                     </div>
 
@@ -16130,16 +16175,17 @@
                                                                         <div className={`px-3 py-1 rounded-lg text-sm font-bold ${
                                                                             schedule.type === 'work' ? 'bg-blue-100 text-blue-700' :
                                                                             schedule.type === 'duty' ? 'bg-yellow-100 text-yellow-700' :
-                                                                            schedule.type === 'off' ? 'bg-stone-500 text-white' : 'bg-gray-200 text-gray-700'
+                                                                            schedule.type === 'off' ? 'bg-stone-500 text-white' : 
+                                                                            schedule.type === 'comp_leave' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-700'
                                                                         }`}>
-                                                                            {schedule.type === 'work' ? '上班' : schedule.type === 'duty' ? '值班' : schedule.type === 'off' ? '休假' : '其他'}
+                                                                            {schedule.type === 'work' ? '上班' : schedule.type === 'duty' ? '值班' : schedule.type === 'off' ? '休假' : schedule.type === 'comp_leave' ? '補休' : '其他'}
                                                                         </div>
-                                                                        {schedule.type !== 'off' && (
+                                                                        {schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
                                                                             <div className="font-mono font-bold text-gray-700 text-lg">
                                                                                 {schedule.startTime} ~ {schedule.endTime}
                                                                             </div>
                                                                         )}
-                                                                        {locationName && schedule.type !== 'off' && (
+                                                                        {locationName && schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
                                                                             <div 
                                                                                 onClick={() => {
                                                                                     setScheduleModalDate(dateStr);
@@ -17808,27 +17854,56 @@
                                                 );
                                             })()}
                                         </div>
-                                        <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="flex items-center justify-between w-full">
                                             <span className="text-lg font-bold text-gray-800">
+                                                {cadreCompany ? `${cadreCompany} - ` : ''}
                                                 {reportModalType === 'attendance' && '出勤報表'}
                                                 {reportModalType === 'outing' && '外出報表'}
                                                 {reportModalType === 'duty' && '卡班報表'}
                                                 {reportModalType === 'leave' && '請假報表'}
                                             </span>
-                                            <button 
-                                                onClick={() => setIsReportMonthOpen(v => !v)} 
-                                                className="text-sm font-normal text-gray-500 hover:underline inline-flex items-center"
-                                                title="選擇月份"
-                                            >
-                                                {cadreRecordDate.split('-').slice(0, 2).join('-')}
-                                                <ChevronDown className="w-4 h-4 ml-1" />
-                                            </button>
-                                            <button onClick={handlePrintReport} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
-                                                列印
-                                            </button>
-                                            <button onClick={handleExportExcel} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
-                                                匯出(Excel)
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            d.setDate(1);
+                                                            d.setMonth(d.getMonth() - 1);
+                                                            const y = d.getFullYear();
+                                                            const m = String(d.getMonth() + 1).padStart(2, '0');
+                                                            setCadreRecordDate(`${y}-${m}-01`);
+                                                        }}
+                                                        className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                                    >
+                                                        <ChevronLeft className="w-5 h-5" />
+                                                    </button>
+                                                    <span className="text-sm font-bold text-gray-700 min-w-[80px] text-center">
+                                                        {(() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+                                                        })()}
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => {
+                                                            const d = new Date(cadreRecordDate);
+                                                            d.setDate(1);
+                                                            d.setMonth(d.getMonth() + 1);
+                                                            const y = d.getFullYear();
+                                                            const m = String(d.getMonth() + 1).padStart(2, '0');
+                                                            setCadreRecordDate(`${y}-${m}-01`);
+                                                        }}
+                                                        className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                                    >
+                                                        <ChevronRight className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                                <button onClick={handlePrintReport} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                                    列印
+                                                </button>
+                                                <button onClick={handleExportExcel} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                                    匯出(Excel)
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                     <button onClick={() => { setReportModalType(null); setIsReportMonthOpen(false); }} className="p-2 bg-gray-100 rounded-full text-gray-600">
@@ -18370,20 +18445,14 @@
                                                             const filteredUsers = usersList.filter(u => {
                                                                 if (u.name === '蔡總') return false;
                                                                 
-                                                                // Strict filtering by dbUser's company if available
-                                                                if (dbUser.companyId) {
-                                                                    const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
-                                                                    return ids.some(id => String(id) === String(dbUser.companyId));
-                                                                }
-                                                                
                                                                 if (cadreCompany) {
                                                                     // 1. Resolve Cadre Company to ID
                                                                     const targetComp = companies.find(c => c.name === cadreCompany);
                                                                     
                                                                     // 2. Check for ID Match (Primary)
                                                                     if (targetComp) {
-                                                                        const hasIdMatch = (u.companyIds && u.companyIds.includes(targetComp.id)) || 
-                                                                                           (u.companyId === targetComp.id);
+                                                                        const hasIdMatch = (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetComp.id))) || 
+                                                                                           (String(u.companyId) === String(targetComp.id));
                                                                         if (hasIdMatch) return true;
                                                                     }
                                                                     
@@ -18507,6 +18576,12 @@
                                                                     if (dateObj.getMonth() !== targetMonth) return <div key={d} className="border-t border-l border-gray-300 bg-gray-50"></div>;
                                                                     
                                                                     const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+                                                                    // Check Onboard Date
+                                                                    if (u.startDate && dateStr < u.startDate) {
+                                                                        return <div key={d} className="border-t border-l border-gray-300 bg-gray-50 flex items-center justify-center text-gray-300">-</div>;
+                                                                    }
+
                                                                     const dayStart = new Date(targetYear, targetMonth, d, 0, 0, 0);
                                                                     const dayEnd = new Date(targetYear, targetMonth, d, 23, 59, 59);
                                                                     const todayStart = new Date();
@@ -18548,6 +18623,7 @@
                                                                     let isWorkDay = false;
                                                                     let isOff = false;
                                                                     let isHoliday = false;
+                                                                    let isCompLeave = false;
 
                                                                     if (schedule) {
                                                                         if (schedule.type === 'card') isCardDay = true;
@@ -18555,6 +18631,7 @@
                                                                         else if (['work'].includes(schedule.type)) isWorkDay = true;
                                                                         else if (schedule.type === 'off') isOff = true;
                                                                         else if (schedule.type === 'holiday') isHoliday = true;
+                                                                        else if (schedule.type === 'comp_leave') isCompLeave = true;
                                                                     } else {
                                                                         // Fallback logic
                                                                         const w = dateObj.getDay();
@@ -18954,7 +19031,11 @@
                                                                              // If we show '假日', it covers the request.
                                                                              cellContent = '假日';
                                                                              fontSizeClass = 'text-[10px] scale-90';
-                                                                             bgClass = 'bg-orange-50';
+                                                                            bgClass = 'bg-orange-50';
+                                                                        } else if (isCompLeave) {
+                                                                            cellContent = '補休';
+                                                                            fontSizeClass = 'text-[10px] scale-90 text-indigo-700';
+                                                                            bgClass = 'bg-indigo-100';
                                                                         } else if (isOff) {
                                                                             // If Off day and attended, similar logic?
                                                                             // User didn't explicitly say for Off days, but usually grouped with Holiday.
@@ -19053,6 +19134,10 @@
                                                                                  absentDays++;
                                                                                  bgClass = 'bg-red-50';
                                                                             }
+                                                                        } else if (isCompLeave) {
+                                                                            cellContent = '補休';
+                                                                            fontSizeClass = 'text-[10px] scale-90 text-indigo-700';
+                                                                            bgClass = 'bg-indigo-100';
                                                                         } else if (isOff) {
                                                                             cellContent = '公休';
                                                                             fontSizeClass = 'text-[10px] scale-90'; 
@@ -19110,6 +19195,15 @@
                                     }
 
                                     const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                    let userStartDateStr = null;
+                                    if (user?.startDate) {
+                                        if (typeof user.startDate === 'object' && user.startDate.seconds) {
+                                            const d = new Date(user.startDate.seconds * 1000);
+                                            userStartDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                        } else if (typeof user.startDate === 'string') {
+                                            userStartDateStr = user.startDate.replace(/\//g, '-');
+                                        }
+                                    }
                                     const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
                                     const weekMap = ['日','一','二','三','四','五','六'];
                                     const holidays = [
@@ -19380,28 +19474,34 @@
                                         
                                         // 檢查曠職：若班表為上班/值班，且完全沒有打卡紀錄，且無核准請假
                                         if (!hasApprovedLeave) {
-                                        const todayDate = new Date();
+                                            const todayDate = new Date();
                                             todayDate.setHours(0,0,0,0);
                                             const targetDayDate = new Date(targetYear, targetMonth, day);
                                             
-                                            // 只有在日期已過（小於今天）才判定曠職
-                                            if (schedule && (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card')) {
-                                                 if (targetDayDate < todayDate) {
-                                                    if (!firstIn && !lastOut) {
-                                                        abnormalReasons.push('曠職');
-                                                    } else {
-                                                        if (!firstIn) abnormalReasons.push('未上班');
-                                                        if (!lastOut) abnormalReasons.push('未下班');
-                                                    }
-                                                 }
-                                            } else {
-                                                // 無班表或非工作日，僅檢查有上班沒下班或有下班沒上班
-                                                if (firstIn && !lastOut) abnormalReasons.push('未下班');
-                                                if (!firstIn && lastOut) abnormalReasons.push('未上班');
+                                            // 檢查是否為到職日前
+                                            const isBeforeStartDate = userStartDateStr && dateStr < userStartDateStr;
+
+                                            // 只有在日期已過（小於今天）且在到職日之後才判定曠職
+                                            if (!isBeforeStartDate) {
+                                                if (schedule && (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card')) {
+                                                     if (targetDayDate < todayDate) {
+                                                        if (!firstIn && !lastOut) {
+                                                            abnormalReasons.push('曠職');
+                                                        } else {
+                                                            if (!firstIn) abnormalReasons.push('未上班');
+                                                            if (!lastOut) abnormalReasons.push('未下班');
+                                                        }
+                                                     }
+                                                } else {
+                                                    // 無班表或非工作日，僅檢查有上班沒下班或有下班沒上班
+                                                    if (firstIn && !lastOut) abnormalReasons.push('未下班');
+                                                    if (!firstIn && lastOut) abnormalReasons.push('未上班');
+                                                }
                                             }
                                         }
 
-                                        const remarks = abnormalReasons.length > 0 ? `異常-${abnormalReasons.join('、')}` : '';
+                                        const isBeforeOnboard = userStartDateStr && dateStr < userStartDateStr;
+                                        const remarks = isBeforeOnboard ? '未到職' : (abnormalReasons.length > 0 ? `異常-${abnormalReasons.join('、')}` : '');
 
                                         let status = null;
                                         
@@ -19428,7 +19528,9 @@
                                             status = '假日';
                                         }
 
-                                        if (status !== '特休' && status !== '假日') {
+                                        if (isBeforeOnboard) {
+                                            status = '未到職';
+                                        } else if (status !== '特休' && status !== '假日') {
                                             if (hasApprovedLeave) {
                                                 // 不覆蓋原有狀態（如上班、值班），僅記錄備註
                                                 // 若原狀態為空或 '-'，則設為請假
@@ -20823,51 +20925,108 @@
                             {/* Header */}
                             <div className="bg-white px-4 py-3 border-b flex items-center justify-between shadow-sm flex-shrink-0">
                                 <div className="flex items-center gap-3">
-                                    <button 
-                                        onClick={() => setShowSignOffReportModal(false)}
-                                        className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-gray-600"
-                                    >
-                                        <ArrowLeft className="w-6 h-6" />
-                                    </button>
                                     <h2 className="text-lg font-bold text-gray-800">
                                         {(() => {
-                                            const compName = dbUser.companyName || (dbUser.companyId && companies.find(c => c.id === dbUser.companyId)?.name);
+                                            const compName = cadreCompany || dbUser.companyName || (dbUser.companyId && companies.find(c => c.id === dbUser.companyId)?.name);
                                             return compName ? `${compName} - ` : '';
                                         })()}簽呈報表
                                     </h2>
                                 </div>
-                                <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-                                    <button 
-                                        onClick={() => {
-                                            const d = new Date(signOffReportDate);
-                                            d.setDate(1);
-                                            d.setMonth(d.getMonth() - 1);
-                                            setSignOffReportDate(d);
-                                        }}
-                                        className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
-                                    >
-                                        <ChevronLeft className="w-5 h-5" />
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                                        <button 
+                                            onClick={() => {
+                                                const d = new Date(signOffReportDate);
+                                                d.setDate(1);
+                                                d.setMonth(d.getMonth() - 1);
+                                                setSignOffReportDate(d);
+                                            }}
+                                            className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                        >
+                                            <ChevronLeft className="w-5 h-5" />
+                                        </button>
+                                        <span className="text-sm font-bold text-gray-700 min-w-[80px] text-center">
+                                            {signOffReportDate.getFullYear()}年{signOffReportDate.getMonth() + 1}月
+                                        </span>
+                                        <button 
+                                            onClick={() => {
+                                                const d = new Date(signOffReportDate);
+                                                d.setDate(1);
+                                                d.setMonth(d.getMonth() + 1);
+                                                setSignOffReportDate(d);
+                                            }}
+                                            className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                        >
+                                            <ChevronRight className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                    <button onClick={() => window.print()} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                        列印
                                     </button>
-                                    <span className="text-sm font-bold text-gray-700 min-w-[80px] text-center">
-                                        {signOffReportDate.getFullYear()}年{signOffReportDate.getMonth() + 1}月
-                                    </span>
                                     <button 
-                                        onClick={() => {
-                                            const d = new Date(signOffReportDate);
-                                            d.setDate(1);
-                                            d.setMonth(d.getMonth() + 1);
-                                            setSignOffReportDate(d);
-                                        }}
-                                        className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                        onClick={() => setShowSignOffReportModal(false)}
+                                        className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors"
                                     >
-                                        <ChevronRight className="w-5 h-5" />
+                                        <X className="w-5 h-5" />
                                     </button>
                                 </div>
                             </div>
 
                             {/* Content */}
                             <div className="flex-1 overflow-auto bg-gray-50 p-4">
-                                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                <style>
+                                    {`@page { size: A4; margin: 10mm; }
+                                    @media print {
+                                        body * { visibility: hidden; }
+                                        #signature-report-content, #signature-report-content * { visibility: visible; }
+                                        #signature-report-content {
+                                            position: absolute;
+                                            left: 0;
+                                            top: 0;
+                                            width: 100%;
+                                            margin: 0;
+                                            padding: 0;
+                                            background: white;
+                                            border: none !important;
+                                            box-shadow: none !important;
+                                        }
+                                        #signature-report-content table {
+                                            width: 100% !important;
+                                            min-width: 0 !important;
+                                            table-layout: fixed !important;
+                                        }
+                                        #signature-report-content th, #signature-report-content td {
+                                            font-size: 8pt !important;
+                                            padding: 4px 8px;
+                                            word-wrap: break-word;
+                                            white-space: normal !important;
+                                            overflow: visible !important;
+                                        }
+                                        /* Column Widths - Total 190mm (A4 210mm - 20mm margins) */
+                                        #signature-report-content th:nth-child(1), #signature-report-content td:nth-child(1) { width: 20mm !important; } /* 日期 */
+                                        #signature-report-content th:nth-child(2), #signature-report-content td:nth-child(2) { width: 20mm !important; } /* 姓名 */
+                                        #signature-report-content th:nth-child(3), #signature-report-content td:nth-child(3) { width: 20mm !important; } /* 類型 */
+                                        #signature-report-content th:nth-child(4), #signature-report-content td:nth-child(4) { width: 100mm !important; } /* 內容 */
+                                        #signature-report-content th:nth-child(5), #signature-report-content td:nth-child(5) { width: 10mm !important; } /* 狀態 */
+                                        #signature-report-content th:nth-child(6), #signature-report-content td:nth-child(6) { width: 20mm !important; } /* 審核資訊 */
+                                        
+                                        .print-only-header {
+                                            display: block !important;
+                                            text-align: center;
+                                            font-size: 14pt;
+                                            font-weight: bold;
+                                            margin-bottom: 10px;
+                                        }
+                                    }
+                                    .print-only-header {
+                                        display: none;
+                                    }
+                                    `}
+                                </style>
+                                <div id="signature-report-content" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <div className="print-only-header">
+                                        西北保全{cadreCompany || dbUser.companyName || (dbUser.companyId && companies.find(c => c.id === dbUser.companyId)?.name)}人員 {signOffReportDate.getFullYear()}-{String(signOffReportDate.getMonth() + 1).padStart(2, '0')} 簽呈總表
+                                    </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full min-w-[800px]">
                                             <thead className="bg-gray-50 border-b border-gray-100">
@@ -20885,11 +21044,15 @@
                                                     if (!sig.createdAt) return false;
                                                     
                                                     // Filter by company
-                                                    if (dbUser.companyId) {
+                                                    const targetCompanyName = cadreCompany || dbUser.companyName;
+                                                    const targetCompany = targetCompanyName ? companies.find(c => c.name === targetCompanyName) : null;
+                                                    const targetCompanyId = targetCompany ? targetCompany.id : dbUser.companyId;
+
+                                                    if (targetCompanyId) {
                                                         const submitter = usersList.find(u => u.id === sig.userId);
                                                         if (!submitter) return false;
-                                                        const ids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
-                                                        if (!ids.some(id => String(id) === String(dbUser.companyId))) return false;
+                                                        const uCids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
+                                                        if (!uCids.some(cid => String(cid) === String(targetCompanyId))) return false;
                                                     }
 
                                                     const d = sig.createdAt.toDate ? sig.createdAt.toDate() : new Date(sig.createdAt);
@@ -20953,11 +21116,15 @@
                                                     if (!sig.createdAt) return false;
                                                     
                                                     // Filter by company
-                                                    if (dbUser.companyId) {
+                                                    const targetCompanyName = cadreCompany || dbUser.companyName;
+                                                    const targetCompany = targetCompanyName ? companies.find(c => c.name === targetCompanyName) : null;
+                                                    const targetCompanyId = targetCompany ? targetCompany.id : dbUser.companyId;
+
+                                                    if (targetCompanyId) {
                                                         const submitter = usersList.find(u => u.id === sig.userId);
                                                         if (!submitter) return false;
-                                                        const ids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
-                                                        if (!ids.some(id => String(id) === String(dbUser.companyId))) return false;
+                                                        const uCids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
+                                                        if (!uCids.some(cid => String(cid) === String(targetCompanyId))) return false;
                                                     }
 
                                                     const d = sig.createdAt.toDate ? sig.createdAt.toDate() : new Date(sig.createdAt);
@@ -20983,51 +21150,108 @@
                             {/* Header */}
                             <div className="bg-white px-4 py-3 border-b flex items-center justify-between shadow-sm flex-shrink-0">
                                 <div className="flex items-center gap-3">
-                                    <button 
-                                        onClick={() => setShowLeaveReportModal(false)}
-                                        className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-gray-600"
-                                    >
-                                        <ArrowLeft className="w-6 h-6" />
-                                    </button>
                                     <h2 className="text-lg font-bold text-gray-800">
                                         {(() => {
-                                            const compName = dbUser.companyName || (dbUser.companyId && companies.find(c => c.id === dbUser.companyId)?.name);
+                                            const compName = cadreCompany || dbUser.companyName || (dbUser.companyId && companies.find(c => c.id === dbUser.companyId)?.name);
                                             return compName ? `${compName} - ` : '';
                                         })()}請假報表
                                     </h2>
                                 </div>
-                                <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-                                    <button 
-                                        onClick={() => {
-                                            const d = new Date(leaveReportDate);
-                                            d.setDate(1);
-                                            d.setMonth(d.getMonth() - 1);
-                                            setLeaveReportDate(d);
-                                        }}
-                                        className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
-                                    >
-                                        <ChevronLeft className="w-5 h-5" />
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                                        <button 
+                                            onClick={() => {
+                                                const d = new Date(leaveReportDate);
+                                                d.setDate(1);
+                                                d.setMonth(d.getMonth() - 1);
+                                                setLeaveReportDate(d);
+                                            }}
+                                            className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                        >
+                                            <ChevronLeft className="w-5 h-5" />
+                                        </button>
+                                        <span className="text-sm font-bold text-gray-700 min-w-[80px] text-center">
+                                            {leaveReportDate.getFullYear()}年{leaveReportDate.getMonth() + 1}月
+                                        </span>
+                                        <button 
+                                            onClick={() => {
+                                                const d = new Date(leaveReportDate);
+                                                d.setDate(1);
+                                                d.setMonth(d.getMonth() + 1);
+                                                setLeaveReportDate(d);
+                                            }}
+                                            className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                        >
+                                            <ChevronRight className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                    <button onClick={() => window.print()} className="px-3 py-1.5 bg-gray-100 rounded-xl text-gray-700 text-sm font-bold">
+                                        列印
                                     </button>
-                                    <span className="text-sm font-bold text-gray-700 min-w-[80px] text-center">
-                                        {leaveReportDate.getFullYear()}年{leaveReportDate.getMonth() + 1}月
-                                    </span>
                                     <button 
-                                        onClick={() => {
-                                            const d = new Date(leaveReportDate);
-                                            d.setDate(1);
-                                            d.setMonth(d.getMonth() + 1);
-                                            setLeaveReportDate(d);
-                                        }}
-                                        className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
+                                        onClick={() => setShowLeaveReportModal(false)}
+                                        className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 transition-colors"
                                     >
-                                        <ChevronRight className="w-5 h-5" />
+                                        <X className="w-5 h-5" />
                                     </button>
                                 </div>
                             </div>
 
                             {/* Content */}
                             <div className="flex-1 overflow-auto bg-gray-50 p-4">
-                                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                <style>
+                                    {`@page { size: A4; margin: 10mm; }
+                                    @media print {
+                                        body * { visibility: hidden; }
+                                        #leave-report-content, #leave-report-content * { visibility: visible; }
+                                        #leave-report-content {
+                                            position: absolute;
+                                            left: 0;
+                                            top: 0;
+                                            width: 100%;
+                                            margin: 0;
+                                            padding: 0;
+                                            background: white;
+                                            border: none !important;
+                                            box-shadow: none !important;
+                                        }
+                                        #leave-report-content table {
+                                            width: 100% !important;
+                                            min-width: 0 !important;
+                                            table-layout: fixed !important;
+                                        }
+                                        #leave-report-content th, #leave-report-content td {
+                                            font-size: 8pt !important;
+                                            padding: 4px 8px;
+                                            word-wrap: break-word;
+                                            white-space: normal !important;
+                                            overflow: visible !important;
+                                        }
+                                        /* Column Widths - Total 190mm (A4 210mm - 20mm margins) */
+                                        #leave-report-content th:nth-child(1), #leave-report-content td:nth-child(1) { width: 25mm !important; } /* 日期 */
+                                        #leave-report-content th:nth-child(2), #leave-report-content td:nth-child(2) { width: 20mm !important; } /* 姓名 */
+                                        #leave-report-content th:nth-child(3), #leave-report-content td:nth-child(3) { width: 20mm !important; } /* 請假類型 */
+                                        #leave-report-content th:nth-child(4), #leave-report-content td:nth-child(4) { width: 85mm !important; } /* 內容 */
+                                        #leave-report-content th:nth-child(5), #leave-report-content td:nth-child(5) { width: 15mm !important; } /* 狀態 */
+                                        #leave-report-content th:nth-child(6), #leave-report-content td:nth-child(6) { width: 25mm !important; } /* 審核資訊 */
+                                        
+                                        .print-only-header {
+                                            display: block !important;
+                                            text-align: center;
+                                            font-size: 14pt;
+                                            font-weight: bold;
+                                            margin-bottom: 10px;
+                                        }
+                                    }
+                                    .print-only-header {
+                                        display: none;
+                                    }
+                                    `}
+                                </style>
+                                <div id="leave-report-content" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <div className="print-only-header">
+                                        西北保全{cadreCompany || dbUser.companyName || (dbUser.companyId && companies.find(c => c.id === dbUser.companyId)?.name)}人員 {leaveReportDate.getFullYear()}-{String(leaveReportDate.getMonth() + 1).padStart(2, '0')} 請假總表
+                                    </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full min-w-[800px]">
                                             <thead className="bg-gray-50 border-b border-gray-100">
@@ -21045,11 +21269,15 @@
                                                     if (!leave.leaveStartDate) return false;
 
                                                     // Filter by company
-                                                    if (dbUser.companyId) {
+                                                    const targetCompanyName = cadreCompany || dbUser.companyName;
+                                                    const targetCompany = targetCompanyName ? companies.find(c => c.name === targetCompanyName) : null;
+                                                    const targetCompanyId = targetCompany ? targetCompany.id : dbUser.companyId;
+
+                                                    if (targetCompanyId) {
                                                         const submitter = usersList.find(u => u.id === leave.userId);
                                                         if (!submitter) return false;
-                                                        const ids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
-                                                        if (!ids.some(id => String(id) === String(dbUser.companyId))) return false;
+                                                        const uCids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
+                                                        if (!uCids.some(cid => String(cid) === String(targetCompanyId))) return false;
                                                     }
 
                                                     const d = new Date(leave.leaveStartDate);
@@ -21109,11 +21337,15 @@
                                                     if (!leave.leaveStartDate) return false;
                                                     
                                                     // Filter by company
-                                                    if (dbUser.companyId) {
+                                                    const targetCompanyName = cadreCompany || dbUser.companyName;
+                                                    const targetCompany = targetCompanyName ? companies.find(c => c.name === targetCompanyName) : null;
+                                                    const targetCompanyId = targetCompany ? targetCompany.id : dbUser.companyId;
+
+                                                    if (targetCompanyId) {
                                                         const submitter = usersList.find(u => u.id === leave.userId);
                                                         if (!submitter) return false;
-                                                        const ids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
-                                                        if (!ids.some(id => String(id) === String(dbUser.companyId))) return false;
+                                                        const uCids = submitter.companyIds || (submitter.companyId ? [submitter.companyId] : []);
+                                                        if (!uCids.some(cid => String(cid) === String(targetCompanyId))) return false;
                                                     }
 
                                                     const d = new Date(leave.leaveStartDate);
