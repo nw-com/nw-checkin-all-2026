@@ -6793,6 +6793,7 @@
             const [leavesList, setLeavesList] = useState([]);
             const [schedulesList, setSchedulesList] = useState([]); // New state for leaves from 'leaves' collection
             const [myAttendance, setMyAttendance] = useState([]);
+            const [todaySchedule, setTodaySchedule] = useState(null); // Dedicated state for today's schedule (Clock tab)
             const [fetchError, setFetchError] = useState('');
             const [isOnline, setIsOnline] = useState(navigator.onLine);
             const [activeTab, setActiveTab] = useState(() => localStorage.getItem('last_active_tab') || 'home');
@@ -9408,6 +9409,29 @@
                 return () => unsubscribe();
             }, [dbUser, cadreRecordDate, roles, cadreSubtab, cadreScheduleDate]);
 
+            // Fetch Today's Schedule for Clock Tab Logic (ensures correct button visibility)
+            useEffect(() => {
+                if (!dbUser) return;
+                const now = new Date();
+                const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                    where('userId', '==', dbUser.id),
+                    where('date', '==', todayStr)
+                );
+                
+                const unsubscribe = onSnapshot(q, (snap) => {
+                    if (!snap.empty) {
+                        setTodaySchedule({ id: snap.docs[0].id, ...snap.docs[0].data() });
+                    } else {
+                        setTodaySchedule(null);
+                    }
+                }, (e) => console.error('Error fetching today schedule:', e));
+                
+                return () => unsubscribe();
+            }, [dbUser]);
+
             // 2. Tab-Specific Data (My Attendance)
             useEffect(() => {
                 if (!user || !dbUser) return;
@@ -10395,10 +10419,8 @@
                                     {hasSubPermission('clock', 'out') && <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>外出</button>}
                                     {hasSubPermission('clock', 'card') && (function(){
                                         if (!dbUser) return null;
-                                        const now = new Date();
-                                        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-                                        const mySchedule = (typeof schedulesList !== 'undefined' ? schedulesList : []).find(s => s.userId === dbUser.id && s.date === todayStr);
-                                        if (mySchedule && (mySchedule.type === 'work' || mySchedule.type === 'duty')) return null;
+                                        // Use dedicated todaySchedule state
+                                        if (todaySchedule && (todaySchedule.type === 'work' || todaySchedule.type === 'duty')) return null;
                                         return <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>;
                                     })()}
                                     {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>}
@@ -18219,7 +18241,14 @@
                                         const byDay = {};
                                         cardRecords.forEach(r => {
                                             const d = new Date(r.timestamp.seconds * 1000);
-                                            const day = d.getDate();
+                                            
+                                            // 邏輯日期判定 (夜班跨日歸前一日)
+                                            let logicalDate = new Date(d);
+                                            if (r.isNightShift && d.getHours() < 12) {
+                                                logicalDate.setDate(d.getDate() - 1);
+                                            }
+                                            const day = logicalDate.getDate();
+
                                             byDay[day] = byDay[day] || { ins: [], outs: [], locationName: '' };
                                             if (['late_in', 'duty_in', 'work_in'].includes(r.type)) byDay[day].ins.push(r);
                                             if (['late_out', 'duty_out', 'work_out'].includes(r.type)) byDay[day].outs.push(r);
@@ -18257,6 +18286,14 @@
                                             if (lastOut) {
                                                 outTimeStr = new Date(lastOut.timestamp.seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                                 if (['work_out', 'duty_out'].includes(lastOut.type)) outTimeStr += ' (補)';
+                                                
+                                                if (lastOut.isNightShift) {
+                                                    const rawOutDate = new Date(lastOut.timestamp.seconds * 1000);
+                                                    const outDay = rawOutDate.getDate();
+                                                    if (outDay !== day) {
+                                                        outTimeStr += '(跨日)';
+                                                    }
+                                                }
                                             }
                                             
                                             return {
