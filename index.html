@@ -7310,8 +7310,31 @@
                 }
             });
 
-            // User Edit State
-            const [editingUser, setEditingUser] = useState(null);
+            // Share Modal State
+            const [shareModalOpen, setShareModalOpen] = useState(false);
+            const [shareTarget, setShareTarget] = useState('蔡總');
+            const [shareItem, setShareItem] = useState(null);
+            const [shareType, setShareType] = useState('leave'); // 'leave' or 'signature'
+
+            const handleShareClick = (item, type) => {
+                setShareItem(item);
+                setShareType(type);
+                setShareTarget('蔡總');
+                setShareModalOpen(true);
+            };
+
+            const handleShareConfirm = async () => {
+                if (!shareItem) return;
+                setShareModalOpen(false);
+                
+                if (shareType === 'leave') {
+                    await handleShareLeave(shareItem, shareTarget);
+                } else {
+                    await handleShareSignature(shareItem, shareTarget);
+                }
+                setShareItem(null);
+            };
+
             const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
             const [editUserForm, setEditUserForm] = useState({});
 
@@ -7693,7 +7716,7 @@
                 }
             };
 
-            const handleShareSignature = async (sig) => {
+            const handleShareSignature = async (sig, targetName = '蔡總') => {
                 if (!sig) return;
                 
                 // 1. Ensure shareToken exists
@@ -7735,13 +7758,13 @@
                 
                 // Construct URLs with token and context
                 const baseUrl = window.location.href.split('?')[0];
-                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(applyTimeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}&kind=signature`;
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(applyTimeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}&kind=signature&rn=${encodeURIComponent(targetName)}`;
                 
                 // Use distinct actions for signature
                 const approveUrl = `${baseUrl}?action=approve_sig&id=${sig.id}&token=${token}${contextParams}`;
                 const rejectUrl = `${baseUrl}?action=reject_sig&id=${sig.id}&token=${token}${contextParams}`;
                 
-                const text = `📋【${companyName} 簽呈審核】\n\n👤 申請人：${name}\n📌 類型：${type}\n📅 申請時間：${applyTimeStr}\n📝 內容：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
+                const text = `給親愛的${targetName}，請核示\n\n📋【${companyName} 簽呈審核】\n\n👤 申請人：${name}\n📌 類型：${type}\n📅 申請時間：${applyTimeStr}\n📝 內容：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
                 
                 const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
                 window.open(shareUrl, '_blank');
@@ -9989,7 +10012,7 @@
                 }
             };
 
-            const handleShareLeave = async (r) => {
+            const handleShareLeave = async (r, targetName = '蔡總') => {
                 if (!r) return;
                 
                 // 1. Ensure shareToken exists
@@ -10043,11 +10066,11 @@
                 
                 // Construct URLs with token and context
                 const baseUrl = window.location.href.split('?')[0];
-                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}`;
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}&rn=${encodeURIComponent(targetName)}`;
                 const approveUrl = `${baseUrl}?action=approve&id=${r.id}&token=${token}${contextParams}`;
                 const rejectUrl = `${baseUrl}?action=reject&id=${r.id}&token=${token}${contextParams}`;
                 
-                const text = `📋【${companyName} 請假審核】\n\n👤 申請人：${name}\n📌 假別：${type}\n📅 時間：${timeStr}\n📝 事由：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
+                const text = `給親愛的${targetName}，請核示\n\n📋【${companyName} 請假審核】\n\n👤 申請人：${name}\n📌 假別：${type}\n📅 時間：${timeStr}\n📝 事由：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
                 
                 const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
                 window.open(shareUrl, '_blank');
@@ -10116,7 +10139,8 @@
                             time: decodeURIComponent(params.get('d') || ''),
                             reason: decodeURIComponent(params.get('r') || ''),
                             companyName: decodeURIComponent(params.get('c') || '請假審核'),
-                            applyTime: decodeURIComponent(params.get('at') || '')
+                            applyTime: decodeURIComponent(params.get('at') || ''),
+                            reviewerName: decodeURIComponent(params.get('rn') || 'Line')
                         });
                     } else if (action === 'approve_sig' || action === 'reject_sig') {
                         setGuestComment('');
@@ -10131,7 +10155,8 @@
                             time: decodeURIComponent(params.get('d') || ''),
                             reason: decodeURIComponent(params.get('r') || ''),
                             companyName: decodeURIComponent(params.get('c') || '簽呈審核'),
-                            applyTime: decodeURIComponent(params.get('at') || '')
+                            applyTime: decodeURIComponent(params.get('at') || ''),
+                            reviewerName: decodeURIComponent(params.get('rn') || 'Line')
                         });
                     }
                 }
@@ -10376,6 +10401,7 @@
                                                             status: action === 'approve_sig' ? 'approved' : 'rejected',
                                                             reviewedAt: serverTimestamp(),
                                                             reviewedBy: 'guest-link',
+                                                            reviewerName: guestApprovalData.reviewerName || 'Line',
                                                             reviewComment: guestComment,
                                                             verificationToken: token 
                                                         });
@@ -10384,7 +10410,7 @@
                                                             approvalStatus: action === 'approve' ? 'approved' : 'rejected',
                                                             approvalTime: new Date().toISOString(),
                                                             approverId: 'guest-link',
-                                                            approverName: '連結審核', 
+                                                            approverName: guestApprovalData.reviewerName || '連結審核', 
                                                             verificationToken: token 
                                                         });
                                                     }
@@ -10483,6 +10509,73 @@
                             </div>
                         )}
                     </header>
+
+                    {shareModalOpen && (
+                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4 animate-fade-in">
+                            <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden animate-scale-up">
+                                <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                                    <h3 className="font-bold text-gray-800">選擇分享對象</h3>
+                                    <button 
+                                        onClick={() => setShareModalOpen(false)}
+                                        className="p-1 rounded-full hover:bg-gray-200 transition-colors"
+                                    >
+                                        <X className="w-5 h-5 text-gray-500" />
+                                    </button>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <div 
+                                        onClick={() => setShareTarget('蔡總')}
+                                        className={`p-3 rounded-xl border-2 flex items-center justify-between cursor-pointer transition-all ${
+                                            shareTarget === '蔡總' 
+                                                ? 'border-green-500 bg-green-50' 
+                                                : 'border-gray-100 hover:border-green-200'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                                                shareTarget === '蔡總' ? 'border-green-500 bg-green-500' : 'border-gray-300'
+                                            }`}>
+                                                {shareTarget === '蔡總' && <Check className="w-3 h-3 text-white" />}
+                                            </div>
+                                            <span className="font-bold text-gray-700">蔡總</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div 
+                                        onClick={() => setShareTarget('執行長')}
+                                        className={`p-3 rounded-xl border-2 flex items-center justify-between cursor-pointer transition-all ${
+                                            shareTarget === '執行長' 
+                                                ? 'border-green-500 bg-green-50' 
+                                                : 'border-gray-100 hover:border-green-200'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                                                shareTarget === '執行長' ? 'border-green-500 bg-green-500' : 'border-gray-300'
+                                            }`}>
+                                                {shareTarget === '執行長' && <Check className="w-3 h-3 text-white" />}
+                                            </div>
+                                            <span className="font-bold text-gray-700">執行長</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-4 border-t border-gray-100 bg-gray-50 flex gap-3">
+                                    <button 
+                                        onClick={() => setShareModalOpen(false)}
+                                        className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        onClick={handleShareConfirm}
+                                        className="flex-1 py-2 bg-[#06C755] text-white rounded-xl font-bold hover:bg-[#05b64d] transition-colors shadow-sm"
+                                    >
+                                        確認分享
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {showProfileModal && (
                         <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
@@ -15978,7 +16071,7 @@
                                                                 {(r.approvalStatus === 'pending' || !r.approvalStatus) && (
                                                                     <div className="mb-3">
                                                                         <button
-                                                                            onClick={() => handleShareLeave(r)}
+                                                                            onClick={() => handleShareClick(r, 'leave')}
                                                                             className="w-full py-2 bg-[#06C755] text-white rounded-lg text-sm font-bold hover:bg-[#05b64d] transition-colors flex items-center justify-center gap-2 shadow-sm"
                                                                         >
                                                                             <Share className="w-4 h-4" />
@@ -16024,7 +16117,7 @@
                                                                             </button>
                                                                         </div>
                                                                         <div className="text-right text-xs text-gray-400 mt-2">
-                                                                            審核人: {usersList.find(u => u.id === r.approverId)?.name || r.approverName || '未知'}
+                                                                            審核人: {(usersList.find(u => u.id === r.approverId)?.name) || (r.approverId === 'guest-link' ? (r.approverName || 'Line') : (r.approverName || '未知'))}
                                                                         </div>
                                                                     </>
                                                                 )}
@@ -16822,7 +16915,7 @@
                                                                 {sig.status === 'pending' && (
                                                                     <div className="mb-3">
                                                                         <button
-                                                                            onClick={() => handleShareSignature(sig)}
+                                                                            onClick={() => handleShareClick(sig, 'signature')}
                                                                             className="w-full py-2 bg-[#06C755] text-white rounded-lg text-sm font-bold hover:bg-[#05b64d] transition-colors flex items-center justify-center gap-2 shadow-sm"
                                                                         >
                                                                             <Share className="w-4 h-4" />
@@ -16881,7 +16974,7 @@
                                                                             </div>
                                                                         )}
                                                                         <div className="text-right text-xs text-gray-400 mt-2">
-                                                                            審核人: {usersList.find(u => u.id === sig.reviewedBy)?.name || '未知'}
+                                                                            審核人: {(usersList.find(u => u.id === sig.reviewedBy)?.name) || (sig.reviewedBy === 'guest-link' ? (sig.reviewerName || 'Line') : '未知')}
                                                                         </div>
                                                                     </>
                                                                 )}
