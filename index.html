@@ -9956,6 +9956,27 @@
                 const name = user.name || r.userName || '未知';
                 const type = r.leaveReason || '請假';
                 
+                // Get Company Name
+                let companyName = '';
+                if (user.companyId) {
+                    const company = companies.find(c => String(c.id) === String(user.companyId));
+                    if (company) companyName = company.name;
+                }
+                // Fallback if user not found or no company
+                if (!companyName && r.companyId) {
+                     const company = companies.find(c => String(c.id) === String(r.companyId));
+                     if (company) companyName = company.name;
+                }
+                if (!companyName) companyName = '公司';
+
+                // Get Application Time
+                let applyTimeStr = '';
+                const seconds = r.createdAt?.seconds || r.timestamp?.seconds;
+                if (seconds) {
+                    const d = new Date(seconds * 1000);
+                    applyTimeStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                }
+                
                 let timeStr = '';
                 if (r.leaveStartDate && r.leaveEndDate) {
                     timeStr = `${r.leaveStartDate.replace('T', ' ')} ~ ${r.leaveEndDate.replace('T', ' ')}`;
@@ -9967,11 +9988,11 @@
                 
                 // Construct URLs with token and context
                 const baseUrl = window.location.href.split('?')[0];
-                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}`;
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}`;
                 const approveUrl = `${baseUrl}?action=approve&id=${r.id}&token=${token}${contextParams}`;
                 const rejectUrl = `${baseUrl}?action=reject&id=${r.id}&token=${token}${contextParams}`;
                 
-                const text = `【請假審核通知】\n人員：${name}\n假別：${type}\n時間：${timeStr}\n事由：${reason}\n\n👇 點擊下方連結進行審核 (免登入) 👇\n\n✅ 核准此假單：\n${approveUrl}\n\n❌ 駁回此假單：\n${rejectUrl}`;
+                const text = `📋【${companyName} 請假審核】\n\n👤 申請人：${name}\n📌 假別：${type}\n📅 時間：${timeStr}\n📝 事由：${reason}\n\n──────────────\n\n⭕ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
                 
                 const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
                 window.open(shareUrl, '_blank');
@@ -10013,7 +10034,9 @@
                         name: decodeURIComponent(params.get('n') || ''),
                         type: decodeURIComponent(params.get('t') || ''),
                         time: decodeURIComponent(params.get('d') || ''),
-                        reason: decodeURIComponent(params.get('r') || '')
+                        reason: decodeURIComponent(params.get('r') || ''),
+                        companyName: decodeURIComponent(params.get('c') || '請假審核'),
+                        applyTime: decodeURIComponent(params.get('at') || '')
                     });
                 }
             }, [dbUser, leavesList]);
@@ -10193,13 +10216,16 @@
                                 }`}>
                                     {isSuccess 
                                         ? (isApprove ? '核准請假成功' : '駁回請假申請')
-                                        : '請假審核 (免登入)'}
+                                        : `${guestApprovalData.companyName || ''} 請假審核`}
                                 </h3>
                             </div>
                             
                             <div className="p-6 space-y-4">
                                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                                    <div className="text-sm text-gray-500 mb-1">申請人</div>
+                                    <div className="flex justify-between items-start mb-1">
+                                        <div className="text-sm text-gray-500">申請人</div>
+                                        {guestApprovalData.applyTime && <div className="text-xs text-gray-400">{guestApprovalData.applyTime}</div>}
+                                    </div>
                                     <div className="font-bold text-lg text-blue-800">{guestApprovalData.name}</div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
@@ -10213,7 +10239,7 @@
                                     </div>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <div className="text-xs text-gray-500">時間</div>
+                                    <div className="text-xs text-gray-500">請假時間</div>
                                     <div className="font-bold text-gray-800">{guestApprovalData.time}</div>
                                 </div>
                                 
