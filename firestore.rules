@@ -1,6 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Special rule for Leaves collection to allow unauthenticated approval with valid token
+    match /artifacts/{appId}/public/data/leaves/{document=**} {
+      allow update: if request.resource.data.verificationToken == resource.data.shareToken;
+      allow read, write: if request.auth != null;
+    }
+
     // Allow authenticated users to read and write under the app's public data path
     match /artifacts/{appId}/public/data/{document=**} {
       allow read, write: if request.auth != null;
