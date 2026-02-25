@@ -6781,6 +6781,7 @@
 
         const App = () => {
             const [guestApprovalData, setGuestApprovalData] = useState(null);
+            const [guestComment, setGuestComment] = useState('');
             const [signatureComments, setSignatureComments] = useState({});
             const [user, setUser] = useState(null);
             const [dbUser, setDbUser] = useState(null);
@@ -10118,6 +10119,7 @@
                             applyTime: decodeURIComponent(params.get('at') || '')
                         });
                     } else if (action === 'approve_sig' || action === 'reject_sig') {
+                        setGuestComment('');
                         setGuestApprovalData({
                             kind: 'signature',
                             action,
@@ -10342,6 +10344,19 @@
                                     </div>
                                 )}
                                 
+                                {isSignature && (
+                                    <div className="bg-gray-50 p-3 rounded-lg">
+                                        <div className="text-xs text-gray-500 mb-1">批示 (選填)</div>
+                                        <textarea
+                                            className="w-full p-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 resize-none"
+                                            rows="3"
+                                            placeholder="請輸入批示內容..."
+                                            value={guestComment}
+                                            onChange={(e) => setGuestComment(e.target.value)}
+                                        />
+                                    </div>
+                                )}
+                                
                                 {!isSuccess ? (
                                     <div className="pt-4 flex gap-3">
                                         <button 
@@ -10361,6 +10376,7 @@
                                                             status: action === 'approve_sig' ? 'approved' : 'rejected',
                                                             reviewedAt: serverTimestamp(),
                                                             reviewedBy: 'guest-link',
+                                                            reviewComment: guestComment,
                                                             verificationToken: token 
                                                         });
                                                     } else {
