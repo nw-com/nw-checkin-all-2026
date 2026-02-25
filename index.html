@@ -190,7 +190,8 @@
             CheckSquare,
             Phone,
             Download,
-            Plus
+            Plus,
+            Share
         } from 'lucide-react';
 
         if ('serviceWorker' in navigator) {
@@ -9932,6 +9933,59 @@
                 }
             };
 
+            const handleShareLeave = (r) => {
+                if (!r) return;
+                const user = usersList.find(u => u.id === r.userId) || {};
+                const name = user.name || r.userName || '未知';
+                const type = r.leaveReason || '請假';
+                
+                let timeStr = '';
+                if (r.leaveStartDate && r.leaveEndDate) {
+                    timeStr = `${r.leaveStartDate.replace('T', ' ')} ~ ${r.leaveEndDate.replace('T', ' ')}`;
+                } else {
+                    timeStr = `${r.leaveDate} ${r.leaveTime}`;
+                }
+                
+                const reason = r.leaveDescription || '無';
+                
+                // Construct URLs
+                const baseUrl = window.location.href.split('?')[0];
+                const approveUrl = `${baseUrl}?action=approve&id=${r.id}`;
+                const rejectUrl = `${baseUrl}?action=reject&id=${r.id}`;
+                
+                const text = `【請假審核通知】\n人員：${name}\n假別：${type}\n時間：${timeStr}\n事由：${reason}\n\n👇 點擊下方連結進行審核 👇\n\n✅ 核准此假單：\n${approveUrl}\n\n❌ 駁回此假單：\n${rejectUrl}`;
+                
+                const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+                window.open(shareUrl, '_blank');
+            };
+
+            useEffect(() => {
+                if (!dbUser || leavesList.length === 0) return;
+                
+                const params = new URLSearchParams(window.location.search);
+                const action = params.get('action');
+                const id = params.get('id');
+                
+                if (action && id && (action === 'approve' || action === 'reject')) {
+                    const target = leavesList.find(l => l.id === id);
+                    if (target) {
+                        if (target.approvalStatus !== 'pending') {
+                             const statusText = target.approvalStatus === 'approved' ? '已核准' : '已駁回';
+                             alert(`此假單已處理 (${statusText})`);
+                             window.history.replaceState({}, document.title, window.location.pathname);
+                             return;
+                        }
+
+                        const actionName = action === 'approve' ? '核准' : '駁回';
+                        if (confirm(`系統偵測到來自連結的審核請求：\n\n人員：${target.userName}\n假別：${target.leaveReason}\n\n是否要【${actionName}】此假單？`)) {
+                            handleUpdateLeaveStatus(action === 'approve' ? 'approved' : 'rejected', target);
+                        }
+                        // Always clear params to avoid repeated prompts on data refresh
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                }
+            }, [dbUser, leavesList]);
+
             const handleAddUser = async (userData) => {
                 if (!user) return;
 
@@ -15609,6 +15663,16 @@
                                                                     </div>
                                                                 )}
 
+                                                                <div className="mb-3">
+                                                                    <button
+                                                                        onClick={() => handleShareLeave(r)}
+                                                                        className="w-full py-2 bg-[#06C755] text-white rounded-lg text-sm font-bold hover:bg-[#05b64d] transition-colors flex items-center justify-center gap-2 shadow-sm"
+                                                                    >
+                                                                        <Share className="w-4 h-4" />
+                                                                        分享至 Line (含審核連結)
+                                                                    </button>
+                                                                </div>
+
                                                                 {(r.approvalStatus === 'pending' || !r.approvalStatus) && (
                                                                     <div className="flex gap-3 border-t border-gray-100 pt-3">
                                                                         <button 
@@ -16530,8 +16594,7 @@
                                                         if (!inCompany) return false;
                                                         if (excludedRoles.includes(u.role)) return false;
                                                         if (cadreMapSelectedUserId && u.id !== cadreMapSelectedUserId) return false;
-
-
+                                                        if (u.status === '離職') return false;
 
                                                         return true;
                                                     }).sort((a, b) => {
