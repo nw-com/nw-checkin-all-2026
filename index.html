@@ -191,7 +191,8 @@
             Phone,
             Download,
             Plus,
-            Share
+            Share,
+            MessageCircle
         } from 'lucide-react';
 
         if ('serviceWorker' in navigator) {
@@ -2182,6 +2183,125 @@
             const [settingsAccountFilterCompany, setSettingsAccountFilterCompany] = useState('');
             const [settingsAccountFilterCommunity, setSettingsAccountFilterCommunity] = useState('');
             const [settingsAccountFilterStatus, setSettingsAccountFilterStatus] = useState('在職');
+
+            // Line Settings
+            const [lineFriends, setLineFriends] = useState([]);
+            const [lineFriendsLoading, setLineFriendsLoading] = useState(false);
+            const [showLineImportModal, setShowLineImportModal] = useState(false);
+            const [importCandidates, setImportCandidates] = useState([]);
+            const [selectedImportIds, setSelectedImportIds] = useState(new Set());
+            const [importFilter, setImportFilter] = useState('');
+            const [showAddLineFriendModal, setShowAddLineFriendModal] = useState(false);
+            const [lineFriendForm, setLineFriendForm] = useState({ displayName: '', lineId: '', statusMessage: '' });
+
+            // Fetch Line Friends
+            useEffect(() => {
+                if (subtab === 'line') {
+                    setLineFriendsLoading(true);
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'line_friends'), orderBy('createdAt', 'desc'));
+                    const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const list = [];
+                        snapshot.forEach((doc) => {
+                            list.push({ id: doc.id, ...doc.data() });
+                        });
+                        setLineFriends(list);
+                        setLineFriendsLoading(false);
+                    });
+                    return () => unsubscribe();
+                }
+            }, [subtab, appId]);
+
+            const handleImportLineExcel = (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const bstr = evt.target.result;
+                        const wb = XLSX.read(bstr, { type: 'binary' });
+                        const wsname = wb.SheetNames[0];
+                        const ws = wb.Sheets[wsname];
+                        const data = XLSX.utils.sheet_to_json(ws);
+
+                        if (!data || data.length === 0) {
+                            setToast('檔案無資料');
+                            return;
+                        }
+
+                        const candidates = data.map((row, index) => ({
+                            id: `import_${Date.now()}_${index}`,
+                            displayName: row['好友名稱'] || row['Name'] || '',
+                            lineId: row['LineID'] || row['Line ID'] || '',
+                            statusMessage: row['狀態'] || row['Status'] || '',
+                            pictureUrl: '', // Excel usually doesn't have images
+                            source: 'excel_import'
+                        })).filter(c => c.displayName); // Filter out empty names
+
+                        setImportCandidates(candidates);
+                        setSelectedImportIds(new Set(candidates.map(c => c.id))); // Default select all
+                        setImportFilter('');
+                        setShowLineImportModal(true);
+                        e.target.value = ''; // Reset input
+                    } catch (err) {
+                        console.error(err);
+                        setToast('讀取 Excel 失敗: ' + err.message);
+                    }
+                };
+                reader.readAsBinaryString(file);
+            };
+
+            const handleConfirmImport = async () => {
+                if (selectedImportIds.size === 0) return;
+                try {
+                    const batch = writeBatch(db);
+                    const selectedFriends = importCandidates.filter(c => selectedImportIds.has(c.id));
+                    
+                    selectedFriends.forEach(friend => {
+                        const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'line_friends'));
+                        // Remove temporary ID
+                        const { id, ...data } = friend;
+                        batch.set(ref, {
+                            ...data,
+                            createdAt: serverTimestamp(),
+                            importedAt: serverTimestamp(),
+                        });
+                    });
+                    
+                    await batch.commit();
+                    setToast(`成功匯入 ${selectedFriends.length} 位好友`);
+                    setShowLineImportModal(false);
+                    setImportCandidates([]);
+                } catch (e) {
+                    console.error(e);
+                    setToast('匯入失敗');
+                }
+            };
+
+            const handleSaveLineFriend = async () => {
+                if (!lineFriendForm.displayName) {
+                    setToast('請輸入好友名稱');
+                    return;
+                }
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'line_friends'), {
+                        displayName: lineFriendForm.displayName,
+                        lineId: lineFriendForm.lineId,
+                        statusMessage: lineFriendForm.statusMessage,
+                        pictureUrl: '',
+                        source: 'manual_add',
+                        createdAt: serverTimestamp(),
+                        importedAt: serverTimestamp()
+                    });
+                    setToast('新增成功');
+                    setShowAddLineFriendModal(false);
+                    setLineFriendForm({ displayName: '', lineId: '', statusMessage: '' });
+                } catch (e) {
+                    console.error(e);
+                    setToast('新增失敗: ' + e.message);
+                }
+            };
+
 
             // Sorting State
             const [roleSort, setRoleSort] = useState({ key: null, direction: 'asc' });
@@ -4248,6 +4368,208 @@
                                         <div ref={mapTargetElRef} className="w-full h-80 rounded-2xl border"></div>
                                         <div className="flex justify-end gap-2 mt-4">
                                             <button onClick={()=>setMapTarget(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">關閉</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        )}
+
+                        {subtab === 'line' && (
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center">
+                                    <MessageCircle className="w-5 h-5 mr-2 text-green-500" />
+                                    Line 好友列表
+                                </h3>
+                                <div className="flex gap-2">
+                                    <button onClick={() => { setLineFriendForm({ displayName: '', lineId: '', statusMessage: '' }); setShowAddLineFriendModal(true); }} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-2xl text-sm font-bold hover:bg-gray-200 flex items-center gap-2">
+                                        <Plus className="w-4 h-4" />
+                                        新增好友
+                                    </button>
+                                    <label className="bg-green-500 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-600 flex items-center gap-2 cursor-pointer">
+                                        <Download className="w-4 h-4" />
+                                        匯入 Excel
+                                        <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportLineExcel} />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left text-gray-500">
+                                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 rounded-l-xl">好友</th>
+                                            <th className="px-4 py-3">狀態</th>
+                                            <th className="px-4 py-3">Line ID / 連結</th>
+                                            <th className="px-4 py-3">操作</th>
+                                            <th className="px-4 py-3 rounded-r-xl">來源</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {lineFriendsLoading ? (
+                                            <tr><td colSpan="5" className="text-center py-4">載入中...</td></tr>
+                                        ) : lineFriends.length === 0 ? (
+                                            <tr><td colSpan="5" className="text-center py-4">尚無好友資料</td></tr>
+                                        ) : (
+                                            lineFriends.map(friend => (
+                                                <tr key={friend.id} className="bg-white border-b hover:bg-gray-50">
+                                                    <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap flex items-center gap-3">
+                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                                                            {friend.pictureUrl ? <img src={friend.pictureUrl} className="w-full h-full object-cover" /> : <Users className="w-4 h-4 text-gray-400" />}
+                                                        </div>
+                                                        {friend.displayName}
+                                                    </td>
+                                                    <td className="px-4 py-3">{friend.statusMessage || '-'}</td>
+                                                    <td className="px-4 py-3 text-xs text-gray-400">{friend.lineId || '-'}</td>
+                                                    <td className="px-4 py-3">
+                                                        {friend.lineId && (
+                                                            <a 
+                                                                href={friend.lineId.startsWith('http') || friend.lineId.startsWith('line://') ? friend.lineId : `https://line.me/ti/p/~${friend.lineId}`} 
+                                                                target="_blank" 
+                                                                rel="noopener noreferrer"
+                                                                className="text-green-600 hover:text-green-700 font-bold flex items-center gap-1"
+                                                            >
+                                                                <MessageCircle className="w-4 h-4" />
+                                                                聊天
+                                                            </a>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-xs">
+                                                        {friend.source === 'excel_import' ? 'Excel 匯入' : friend.source === 'manual_add' ? '手動新增' : '其他'}
+                                                        <br/>
+                                                        <span className="text-gray-400">{friend.importedAt ? formatDateTime(friend.importedAt) : '-'}</span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Import Modal */}
+                            {showLineImportModal && (
+                                <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-2xl p-6 max-h-[90vh] overflow-y-auto flex flex-col">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="text-lg font-bold text-gray-800">確認匯入好友</h4>
+                                            <button onClick={() => setShowLineImportModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                                                <X className="w-5 h-5 text-gray-500" />
+                                            </button>
+                                        </div>
+                                        
+                                        <div className="mb-4 bg-blue-50 p-4 rounded-xl text-sm text-blue-700">
+                                            <p className="font-bold mb-1">Excel 匯入預覽</p>
+                                            <p>請確認以下資料是否正確。重複的資料將會新增為新項目。</p>
+                                        </div>
+
+                                        {importCandidates.length > 0 && (
+                                            <div className="flex-1 overflow-hidden flex flex-col">
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                                            checked={importCandidates.length > 0 && selectedImportIds.size === importCandidates.length}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setSelectedImportIds(new Set(importCandidates.map(c => c.id)));
+                                                                } else {
+                                                                    setSelectedImportIds(new Set());
+                                                                }
+                                                            }}
+                                                        />
+                                                        <span className="text-sm font-bold text-gray-700">全選 ({selectedImportIds.size}/{importCandidates.length})</span>
+                                                    </div>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="搜尋好友..." 
+                                                        className="px-3 py-1 rounded-xl border border-gray-200 text-sm"
+                                                        value={importFilter}
+                                                        onChange={(e) => setImportFilter(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="flex-1 overflow-y-auto border rounded-xl p-2 space-y-1 bg-gray-50 max-h-[400px]">
+                                                    {importCandidates
+                                                        .filter(c => c.displayName.toLowerCase().includes(importFilter.toLowerCase()))
+                                                        .map(candidate => (
+                                                        <div key={candidate.id} className="flex items-center gap-3 p-2 bg-white rounded-xl border border-gray-100 hover:border-green-200 cursor-pointer" onClick={() => {
+                                                            const newSet = new Set(selectedImportIds);
+                                                            if (newSet.has(candidate.id)) newSet.delete(candidate.id);
+                                                            else newSet.add(candidate.id);
+                                                            setSelectedImportIds(newSet);
+                                                        }}>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                                                checked={selectedImportIds.has(candidate.id)}
+                                                                readOnly
+                                                            />
+                                                            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                                                                <Users className="w-4 h-4 text-gray-400" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className="font-bold text-sm text-gray-800">{candidate.displayName}</div>
+                                                                <div className="text-xs text-gray-500">ID: {candidate.lineId || '(未提供)'}</div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+                                            <button onClick={() => setShowLineImportModal(false)} className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-700 font-bold">取消</button>
+                                            <button 
+                                                onClick={handleConfirmImport} 
+                                                disabled={selectedImportIds.size === 0}
+                                                className="px-4 py-2 rounded-2xl bg-green-600 text-white font-bold disabled:opacity-50 hover:bg-green-700"
+                                            >
+                                                匯入選取項目 ({selectedImportIds.size})
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Add Friend Modal */}
+                            {showAddLineFriendModal && (
+                                <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">新增 Line 好友</h4>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-bold mb-1">好友名稱 <span className="text-red-500">*</span></label>
+                                                <input 
+                                                    className="w-full p-2 border rounded-xl" 
+                                                    value={lineFriendForm.displayName} 
+                                                    onChange={e => setLineFriendForm({...lineFriendForm, displayName: e.target.value})}
+                                                    placeholder="輸入名稱"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold mb-1">Line ID 或 連結</label>
+                                                <input 
+                                                    className="w-full p-2 border rounded-xl" 
+                                                    value={lineFriendForm.lineId} 
+                                                    onChange={e => setLineFriendForm({...lineFriendForm, lineId: e.target.value})}
+                                                    placeholder="例如: eason 或 https://line.me/..."
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">若輸入 ID，系統將自動產生連結。若有完整連結請直接貼上。</p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold mb-1">狀態/備註</label>
+                                                <input 
+                                                    className="w-full p-2 border rounded-xl" 
+                                                    value={lineFriendForm.statusMessage} 
+                                                    onChange={e => setLineFriendForm({...lineFriendForm, statusMessage: e.target.value})}
+                                                    placeholder="選填"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-end gap-2 mt-6">
+                                            <button onClick={() => setShowAddLineFriendModal(false)} className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-700 font-bold">取消</button>
+                                            <button onClick={handleSaveLineFriend} className="px-4 py-2 rounded-2xl bg-green-600 text-white font-bold hover:bg-green-700">儲存</button>
                                         </div>
                                     </div>
                                 </div>
@@ -7472,6 +7794,7 @@
             // Share Modal State
             const [shareModalOpen, setShareModalOpen] = useState(false);
             const [shareTarget, setShareTarget] = useState('蔡總');
+            const [isShareRoleMode, setIsShareRoleMode] = useState(false);
             const [shareItem, setShareItem] = useState(null);
             const [shareType, setShareType] = useState('leave'); // 'leave' or 'signature'
 
@@ -7479,6 +7802,7 @@
                 setShareItem(item);
                 setShareType(type);
                 setShareTarget('蔡總');
+                setIsShareRoleMode(false);
                 setShareModalOpen(true);
             };
 
@@ -10693,7 +11017,7 @@
                                 </div>
                                 <div className="p-4 space-y-3">
                                     <div 
-                                        onClick={() => setShareTarget('蔡總')}
+                                        onClick={() => { setShareTarget('蔡總'); setIsShareRoleMode(false); }}
                                         className={`p-3 rounded-xl border-2 flex items-center justify-between cursor-pointer transition-all ${
                                             shareTarget === '蔡總' 
                                                 ? 'border-green-500 bg-green-50' 
@@ -10711,7 +11035,7 @@
                                     </div>
                                     
                                     <div 
-                                        onClick={() => setShareTarget('執行長')}
+                                        onClick={() => { setShareTarget('執行長'); setIsShareRoleMode(false); }}
                                         className={`p-3 rounded-xl border-2 flex items-center justify-between cursor-pointer transition-all ${
                                             shareTarget === '執行長' 
                                                 ? 'border-green-500 bg-green-50' 
@@ -10726,6 +11050,227 @@
                                             </div>
                                             <span className="font-bold text-gray-700">執行長</span>
                                         </div>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => {
+                                            setIsShareRoleMode(true);
+                                            const roleMap = {
+                                                'admin': '系統管理員',
+                                                'manager': '總幹事',
+                                                'hr': '人事',
+                                                'cadre': '幹部',
+                                                'staff': '員工',
+                                                'secretary': '秘書',
+                                                'cleaner': '清潔',
+                                                'mechanic': '機電',
+                                                'guard': '保全',
+                                                'property': '物業'
+                                            };
+                                            // Ensure roles are consistent (handling case-sensitivity or trimmed values if needed)
+                                            const shareRoleUsers = usersList.filter(u => {
+                                                // Filter out resigned employees
+                                                if (u.status === '離職') return false;
+
+                                                const r = String(u.role || '').toLowerCase().trim();
+                                                // Expanded role list including Chinese names
+                                                const validRoles = [
+                                                    'hr', 'human_resources', '人事', 'human resources',
+                                                    'property', 'property_manager', '物業', 'property manager',
+                                                    'cadre', 'officer', '幹部',
+                                                    'manager', 'general_manager', '總幹事', 'general manager',
+                                                    'admin', 'system_admin', '系統管理員', 'system admin'
+                                                ];
+                                                return validRoles.some(vr => r === vr || r.includes(vr));
+                                            }).sort((a, b) => {
+                                                 // Prioritize HR > Property > Manager > Cadre > Admin
+                                                 const getRolePriority = (role) => {
+                                                     const r = String(role || '').toLowerCase();
+                                                     if (['hr', 'human_resources', '人事'].some(k => r.includes(k))) return 1;
+                                                     if (['property', 'property_manager', '物業'].some(k => r.includes(k))) return 2;
+                                                     if (['manager', 'general_manager', '總幹事'].some(k => r.includes(k))) return 3;
+                                                     if (['cadre', 'officer', '幹部'].some(k => r.includes(k))) return 4;
+                                                     if (['admin', 'system_admin', '系統管理員'].some(k => r.includes(k))) return 5;
+                                                     return 99;
+                                                 };
+                                                 
+                                                 const pA = getRolePriority(a.role);
+                                                 const pB = getRolePriority(b.role);
+                                                 
+                                                 if (pA !== pB) return pA - pB;
+                                                 return (a.name || '').localeCompare(b.name || '');
+                                            });
+                                            
+                                            // Check if current selection is already valid
+                                            const currentIsRoleUser = shareRoleUsers.some(u => {
+                                                const title = roleMap[u.role] || u.role;
+                                                return shareTarget === `${title} ${u.name}`;
+                                            });
+
+                                            if (!currentIsRoleUser) {
+                                                if (shareRoleUsers.length > 0) {
+                                                    const u = shareRoleUsers[0];
+                                                    const title = roleMap[u.role] || u.role;
+                                                    setShareTarget(`${title} ${u.name}`);
+                                                } else {
+                                                    setShareTarget('無符合條件人員');
+                                                }
+                                            }
+                                        }}
+                                        className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                                            isShareRoleMode
+                                                ? 'border-green-500 bg-green-50' 
+                                                : 'border-gray-100 hover:border-green-200'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                                                    isShareRoleMode ? 'border-green-500 bg-green-500' : 'border-gray-300'
+                                                }`}>
+                                                    {isShareRoleMode && <Check className="w-3 h-3 text-white" />}
+                                                </div>
+                                                <span className="font-bold text-gray-700">指定人員</span>
+                                            </div>
+                                        </div>
+                                        
+                                        {isShareRoleMode && (
+                                            <div className="mt-3 pl-8" onClick={(e) => e.stopPropagation()}>
+                                                <select 
+                                                    className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none bg-white"
+                                                    value={shareTarget}
+                                                    onChange={(e) => setShareTarget(e.target.value)}
+                                                >
+                                                    {(function() {
+                                                        const roleMap = {
+                                                            'admin': '系統管理員',
+                                                            'manager': '總幹事',
+                                                            'hr': '人事',
+                                                            'cadre': '幹部',
+                                                            'staff': '員工',
+                                                            'secretary': '秘書',
+                                                            'cleaner': '清潔',
+                                                            'mechanic': '機電',
+                                                            'guard': '保全',
+                                                            'property': '物業'
+                                                        };
+                                                        const shareRoleUsers = usersList.filter(u => {
+                                                            // Filter out resigned employees
+                                                            if (u.status === '離職') return false;
+
+                                                            // Get resolved role name for filtering
+                                                            const rawRole = String(u.role || '').trim();
+                                                            const lowerRole = rawRole.toLowerCase();
+                                                            const roleMap = {
+                                                                'admin': '系統管理員', 'system_admin': '系統管理員',
+                                                                'manager': '總幹事', 'general_manager': '總幹事',
+                                                                'hr': '人事', 'human_resources': '人事',
+                                                                'cadre': '幹部', 'officer': '幹部',
+                                                                'staff': '員工',
+                                                                'secretary': '秘書',
+                                                                'cleaner': '清潔',
+                                                                'mechanic': '機電',
+                                                                'guard': '保全',
+                                                                'property': '物業', 'property_manager': '物業'
+                                                            };
+                                                            
+                                                            let roleName = roleMap[lowerRole];
+                                                            if (!roleName) {
+                                                                const customRole = roles.find(cr => cr.id === rawRole);
+                                                                if (customRole) {
+                                                                    roleName = customRole.name;
+                                                                } else {
+                                                                    roleName = (rawRole.length > 10) ? '員工' : (u.role || '員工');
+                                                                }
+                                                            }
+                                                            
+                                                            // Filter out specific roles: General Manager, Secretary, Cleaner, Mechanic, Guard, Staff
+                                                            const excludedRoles = [
+                                                                '總幹事', '秘書', '清潔', '機電', '保全', '員工',
+                                                                'manager', 'secretary', 'cleaner', 'mechanic', 'guard', 'staff'
+                                                            ];
+                                                            
+                                                            if (excludedRoles.some(er => roleName === er || roleName.includes(er))) return false;
+
+                                                            return true;
+                                                        }).sort((a, b) => {
+                                                             const getRolePriority = (role) => {
+                                                                 const r = String(role || '').toLowerCase();
+                                                                 if (['hr', 'human_resources', '人事'].some(k => r.includes(k))) return 1;
+                                                                 if (['property', 'property_manager', '物業'].some(k => r.includes(k))) return 2;
+                                                                 if (['manager', 'general_manager', '總幹事'].some(k => r.includes(k))) return 3;
+                                                                 if (['cadre', 'officer', '幹部'].some(k => r.includes(k))) return 4;
+                                                                 if (['admin', 'system_admin', '系統管理員'].some(k => r.includes(k))) return 5;
+                                                                 return 99;
+                                                             };
+                                                             
+                                                             const pA = getRolePriority(a.role);
+                                                             const pB = getRolePriority(b.role);
+                                                             
+                                                             if (pA !== pB) return pA - pB;
+                                                             return (a.name || '').localeCompare(b.name || '');
+                                                        });
+
+                                                        if (shareRoleUsers.length === 0) {
+                                                            return <option value="無符合條件人員">無符合條件人員</option>;
+                                                        }
+
+                                                        return shareRoleUsers.map(u => {
+                                                            const getDisplayTitle = (user) => {
+                                                                // Get Role Name
+                                                                const roleMap = {
+                                                                    'admin': '系統管理員', 'system_admin': '系統管理員',
+                                                                    'manager': '總幹事', 'general_manager': '總幹事',
+                                                                    'hr': '人事', 'human_resources': '人事',
+                                                                    'cadre': '幹部', 'officer': '幹部',
+                                                                    'staff': '員工',
+                                                                    'secretary': '秘書',
+                                                                    'cleaner': '清潔',
+                                                                    'mechanic': '機電',
+                                                                    'guard': '保全',
+                                                                    'property': '物業', 'property_manager': '物業'
+                                                                };
+                                                                const rawRole = String(user.role || '').trim();
+                                                                const lowerRole = rawRole.toLowerCase();
+                                                                
+                                                                // 1. Try built-in role map (case-insensitive)
+                                                                let roleName = roleMap[lowerRole];
+                                                                
+                                                                // 2. If not found, try custom roles list (case-sensitive ID match)
+                                                                if (!roleName) {
+                                                                    const customRole = roles.find(cr => cr.id === rawRole);
+                                                                    if (customRole) {
+                                                                        roleName = customRole.name;
+                                                                    } else {
+                                                                        // If still not found, and it looks like an ID, default to '員工'
+                                                                        // Otherwise use the raw string (might be a new role key)
+                                                                        roleName = (rawRole.length > 10) ? '員工' : (user.role || '員工');
+                                                                    }
+                                                                }
+
+                                                                // Get Job Title (if exists)
+                                                                let jobTitle = user.title || user.jobTitle || user.position || '';
+                                                                jobTitle = jobTitle.trim();
+                                                                
+                                                                // Format: <JobTitle> (if exists), otherwise <Role>
+                                                                if (jobTitle) {
+                                                                    return jobTitle;
+                                                                }
+                                                                return roleName;
+                                                            };
+                                                            
+                                                            const title = getDisplayTitle(u);
+                                                            const val = `${title} ${u.name}`;
+                                                            return (
+                                                                <option key={u.id} value={val}>
+                                                                    {val}
+                                                                </option>
+                                                            );
+                                                        });
+                                                    })()}
+                                                </select>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="p-4 border-t border-gray-100 bg-gray-50 flex gap-3">
@@ -11704,6 +12249,7 @@
                                     {hasSubPermission('settings', 'account') && <button onClick={() => setSettingsSubtab('account')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>帳號</button>}
                                     {hasSubPermission('settings', 'community') && <button onClick={() => setSettingsSubtab('community')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'community' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>社區</button>}
                                     {hasSubPermission('settings', 'system') && <button onClick={() => setSettingsSubtab('system')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'system' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>系統</button>}
+                                    <button onClick={() => setSettingsSubtab('line')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'line' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>Line</button>
                                 </div>
                             )}
                         </div>
@@ -16846,17 +17392,21 @@
                                                     const targetUser = usersList.find(u => u.id === cadreMapSelectedUserId);
                                                     if (targetUser) {
                                                         const role = (roles || []).find(r => r.id === targetUser.role);
-                                                        const roleName = role ? role.name : '';
+                                                        let roleName = role ? role.name : '';
+                                                        if (targetUser.role === 'admin') roleName = '系統管理員';
+
                                                         const companyRoles = ['系統管理員', '人事', '物業', '幹部'];
                                                         
                                                         if (companyRoles.includes(roleName)) {
-                                                            locationName = targetUser.companyName || overviewCompany;
+                                                            const compId = (targetUser.companyIds && targetUser.companyIds.length > 0) ? targetUser.companyIds[0] : targetUser.companyId;
+                                                            const comp = (companies || []).find(c => String(c.id) === String(compId));
+                                                            locationName = comp ? comp.name : '台北公司';
                                                         } else {
                                                              if (targetUser.communityId) {
-                                                                 const c = (communities || []).find(c => c.id === targetUser.communityId);
+                                                                 const c = (communities || []).find(c => String(c.id) === String(targetUser.communityId));
                                                                  if (c) locationName = c.name;
                                                              } else if (targetUser.communityIds && targetUser.communityIds.length > 0) {
-                                                                 const c = (communities || []).find(c => c.id === targetUser.communityIds[0]);
+                                                                 const c = (communities || []).find(c => String(c.id) === String(targetUser.communityIds[0]));
                                                                  if (c) locationName = c.name;
                                                              }
                                                         }
