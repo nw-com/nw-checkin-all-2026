@@ -192,7 +192,8 @@
             Download,
             Plus,
             Share,
-            MessageCircle
+            MessageCircle,
+            Edit2
         } from 'lucide-react';
 
         if ('serviceWorker' in navigator) {
@@ -2193,6 +2194,7 @@
             const [importFilter, setImportFilter] = useState('');
             const [showAddLineFriendModal, setShowAddLineFriendModal] = useState(false);
             const [lineFriendForm, setLineFriendForm] = useState({ displayName: '', lineId: '', statusMessage: '' });
+            const [editingLineFriendId, setEditingLineFriendId] = useState(null);
 
             // Fetch Line Friends
             useEffect(() => {
@@ -2284,21 +2286,43 @@
                     return;
                 }
                 try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'line_friends'), {
-                        displayName: lineFriendForm.displayName,
-                        lineId: lineFriendForm.lineId,
-                        statusMessage: lineFriendForm.statusMessage,
-                        pictureUrl: '',
-                        source: 'manual_add',
-                        createdAt: serverTimestamp(),
-                        importedAt: serverTimestamp()
-                    });
-                    setToast('新增成功');
+                    if (editingLineFriendId) {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'line_friends', editingLineFriendId), {
+                            displayName: lineFriendForm.displayName,
+                            lineId: lineFriendForm.lineId,
+                            statusMessage: lineFriendForm.statusMessage,
+                            updatedAt: serverTimestamp()
+                        });
+                        setToast('更新成功');
+                    } else {
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'line_friends'), {
+                            displayName: lineFriendForm.displayName,
+                            lineId: lineFriendForm.lineId,
+                            statusMessage: lineFriendForm.statusMessage,
+                            pictureUrl: '',
+                            source: 'manual_add',
+                            createdAt: serverTimestamp(),
+                            importedAt: serverTimestamp()
+                        });
+                        setToast('新增成功');
+                    }
                     setShowAddLineFriendModal(false);
                     setLineFriendForm({ displayName: '', lineId: '', statusMessage: '' });
+                    setEditingLineFriendId(null);
                 } catch (e) {
                     console.error(e);
-                    setToast('新增失敗: ' + e.message);
+                    setToast('儲存失敗: ' + e.message);
+                }
+            };
+
+            const handleDeleteLineFriend = async (id) => {
+                if (!confirm('確定要刪除此好友嗎？')) return;
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'line_friends', id));
+                    setToast('刪除成功');
+                } catch (e) {
+                    console.error(e);
+                    setToast('刪除失敗: ' + e.message);
                 }
             };
 
@@ -4383,7 +4407,7 @@
                                     Line 好友列表
                                 </h3>
                                 <div className="flex gap-2">
-                                    <button onClick={() => { setLineFriendForm({ displayName: '', lineId: '', statusMessage: '' }); setShowAddLineFriendModal(true); }} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-2xl text-sm font-bold hover:bg-gray-200 flex items-center gap-2">
+                                    <button onClick={() => { setEditingLineFriendId(null); setLineFriendForm({ displayName: '', lineId: '', statusMessage: '' }); setShowAddLineFriendModal(true); }} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-2xl text-sm font-bold hover:bg-gray-200 flex items-center gap-2">
                                         <Plus className="w-4 h-4" />
                                         新增好友
                                     </button>
@@ -4423,17 +4447,47 @@
                                                     <td className="px-4 py-3">{friend.statusMessage || '-'}</td>
                                                     <td className="px-4 py-3 text-xs text-gray-400">{friend.lineId || '-'}</td>
                                                     <td className="px-4 py-3">
-                                                        {friend.lineId && (
-                                                            <a 
-                                                                href={friend.lineId.startsWith('http') ? friend.lineId : `https://line.me/R/ti/p/~${friend.lineId}`} 
-                                                                target="_blank" 
-                                                                rel="noopener noreferrer"
-                                                                className="text-green-600 hover:text-green-700 font-bold flex items-center gap-1"
+                                                        <div className="flex items-center gap-3">
+                                                            {friend.lineId && (
+                                                                <a 
+                                                                    href={
+                                                                        friend.lineId.startsWith('http') || friend.lineId.startsWith('line://') 
+                                                                            ? friend.lineId 
+                                                                            : friend.lineId.startsWith('@') 
+                                                                                ? `https://line.me/R/oaMessage/${friend.lineId}` 
+                                                                                : `https://line.me/R/ti/p/~${friend.lineId}`
+                                                                    } 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-green-600 hover:text-green-700 font-bold flex items-center gap-1"
+                                                                >
+                                                                    <MessageCircle className="w-4 h-4" />
+                                                                    聊天
+                                                                </a>
+                                                            )}
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setEditingLineFriendId(friend.id);
+                                                                    setLineFriendForm({
+                                                                        displayName: friend.displayName || '',
+                                                                        lineId: friend.lineId || '',
+                                                                        statusMessage: friend.statusMessage || ''
+                                                                    });
+                                                                    setShowAddLineFriendModal(true);
+                                                                }}
+                                                                className="text-gray-400 hover:text-blue-600 p-1"
+                                                                title="編輯"
                                                             >
-                                                                <MessageCircle className="w-4 h-4" />
-                                                                聊天
-                                                            </a>
-                                                        )}
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDeleteLineFriend(friend.id)}
+                                                                className="text-gray-400 hover:text-red-600 p-1"
+                                                                title="刪除"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-3 text-xs">
                                                         {friend.source === 'excel_import' ? 'Excel 匯入' : friend.source === 'manual_add' ? '手動新增' : '其他'}
@@ -4536,7 +4590,7 @@
                             {showAddLineFriendModal && (
                                 <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
                                     <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
-                                        <h4 className="text-lg font-bold text-gray-800 mb-4">新增 Line 好友</h4>
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">{editingLineFriendId ? '編輯 Line 好友' : '新增 Line 好友'}</h4>
                                         <div className="space-y-4">
                                             <div>
                                                 <label className="block text-sm font-bold mb-1">好友名稱 <span className="text-red-500">*</span></label>
