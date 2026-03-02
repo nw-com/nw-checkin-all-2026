@@ -158,6 +158,7 @@
             LogOut, 
             Shield, 
             Users, 
+            User, 
             FileText, 
             Briefcase, 
             AlertCircle, 
@@ -7175,6 +7176,12 @@
                 { key: 'report', label: '報表' },
                 { key: 'notification', label: '通知' }
             ],
+            community: [
+                { key: 'map', label: '地圖' },
+                { key: 'schedule', label: '班表' },
+                { key: 'record', label: '紀錄' },
+                { key: 'account', label: '帳號' }
+            ],
             application: [
                 { key: 'signature', label: '簽呈' },
                 { key: 'equipment', label: '設備' }
@@ -7844,6 +7851,17 @@
                     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                 }
             });
+            const [communityRecordDate, setCommunityRecordDate] = useState(() => {
+                try {
+                    return localStorage.getItem('last_community_record_date') || (function(){
+                        const d = new Date();
+                        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    })();
+                } catch {
+                    const d = new Date();
+                    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                }
+            });
 
             // Share Modal State
             const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -8456,6 +8474,10 @@
             }, [cadreRecordDate]);
 
             useEffect(() => {
+                localStorage.setItem('last_community_record_date', communityRecordDate);
+            }, [communityRecordDate]);
+
+            useEffect(() => {
                 localStorage.setItem('last_schedule_form', JSON.stringify(scheduleForm));
             }, [scheduleForm]);
 
@@ -8472,6 +8494,8 @@
 
 
             useEffect(() => {
+                if (activeTab !== 'cadre') return;
+
                 // Clear schedules immediately when user changes to prevent ghost data
                 setUserSchedules({});
 
@@ -8498,7 +8522,7 @@
                 });
 
                 return () => unsubscribe();
-            }, [cadreMapSelectedUserId]);
+            }, [cadreMapSelectedUserId, activeTab]);
 
             // Fetch My Schedules for Clock Tab
             useEffect(() => {
@@ -8522,6 +8546,8 @@
             }, [dbUser]);
 
             useEffect(() => {
+                if (activeTab !== 'cadre') return;
+
                 setUserAttendanceRecords([]);
                 setUserLeaveRequests([]);
                 
@@ -8555,23 +8581,76 @@
                     unsubAttendance();
                     unsubLeaves();
                 };
-            }, [cadreMapSelectedUserId]);
+            }, [cadreMapSelectedUserId, activeTab]);
+
+            // Reset community selected user when community changes
+            useEffect(() => {
+                setCommunityMapSelectedUserId(null);
+            }, [communityTabSelectedId]);
+
+            useEffect(() => {
+                if (activeTab !== 'community' || communitySubtab !== 'schedule' || !communityMapSelectedUserId) return;
+                
+                setUserSchedules({});
+                setUserAttendanceRecords([]);
+                setUserLeaveRequests([]);
+
+                const qSchedules = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
+                    where('userId', '==', communityMapSelectedUserId)
+                );
+                const unsubSchedules = onSnapshot(qSchedules, (snapshot) => {
+                    const newSchedules = {};
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        newSchedules[data.date] = data;
+                    });
+                    setUserSchedules(newSchedules);
+                });
+
+                const qAttendance = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                    where('userId', '==', communityMapSelectedUserId)
+                );
+                const unsubAttendance = onSnapshot(qAttendance, (snapshot) => {
+                    const records = [];
+                    snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
+                    setUserAttendanceRecords(records);
+                });
+
+                const qLeaves = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                    where('userId', '==', communityMapSelectedUserId)
+                );
+                const unsubLeaves = onSnapshot(qLeaves, (snapshot) => {
+                    const records = [];
+                    snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
+                    setUserLeaveRequests(records);
+                });
+
+                return () => {
+                    unsubSchedules();
+                    unsubAttendance();
+                    unsubLeaves();
+                };
+            }, [communityMapSelectedUserId, activeTab, communitySubtab]);
 
             const handleSaveSchedule = async () => {
-                if (!cadreMapSelectedUserId) {
+                const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                if (!targetUserId) {
                     alert('請先選擇帳號');
                     return;
                 }
                 setScheduleSaving(true);
                 try {
                     const dateStr = scheduleModalDate;
-                    const docId = `schedule_${cadreMapSelectedUserId}_${dateStr}`;
+                    const docId = `schedule_${targetUserId}_${dateStr}`;
 
                     // If user clicked Delete button or set type to empty (handled by separate function, but check here if needed)
                     // For "Delete" action, we'll have a separate function handleDeleteSchedule
                     
                     const scheduleData = {
-                        userId: cadreMapSelectedUserId,
+                        userId: targetUserId,
                         date: dateStr,
                         type: scheduleForm.type,
                         updatedByName: (dbUser && dbUser.name) || '系統管理員',
@@ -8607,14 +8686,18 @@
             };
 
             const handleDeleteSchedule = () => {
-                if (!cadreMapSelectedUserId || !scheduleModalDate) return;
-                const docId = `schedule_${cadreMapSelectedUserId}_${scheduleModalDate}`;
+                const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                if (!targetUserId || !scheduleModalDate) return;
+                const docId = `schedule_${targetUserId}_${scheduleModalDate}`;
                 setConfirmDelete({ type: 'schedule', id: docId, label: `${scheduleModalDate} 排班` });
                 setShowScheduleModal(false);
             };
 
             const handleAutoSchedule = async () => {
-                const targetUserId = cadreMapSelectedUserId ? String(cadreMapSelectedUserId).trim() : null;
+                const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') 
+                    ? (communityMapSelectedUserId ? String(communityMapSelectedUserId).trim() : null)
+                    : (cadreMapSelectedUserId ? String(cadreMapSelectedUserId).trim() : null);
+                
                 if (!targetUserId) {
                     alert('請先選擇帳號');
                     return;
@@ -11675,6 +11758,18 @@
                                         地圖
                                     </button>
                                     <button 
+                                        onClick={() => setCommunitySubtab('schedule')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                    >
+                                        班表
+                                    </button>
+                                    <button 
+                                        onClick={() => setCommunitySubtab('record')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                    >
+                                        紀錄
+                                    </button>
+                                    <button 
                                         onClick={() => setCommunitySubtab('account')} 
                                         className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                     >
@@ -11871,7 +11966,26 @@
                                                     className={`flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group rounded-lg p-1 transition-colors ${bgColorClass} ${animateClass} ${
                                                         isSelected ? 'ring-2 ring-red-500' : ''
                                                     }`}
-                                                    onClick={() => setCadreMapSelectedUserId(u.id)}
+                                                    onClick={() => {
+                                                        if (isSelected) {
+                                                            setCadreMapSelectedUserId(null);
+                                                            if (activeTab === 'community' && communitySubtab === 'schedule') {
+                                                                setCommunityMapSelectedUserId(null);
+                                                            }
+                                                        } else {
+                                                            setCadreMapSelectedUserId(u.id);
+                                                            if (activeTab === 'community' && communitySubtab === 'schedule') {
+                                                                setCommunityMapSelectedUserId(u.id);
+                                                                const now = new Date();
+                                                                setCadreScheduleSelectedDate(now);
+                                                                setCadreScheduleDate(now);
+                                                                setTimeout(() => {
+                                                                    const el = document.getElementById('community-schedule-edit-block');
+                                                                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                                }, 100);
+                                                            }
+                                                        }
+                                                    }}
                                                 >
                                                     <div 
                                                         className={`w-10 h-10 rounded-full overflow-hidden border-2 shadow-sm relative group-hover:scale-105 transition-transform ${
@@ -14516,7 +14630,7 @@
                             )}
 
                         {activeTab === 'community' && (<>
-                                                <div className={`pb-32 ${communitySubtab === 'account' ? 'hidden' : ''}`}>
+                                                <div className={`pb-32 ${(!communitySubtab || communitySubtab === 'map') ? '' : 'hidden'}`}>
                                         <div>
                                         {(!communitySubtab || communitySubtab === 'map') && (function() {
                                             const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
@@ -14696,8 +14810,10 @@
                                                     <div className="bg-white rounded-2xl shadow-sm p-3 space-y-4">
 
                                                         <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
-                                                            <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
-                                                            <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                                            <div>
+                                                                <span className="text-gray-600 font-bold mr-2"> 目前選擇社區:</span>
+                                                                <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                                            </div>
                                                         </div>
                                                         <div className="w-full aspect-square bg-gray-100 rounded-2xl overflow-hidden relative shadow-inner">
                                                             {displayLocation ? (
@@ -15064,8 +15180,1509 @@
                                         </div>
                             </div>
 
+                            {communitySubtab === 'schedule' && (
+                                <div className="pb-32">
+                                    <div className="bg-white rounded-2xl shadow-sm p-3 space-y-4">
+                                        <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                            <span className="text-gray-600 font-bold mr-2">目前選擇公司:</span>
+                                            <span className="text-red-600 font-bold">
+                                                {(() => {
+                                                    const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                                    return selectedCommunity?.name || '未選擇';
+                                                })()}
+                                            </span>
+                                        </div>
+
+                                        {communityMapSelectedUserId && (
+                                            <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <Users className="w-4 h-4" />
+                                                    <span>帳號: <span className="font-bold">{usersList.find(u => u.id === communityMapSelectedUserId)?.name || '未知'}</span></span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => { setCommunityMapSelectedUserId(null); setCadreMapSelectedUserId(null); }}
+                                                    className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                >
+                                                    取消選取
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <div className="rounded-2xl border border-gray-100 p-4">
+                                            <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center gap-2">
+                                                <button 
+                                                    onClick={() => setCadreScheduleDate(new Date(cadreScheduleDate.getFullYear(), cadreScheduleDate.getMonth() - 1, 1))}
+                                                    className="p-1 rounded-full hover:bg-gray-100"
+                                                >
+                                                    <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                                </button>
+                                                <span className="font-bold text-gray-800 text-lg">
+                                                    {cadreScheduleDate.getFullYear()}年 {cadreScheduleDate.getMonth() + 1}月
+                                                </span>
+                                                <button 
+                                                    onClick={() => setCadreScheduleDate(new Date(cadreScheduleDate.getFullYear(), cadreScheduleDate.getMonth() + 1, 1))}
+                                                    className="p-1 rounded-full hover:bg-gray-100"
+                                                >
+                                                    <ChevronRight className="w-5 h-5 text-gray-600" />
+                                                </button>
+                                            </div>
+
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                            {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                                <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                            ))}
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {(() => {
+                                                const year = cadreScheduleDate.getFullYear();
+                                                const month = cadreScheduleDate.getMonth();
+                                                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                                const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                                const days = [];
+                                                
+                                                // Taiwan National Holidays (2025-2026)
+                                                const holidays = [
+                                                    // 2025
+                                                    '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', 
+                                                    '2025-02-28', 
+                                                    '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', 
+                                                    '2025-05-01', 
+                                                    '2025-05-30', '2025-05-31', '2025-06-01', 
+                                                    '2025-10-04', '2025-10-05', '2025-10-06', 
+                                                    '2025-10-10', '2025-10-11', '2025-10-12', 
+                                                    '2025-12-25', 
+
+                                                    // 2026
+                                                    '2026-01-01', 
+                                                    '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', 
+                                                    '2026-02-27', '2026-02-28', '2026-03-01', 
+                                                    '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', 
+                                                    '2026-05-01', 
+                                                    '2026-06-19', '2026-06-20', '2026-06-21', 
+                                                    '2026-09-25', '2026-09-26', '2026-09-27', 
+                                                    '2026-10-09', '2026-10-10', '2026-10-11', 
+                                                    '2026-12-25', 
+                                                ];
+
+                                                // Empty cells
+                                                for (let i = 0; i < firstDayOfWeek; i++) {
+                                                    days.push(<div key={`empty-${i}`} className="h-12"></div>);
+                                                }
+
+                                                // Days
+                                                for (let d = 1; d <= daysInMonth; d++) {
+                                                    const currentDate = new Date(year, month, d);
+                                                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                                    const isToday = new Date().toDateString() === currentDate.toDateString();
+                                                    const isHoliday = holidays.includes(dateStr);
+                                                    const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                                                    const schedule = userSchedules[dateStr];
+
+                                                    let cellClass = isHoliday || isWeekend ? 'bg-gray-100 text-gray-800' : 'hover:bg-gray-50 text-gray-700';
+                                                    let cellStyle = {};
+                                                    
+                                                    const isFridayOff = currentDate.getDay() === 5 && (!schedule || schedule.type === 'off');
+                                                    const isWorkingDay = !isHoliday && !isWeekend && !(schedule && (schedule.type === 'off' || schedule.type === 'rest' || schedule.type === 'holiday' || schedule.type === 'comp_leave')) && !isFridayOff;
+
+                                                    const isApprovedActualLeave = (function() {
+                                                        if (!isWorkingDay) return false;
+                                                        const dayStart = new Date(year, month, d, 0, 0, 0);
+                                                        const dayEnd = new Date(year, month, d, 23, 59, 59);
+                                                        for (const l of userLeaveRequests) {
+                                                            if (l.approvalStatus !== 'approved') continue;
+                                                            let s = l.leaveStartDate ? new Date(String(l.leaveStartDate).replace('T',' ')) : (l.leaveDate ? new Date(l.leaveDate) : null);
+                                                            let e = l.leaveEndDate ? new Date(String(l.leaveEndDate).replace('T',' ')) : (s ? new Date(s) : null);
+                                                            if (!s || !e || isNaN(s) || isNaN(e)) continue;
+                                                            s = new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0);
+                                                            e = new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59);
+                                                            if (s <= dayEnd && e >= dayStart) return true;
+                                                        }
+                                                        return false;
+                                                    })();
+
+                                                    // Determine segments for gradient
+                                                    let segments = [];
+                                                    if ((isHoliday || isWeekend) && (!schedule || schedule.type === 'holiday')) {
+                                                        segments.push({ type: 'holiday', ratio: 1 });
+                                                        cellClass = 'bg-gray-100 text-gray-800';
+                                                    } else if (schedule && (schedule.type === 'work' || schedule.type === 'duty')) {
+                                                        const dayStart = new Date(year, month, d, 0, 0, 0);
+                                                        const dayEnd = new Date(year, month, d, 23, 59, 59);
+                                                        const [sh, sm] = (schedule.startTime || '09:00').split(':').map(n=>parseInt(n,10));
+                                                        const [eh, em] = (schedule.endTime || '17:30').split(':').map(n=>parseInt(n,10));
+                                                        const schedStart = new Date(year, month, d, sh||0, sm||0, 0);
+                                                        const schedEnd = new Date(year, month, d, eh||0, em||0, 0);
+                                                        
+                                                        // Find approved leave for this day
+                                                        const approvedLeave = (userLeaveRequests || []).find(l => {
+                                                            if (l.approvalStatus !== 'approved') return false;
+                                                            let s = l.leaveStartDate ? new Date(String(l.leaveStartDate).replace('T',' ')) : (l.leaveDate ? new Date(l.leaveDate + (l.leaveTime ? ' ' + l.leaveTime : ' 00:00')) : null);
+                                                            let e = l.leaveEndDate ? new Date(String(l.leaveEndDate).replace('T',' ')) : (s ? new Date(s) : null);
+                                                            if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                                            s = new Date(s.getFullYear(), s.getMonth(), s.getDate(), s.getHours(), s.getMinutes(), 0);
+                                                            e = new Date(e.getFullYear(), e.getMonth(), e.getDate(), e.getHours(), e.getMinutes(), 0);
+                                                            return s <= dayEnd && e >= dayStart;
+                                                        });
+
+                                                        if (approvedLeave) {
+                                                            let ls = approvedLeave.leaveStartDate ? new Date(String(approvedLeave.leaveStartDate).replace('T',' ')) : (approvedLeave.leaveDate ? new Date(approvedLeave.leaveDate + (approvedLeave.leaveTime ? ' ' + approvedLeave.leaveTime : ' 00:00')) : dayStart);
+                                                            let le = approvedLeave.leaveEndDate ? new Date(String(approvedLeave.leaveEndDate).replace('T',' ')) : (approvedLeave.leaveEndDate ? new Date(approvedLeave.leaveEndDate) : dayEnd);
+                                                            ls = new Date(ls.getFullYear(), ls.getMonth(), ls.getDate(), ls.getHours(), ls.getMinutes(), 0);
+                                                            le = new Date(le.getFullYear(), le.getMonth(), le.getDate(), le.getHours(), le.getMinutes(), 0);
+                                                            
+                                                            const clampStart = ls < schedStart ? schedStart : ls;
+                                                            const clampEnd = le > schedEnd ? schedEnd : le;
+                                                            
+                                                            if (clampStart < clampEnd) {
+                                                                // Calculate durations in minutes
+                                                                const totalMins = (schedEnd - schedStart) / 60000;
+                                                                const leaveMins = (clampEnd - clampStart) / 60000;
+                                                                
+                                                                if (clampStart > schedStart) {
+                                                                     // Work then Leave
+                                                                     const workMins = (clampStart - schedStart) / 60000;
+                                                                     segments.push({ type: schedule.type, ratio: workMins / totalMins });
+                                                                     segments.push({ type: 'leave', ratio: leaveMins / totalMins });
+                                                                     if (clampEnd < schedEnd) {
+                                                                         // Leave then Work (sandwich)
+                                                                         const workMins2 = (schedEnd - clampEnd) / 60000;
+                                                                         segments.push({ type: schedule.type, ratio: workMins2 / totalMins });
+                                                                     }
+                                                                } else {
+                                                                     // Leave then Work (or full leave)
+                                                                     segments.push({ type: 'leave', ratio: leaveMins / totalMins });
+                                                                     if (clampEnd < schedEnd) {
+                                                                         const workMins = (schedEnd - clampEnd) / 60000;
+                                                                         segments.push({ type: schedule.type, ratio: workMins / totalMins });
+                                                                     }
+                                                                }
+                                                            } else {
+                                                                segments.push({ type: schedule.type, ratio: 1 });
+                                                            }
+                                                        } else {
+                                                            segments.push({ type: schedule.type, ratio: 1 });
+                                                        }
+                                                    } else if (schedule && schedule.type === 'comp_leave') {
+                                                        segments.push({ type: 'comp_leave', ratio: 1 });
+                                                    } else if (schedule && schedule.type === 'off') {
+                                                        segments.push({ type: 'off', ratio: 1 });
+                                                    } else {
+                                                        // Default or no schedule
+                                                        if (isApprovedActualLeave) segments.push({ type: 'leave', ratio: 1 });
+                                                    }
+
+                                                    // Apply styles based on segments
+                                                    if (segments.length > 0) {
+                                                        const colors = {
+                                                            work: 'rgb(219, 234, 254)', // blue-100
+                                                            duty: 'rgb(254, 249, 195)', // yellow-100
+                                                            leave: 'rgb(255, 237, 213)', // orange-100
+                                                            holiday: 'rgb(243, 244, 246)', // gray-100
+                                                            off: 'rgb(87, 83, 78)', // stone-600 (for bg)
+                                                            comp_leave: 'rgb(224, 231, 255)', // indigo-100
+                                                        };
+                                                        if (segments.length === 1) {
+                                                            if (segments[0].type === 'off') {
+                                                                cellClass = 'bg-stone-500 text-white border border-stone-600';
+                                                            } else if (segments[0].type === 'leave') {
+                                                                cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
+                                                            } else if (segments[0].type === 'work') {
+                                                                cellClass = 'bg-blue-100 text-blue-700 border border-blue-200';
+                                                            } else if (segments[0].type === 'duty') {
+                                                                cellClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+                                                            } else if (segments[0].type === 'comp_leave') {
+                                                                cellClass = 'bg-indigo-100 text-indigo-700 border border-indigo-200';
+                                                            } else {
+                                                                cellClass = 'bg-gray-100 text-gray-800';
+                                                            }
+                                                        } else {
+                                                            // Gradient
+                                                            let gradientStops = [];
+                                                            let currentPos = 0;
+                                                            segments.forEach(seg => {
+                                                                const color = colors[seg.type] || colors.work;
+                                                                const endPos = currentPos + (seg.ratio * 100);
+                                                                gradientStops.push(`${color} ${currentPos}%`);
+                                                                gradientStops.push(`${color} ${endPos}%`);
+                                                                currentPos = endPos;
+                                                            });
+                                                            cellStyle = { background: `linear-gradient(to bottom, ${gradientStops.join(', ')})` };
+                                                            cellClass = 'text-gray-800 border border-gray-200'; // Base style
+                                                        }
+                                                    }
+
+                                                    // Selection Ring
+                                                    if (cadreScheduleSelectedDate && cadreScheduleSelectedDate.toDateString() === currentDate.toDateString()) {
+                                                        cellClass += ' ring-2 ring-blue-600 z-10';
+                                                    } else if (isToday) {
+                                                        cellClass += ' ring-2 ring-red-600';
+                                                    }
+                                                        
+                                                        days.push(
+                                                            <div 
+                                                                key={d} 
+                                                                onClick={() => {
+                                                                    if (!communityMapSelectedUserId) {
+                                                                        alert('請先點選上方人員大頭照');
+                                                                        return;
+                                                                    }
+                                                                    setCadreScheduleSelectedDate(currentDate);
+                                                                }}
+                                                                style={cellStyle}
+                                                                className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold cursor-pointer transition-all ${cellClass}`}
+                                                            >
+                                                                {d}
+                                                                {(isHoliday || isWeekend) && (!segments.length || (segments.length > 0 && segments[0].type === 'holiday')) && <span className="absolute text-[9px] mt-6">假日</span>}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return days;
+                                                })()}
+                                            </div>
+                                            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200"></div> 上班
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-yellow-100 border border-yellow-200"></div> 值班
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-orange-100 border border-orange-200"></div> 請假
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-stone-500 border border-stone-600"></div> 休假
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200"></div> 補休
+                                                </div>
+                                            </div>
+
+
+                                            <div className="mt-4 flex justify-end items-center gap-4">
+                                                <label className="flex items-center gap-2 cursor-pointer select-none">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isNightShift} 
+                                                        onChange={(e) => setIsNightShift(e.target.checked)}
+                                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                                                    />
+                                                    <span className="text-gray-700 font-bold text-sm">夜班人員</span>
+                                                </label>
+                                                <button
+                                                    onClick={handleAutoSchedule}
+                                                    disabled={scheduleSaving}
+                                                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 flex items-center gap-2"
+                                                >
+                                                    <Calendar className="w-4 h-4" />
+                                                    自動排班
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                    {/* Community Daily Schedule Summary (When no user selected) */}
+                                    {!communityMapSelectedUserId && (function() {
+                                        const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                        if (!selectedCommunity) return null;
+                                        
+                                        // 1. Filter Community Users
+                                        const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                                        const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                        const finalTargetRoles = [...targetRoleIds];
+                                        
+                                        const companyUsers = usersList.filter(u => {
+                                            let inCommunity = false;
+                                            if (Array.isArray(u.communityIds) && u.communityIds.length > 0) {
+                                                inCommunity = u.communityIds.some(cid => String(cid) === String(selectedCommunity.id));
+                                            } else {
+                                                inCommunity = String(u.communityId) === String(selectedCommunity.id);
+                                            }
+                                            
+                                            return inCommunity &&
+                                                   finalTargetRoles.includes(u.role) &&
+                                                   (u.status || '在職') !== '離職';
+                                        });
+
+                                        // 2. Determine Date (Use Calendar Selected Date or Today)
+                                        const now = new Date();
+                                        const year = now.getFullYear();
+                                        const month = now.getMonth();
+                                        const date = now.getDate();
+                                        const todayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+                                        
+                                        // Holidays logic (2025-2026)
+                                        const holidays = [
+                                            '2025-01-01', '2025-01-25', '2025-01-26', '2025-01-27', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-01', '2025-02-02', 
+                                            '2025-02-28', 
+                                            '2025-04-03', '2025-04-04', '2025-04-05', '2025-04-06', 
+                                            '2025-05-01', 
+                                            '2025-05-30', '2025-05-31', '2025-06-01', 
+                                            '2025-10-04', '2025-10-05', '2025-10-06', 
+                                            '2025-10-10', '2025-10-11', '2025-10-12', 
+                                            '2025-12-25', 
+                                            '2026-01-01', 
+                                            '2026-02-14', '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-21', '2026-02-22', 
+                                            '2026-02-27', '2026-02-28', '2026-03-01', 
+                                            '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06', 
+                                            '2026-05-01', 
+                                            '2026-06-19', '2026-06-20', '2026-06-21', 
+                                            '2026-09-25', '2026-09-26', '2026-09-27', 
+                                            '2026-10-09', '2026-10-10', '2026-10-11', 
+                                            '2026-12-25'
+                                        ];
+                                        const isHoliday = holidays.includes(todayStr);
+                                        const dayOfWeek = now.getDay();
+                                        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+                                        // 3. Count Stats
+                                        let stats = {
+                                            work: 0,
+                                            duty: 0,
+                                            annual: 0, // 特休
+                                            leave: 0,  // 請假
+                                            holiday: 0, // 假日
+                                            comp: 0    // 補休
+                                        };
+
+                                        const todaySchedules = new Map();
+                                        (schedulesList || []).forEach(s => {
+                                            if (s.date === todayStr) {
+                                                todaySchedules.set(s.userId, s);
+                                            }
+                                        });
+
+                                        companyUsers.forEach(u => {
+                                            // Check Approved Leave
+                                            const approvedLeave = (leavesList || []).find(l => {
+                                                if (l.userId !== u.id || l.approvalStatus !== 'approved') return false;
+                                                let s = l.leaveStartDate ? new Date(String(l.leaveStartDate).replace('T',' ')) : (l.leaveDate ? new Date(l.leaveDate + (l.leaveTime ? ' ' + l.leaveTime : ' 00:00')) : null);
+                                                let e = l.leaveEndDate ? new Date(String(l.leaveEndDate).replace('T',' ')) : (s ? new Date(s) : null);
+                                                if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                                
+                                                const dayStart = new Date(year, month, date, 0, 0, 0);
+                                                const dayEnd = new Date(year, month, date, 23, 59, 59);
+                                                
+                                                // Simple overlap check
+                                                return s <= dayEnd && e >= dayStart;
+                                            });
+
+                                            if (approvedLeave) {
+                                                if (approvedLeave.leaveType === '特休') {
+                                                    stats.annual++;
+                                                } else if (approvedLeave.leaveType === '補休') {
+                                                    stats.comp++;
+                                                } else {
+                                                    stats.leave++;
+                                                }
+                                                return;
+                                            }
+
+                                            // Check Schedule
+                                            const s = todaySchedules.get(u.id);
+                                            if (s) {
+                                                if (s.type === 'work') stats.work++;
+                                                else if (s.type === 'duty') stats.duty++;
+                                                else if (s.type === 'holiday') stats.holiday++;
+                                                else if (s.type === 'comp_leave') stats.comp++;
+                                                else if (s.type === 'off') stats.holiday++; // Treat Off as Holiday
+                                                else if (s.type === 'leave') stats.leave++;
+                                                return;
+                                            }
+
+                                            // Default
+                                            if (isHoliday || isWeekend) {
+                                                stats.holiday++;
+                                            } else {
+                                                stats.work++;
+                                            }
+                                        });
+
+                                        return (
+                                            <div className="space-y-4">
+                                                <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeIn">
+                                                    <h3 className="font-bold text-gray-800 text-lg mb-4 flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <Calendar className="w-5 h-5 text-indigo-600" />
+                                                            {selectedCommunity.name} 今日人員統計 <span className="text-sm font-normal text-gray-500 ml-2">總人數: {companyUsers.length}人</span>
+                                                        </div>
+                                                        <div className="text-sm text-gray-500 ml-7">
+                                                            {year}年{month+1}月{date}日
+                                                        </div>
+                                                    </h3>
+                                                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                                                        <div className="bg-blue-50 p-3 rounded-xl flex flex-col items-center justify-center border border-blue-100">
+                                                            <span className="text-xs font-bold text-blue-400 mb-1">上班</span>
+                                                            <span className="text-xl font-bold text-blue-700">{stats.work}</span>
+                                                        </div>
+                                                        <div className="bg-yellow-50 p-3 rounded-xl flex flex-col items-center justify-center border border-yellow-100">
+                                                            <span className="text-xs font-bold text-yellow-500 mb-1">值班</span>
+                                                            <span className="text-xl font-bold text-yellow-700">{stats.duty}</span>
+                                                        </div>
+                                                        <div className="bg-stone-50 p-3 rounded-xl flex flex-col items-center justify-center border border-stone-200">
+                                                            <span className="text-xs font-bold text-stone-500 mb-1">特休</span>
+                                                            <span className="text-xl font-bold text-stone-700">{stats.annual}</span>
+                                                        </div>
+                                                        <div className="bg-orange-50 p-3 rounded-xl flex flex-col items-center justify-center border border-orange-100">
+                                                            <span className="text-xs font-bold text-orange-400 mb-1">請假</span>
+                                                            <span className="text-xl font-bold text-orange-700">{stats.leave}</span>
+                                                        </div>
+                                                        <div className="bg-gray-50 p-3 rounded-xl flex flex-col items-center justify-center border border-gray-200">
+                                                            <span className="text-xs font-bold text-gray-400 mb-1">假日</span>
+                                                            <span className="text-xl font-bold text-gray-700">{stats.holiday}</span>
+                                                        </div>
+                                                        <div className="bg-indigo-50 p-3 rounded-xl flex flex-col items-center justify-center border border-indigo-100">
+                                                            <span className="text-xs font-bold text-indigo-400 mb-1">補休</span>
+                                                            <span className="text-xl font-bold text-indigo-700">{stats.comp}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Detail View Below Calendar */}
+                                    {communityMapSelectedUserId && (function() {
+                                        const targetDate = cadreScheduleSelectedDate || new Date();
+                                        const year = targetDate.getFullYear();
+                                        const month = targetDate.getMonth();
+                                        const date = targetDate.getDate();
+                                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+                                        const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][targetDate.getDay()];
+                                        
+                                        const schedule = userSchedules[dateStr];
+                                        
+                                        // Check for approved leave
+                                        const leave = (userLeaveRequests || []).find(l => {
+                                            if (l.approvalStatus !== 'approved') return false;
+                                            let s = l.leaveStartDate ? new Date(String(l.leaveStartDate).replace('T',' ')) : (l.leaveDate ? new Date(l.leaveDate + (l.leaveTime ? ' ' + l.leaveTime : ' 00:00')) : null);
+                                            let e = l.leaveEndDate ? new Date(String(l.leaveEndDate).replace('T',' ')) : (s ? new Date(s) : null);
+                                            if (!s || !e || isNaN(s) || isNaN(e)) return false;
+                                            const dayStart = new Date(year, month, date, 0, 0, 0);
+                                            const dayEnd = new Date(year, month, date, 23, 59, 59);
+                                            s = new Date(s.getFullYear(), s.getMonth(), s.getDate(), s.getHours(), s.getMinutes(), 0);
+                                            e = new Date(e.getFullYear(), e.getMonth(), e.getDate(), e.getHours(), e.getMinutes(), 0);
+                                            return s <= dayEnd && e >= dayStart;
+                                        });
+                                        
+                                        const isHoliday = ['2026-01-01','2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22','2026-02-27','2026-02-28','2026-03-01','2026-04-03','2026-04-04','2026-04-05','2026-04-06','2026-05-01','2026-06-19','2026-06-20','2026-06-21','2026-09-25','2026-09-26','2026-09-27','2026-10-09','2026-10-10','2026-10-11','2026-12-25'].includes(dateStr);
+                                        const isWeekend = targetDate.getDay() === 0 || targetDate.getDay() === 6;
+
+                                        let locationName = '';
+                                        if (schedule && schedule.location) {
+                                            locationName = schedule.location;
+                                        } else if (communityMapSelectedUserId) {
+                                            const targetUser = usersList.find(u => u.id === communityMapSelectedUserId);
+                                            if (targetUser) {
+                                                // Community Users Logic
+                                                if (targetUser.communityId) {
+                                                    const c = (communities || []).find(c => String(c.id) === String(targetUser.communityId));
+                                                    if (c) locationName = c.name;
+                                                } else if (targetUser.communityIds && targetUser.communityIds.length > 0) {
+                                                    const c = (communities || []).find(c => String(c.id) === String(targetUser.communityIds[0]));
+                                                    if (c) locationName = c.name;
+                                                }
+                                            }
+                                        }
+
+                                        return (
+                                            <div id="community-schedule-edit-block" key={communityMapSelectedUserId} className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 animate-fadeIn">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                                        <Calendar className="w-5 h-5 text-blue-600" />
+                                                        {year}年{month+1}月{date}日 (星期{dayOfWeek})
+                                                    </h3>
+                                                    <button 
+                                                        onClick={() => {
+                                                            setScheduleModalDate(dateStr);
+                                                            if (leave) {
+                                                                setScheduleForm({ type: 'leave' });
+                                                            } else if (schedule) {
+                                                                setScheduleForm({
+                                                                    type: schedule.type,
+                                                                    startTime: schedule.startTime || '09:00',
+                                                                    endTime: schedule.endTime || '17:30',
+                                                                    crossDay: schedule.crossDay || false,
+                                                                    location: schedule.location || ''
+                                                                });
+                                                            } else if (isHoliday || isWeekend) {
+                                                                setScheduleForm({ type: 'holiday', location: '' });
+                                                            } else {
+                                                                setScheduleForm({ type: 'work', startTime: '09:00', endTime: '17:30', crossDay: false, location: '' });
+                                                            }
+                                                            setShowScheduleModal(true);
+                                                        }}
+                                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                                                    >
+                                                        編輯排班
+                                                    </button>
+                                                </div>
+                                                
+                                                <div className="space-y-3">
+                                                    {/* Schedule Info */}
+                                                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                                        <div className="text-xs font-bold text-gray-400 mb-2">排班內容</div>
+                                                        {schedule ? (
+                                                            <div className="flex items-center gap-4 flex-wrap">
+                                                                <div className={`px-3 py-1 rounded-lg text-sm font-bold ${
+                                                                    schedule.type === 'work' ? 'bg-blue-100 text-blue-700' :
+                                                                    schedule.type === 'duty' ? 'bg-yellow-100 text-yellow-700' :
+                                                                    schedule.type === 'off' ? 'bg-stone-500 text-white' : 
+                                                                    schedule.type === 'comp_leave' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-700'
+                                                                }`}>
+                                                                    {schedule.type === 'work' ? '上班' : schedule.type === 'duty' ? '值班' : schedule.type === 'off' ? '休假' : schedule.type === 'comp_leave' ? '補休' : '其他'}
+                                                                </div>
+                                                                {schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
+                                                                    <div className="font-mono font-bold text-gray-700 text-lg">
+                                                                        {schedule.startTime} ~ {schedule.endTime}
+                                                                    </div>
+                                                                )}
+                                                                {locationName && schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
+                                                                    <div 
+                                                                        onClick={() => {
+                                                                            setScheduleModalDate(dateStr);
+                                                                            setScheduleForm({
+                                                                                type: schedule.type,
+                                                                                startTime: schedule.startTime || '09:00',
+                                                                                endTime: schedule.endTime || '17:30',
+                                                                                crossDay: schedule.crossDay || false,
+                                                                                location: schedule.location || ''
+                                                                            });
+                                                                            setShowScheduleModal(true);
+                                                                        }}
+                                                                        className="flex items-center gap-1 text-gray-500 text-sm font-bold bg-white px-2 py-1 rounded border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
+                                                                        title="點擊編輯打卡位置"
+                                                                    >
+                                                                        <MapPin className="w-3 h-3" />
+                                                                        {locationName}
+                                                                        <Edit className="w-3 h-3 ml-1 opacity-40" />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (isHoliday || isWeekend) ? (
+                                                            <div className="text-sm font-bold text-gray-500">假日</div>
+                                                        ) : (
+                                                        <div className="text-sm text-gray-400">尚無排班</div>
+                                                        )}
+                                                    </div>
+                                                    {(function(){
+                                                        const dayStart = new Date(year, month, date, 0, 0, 0);
+                                                        const dayEnd = new Date(year, month, date, 23, 59, 59);
+                                                        const dayRecords = (attendanceList || []).filter(r => {
+                                                            if (String(r.userId) !== String(communityMapSelectedUserId)) return false;
+                                                            let seconds;
+                                                            if (r.checkInTime) {
+                                                                const t = new Date(r.checkInTime);
+                                                                seconds = isNaN(t) ? (r.timestamp?.seconds || (Date.now()/1000)) : (t.getTime()/1000);
+                                                            } else if (r.timestamp?.seconds) {
+                                                                seconds = r.timestamp.seconds;
+                                                            } else if (r.timestamp instanceof Date) {
+                                                                seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                            } else if (r.createdAt?.seconds) {
+                                                                seconds = r.createdAt.seconds;
+                                                            } else {
+                                                                seconds = Date.now() / 1000;
+                                                            }
+                                                            const dt = new Date(seconds * 1000);
+                                                            return dt >= dayStart && dt <= dayEnd;
+                                                        }).filter(r => ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(r.type)).sort((a, b) => {
+                                                            const sa = (a.timestamp?.seconds) || (a.createdAt?.seconds) || (Date.now()/1000);
+                                                            const sb = (b.timestamp?.seconds) || (b.createdAt?.seconds) || (Date.now()/1000);
+                                                            return sa - sb;
+                                                        });
+                                                        return (
+                                                            <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                                                <div className="text-xs font-bold text-gray-400 mb-2">本日打卡紀錄</div>
+                                                                {dayRecords.length === 0 ? (
+                                                                    <div className="text-sm text-gray-400">尚無打卡</div>
+                                                                ) : (
+                                                                    <div className="space-y-2">
+                                                                        {dayRecords.map(r => {
+                                                                            let seconds;
+                                                                            if (r.checkInTime) {
+                                                                                const t = new Date(r.checkInTime);
+                                                                                seconds = isNaN(t) ? (r.timestamp?.seconds || (Date.now()/1000)) : (t.getTime()/1000);
+                                                                            } else if (r.timestamp?.seconds) {
+                                                                                seconds = r.timestamp.seconds;
+                                                                            } else if (r.timestamp instanceof Date) {
+                                                                                seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                                            } else if (r.createdAt?.seconds) {
+                                                                                seconds = r.createdAt.seconds;
+                                                                            } else {
+                                                                                seconds = Date.now() / 1000;
+                                                                            }
+                                                                            const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                            
+                                                                            const typeInfo = {
+                                                                                'in': { label: '上班', color: 'bg-green-100 text-green-700' },
+                                                                                'out': { label: '下班', color: 'bg-red-100 text-red-700' },
+                                                                                'work_in': { label: '上班(補)', color: 'bg-green-50 text-green-600 border border-green-200' },
+                                                                                'work_out': { label: '下班(補)', color: 'bg-red-50 text-red-600 border border-red-200' },
+                                                                                'duty_in': { label: '值班(補)', color: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                                'duty_out': { label: '值班(補)', color: 'bg-yellow-50 text-yellow-600 border border-yellow-200' }
+                                                                            };
+                                                                            const info = typeInfo[r.type] || { label: '未知', color: 'bg-gray-100 text-gray-700' };
+
+                                                                            return (
+                                                                                <div key={r.id} className="flex items-center gap-3">
+                                                                                    <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${info.color}`}>
+                                                                                        {info.label}
+                                                                                    </div>
+                                                                                    <div className="font-mono font-bold text-gray-700">
+                                                                                        {timeStr}
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Leave Info */}
+                                                    {leave && (
+                                                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
+                                                            <div className="text-xs font-bold text-orange-400 mb-2">請假紀錄</div>
+                                                            <div className="flex items-center justify-between">
+                                                                <div>
+                                                                    <div className="font-bold text-orange-700 text-lg mb-1">
+                                                                        {leave.leaveReason || '請假'}
+                                                                    </div>
+                                                                    <div className="text-xs text-orange-600 font-mono">
+                                                                        {leave.leaveStartDate ? 
+                                                                            `${leave.leaveStartDate.split('T')[1].substring(0,5)} ~ ${leave.leaveEndDate.split('T')[1].substring(0,5)}` : 
+                                                                            `${leave.leaveTime} (全日)`}
+                                                                    </div>
+                                                                </div>
+                                                                <span className="px-2 py-1 bg-white bg-opacity-50 rounded text-xs text-orange-600 font-bold border border-orange-200">
+                                                                    已核准
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                                </div>
+                            )}
+
+                            {communitySubtab === 'record' && hasSubPermission('community', 'record') && (function() {
+                                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                                const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                const communityUserIds = selectedCommunity ? usersList
+                                    .filter(u => {
+                                        const uComms = u.communityIds || (u.communityId ? [u.communityId] : []);
+                                        return uComms.some(cid => String(cid) === String(selectedCommunity.id)) &&
+                                               targetRoleIds.includes(u.role) &&
+                                               (u.status === '在職' || !u.status);
+                                    })
+                                    .map(u => u.id) : [];
+
+                                const records = selectedCommunity ? attendanceList.filter(r => {
+                                    if (!communityUserIds.includes(r.userId)) return false;
+                                    if (communityMapSelectedUserId && r.userId !== communityMapSelectedUserId) return false;
+                                    if (r.type === 'leave') return false;
+
+                                    let seconds;
+                                    if (r.timestamp?.seconds) {
+                                        seconds = r.timestamp.seconds;
+                                    } else if (r.timestamp instanceof Date) {
+                                        seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                    } else if (r.createdAt?.seconds) {
+                                        seconds = r.createdAt.seconds;
+                                    } else {
+                                        seconds = Date.now() / 1000;
+                                    }
+
+                                    const rDate = new Date(seconds * 1000);
+                                    const recordDate = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
+                                    return recordDate === communityRecordDate;
+                                }) : [];
+
+                                const now = new Date();
+                                const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                const isToday = communityRecordDate === todayStr;
+
+                                return (
+                                <div className="pb-32">
+                                    <div className="bg-white rounded-2xl shadow-sm p-3 space-y-4">
+                                    <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                        <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
+                                        <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                    </div>
+                                    <div className="mb-4">
+                                        <button 
+                                            onClick={() => {
+                                                const d = new Date();
+                                                const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                                                const timeStr = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                                                setManualClockForm(prev => ({ ...prev, date: dateStr, time: timeStr, type: 'in' }));
+                                                setShowManualClockModal(true);
+                                            }}
+                                            className="w-full px-3 py-3 bg-yellow-50 text-black rounded-xl text-xs font-bold hover:bg-yellow-100 transition-colors border border-gray-200"
+                                        >
+                                            手動打卡
+                                        </button>
+                                    </div>
+                                    <h3 className="font-bold text-gray-800 mb-4 text-sm flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={() => {
+                                                    const d = new Date(communityRecordDate);
+                                                    d.setDate(d.getDate() - 1);
+                                                    setCommunityRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                }} 
+                                                className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
+                                            >
+                                                <ChevronLeft className="w-5 h-5" />
+                                            </button>
+                                            <span>{isToday ? '今日打卡紀錄' : `${communityRecordDate.replace(/-/g, '/')} 打卡紀錄`}</span>
+                                            <button 
+                                                onClick={() => {
+                                                    const d = new Date(communityRecordDate);
+                                                    d.setDate(d.getDate() + 1);
+                                                    setCommunityRecordDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                                                }}
+                                                disabled={isToday}
+                                                className={`p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isToday ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                            >
+                                                <ChevronRight className="w-5 h-5" />
+                                            </button>
+                                        </div>
+                                        <span className="text-sm text-gray-400 font-normal">共 {records.length} 筆</span>
+                                    </h3>
+
+                                    {showManualClockModal && (
+                                        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                            <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                                <h4 className="text-lg font-bold text-gray-800 mb-4">手動打卡</h4>
+                                                {(function(){
+                                                    const filteredUsers = usersList.filter(u => {
+                                                        return communityUserIds.includes(u.id);
+                                                    });
+                                                    const typeOptions = [
+                                                        { value: 'in', label: '上班' },
+                                                        { value: 'out', label: '下班' },
+                                                        { value: 'outing_start', label: '外出' },
+                                                        { value: 'outing_arrive', label: '抵達' },
+                                                        { value: 'outing_end', label: '離開' },
+                                                        { value: 'late_in', label: '卡上' },
+                                                        { value: 'late_out', label: '卡下' },
+                                                    ];
+                                                    return (
+                                                        <div className="space-y-3">
+                                                            <div>
+                                                                <label className="block text-xs font-bold text-gray-500 mb-1">姓名</label>
+                                                                <select 
+                                                                    className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100"
+                                                                    value={manualClockForm.userId}
+                                                                    onChange={e => {
+                                                                        const uid = e.target.value;
+                                                                        const user = usersList.find(u => u.id === uid);
+                                                                        let firstLoc = '';
+                                                                        if (user) {
+                                                                            const companyId = (user.companyIds && user.companyIds.length > 0) ? user.companyIds[0] : user.companyId;
+                                                                            const companyName = companies.find(c => c.id === companyId)?.name || '';
+                                                                            const commIds = user.communityIds || (user.communityId ? [user.communityId] : []);
+                                                                            const commNames = communities.filter(c => commIds.includes(c.id)).map(c => c.name);
+                                                                            const locs = [companyName, ...commNames].filter(Boolean);
+                                                                            firstLoc = locs[0] || '';
+                                                                        }
+                                                                        setManualClockForm(prev => ({ ...prev, userId: uid, locationName: firstLoc }));
+                                                                    }}
+                                                                >
+                                                                    <option value="">選擇人員</option>
+                                                                    {filteredUsers.map(u => (
+                                                                        <option key={u.id} value={u.id}>{u.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-bold text-gray-500 mb-1">打卡位置</label>
+                                                                {(function(){
+                                                                    const user = usersList.find(u => u.id === manualClockForm.userId);
+                                                                    const companyId = user ? ((user.companyIds && user.companyIds.length > 0) ? user.companyIds[0] : user.companyId) : '';
+                                                                    const companyName = companies.find(c => c.id === companyId)?.name || '';
+                                                                    const commIds = user ? (user.communityIds || (user.communityId ? [user.communityId] : [])) : [];
+                                                                    const comms = communities.filter(c => commIds.includes(c.id)).map(c => c.name);
+                                                                    const options = [companyName, ...comms].filter(Boolean);
+                                                                    return (
+                                                                        <select 
+                                                                            className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100"
+                                                                            value={manualClockForm.locationName}
+                                                                            onChange={e => setManualClockForm(prev => ({ ...prev, locationName: e.target.value }))}
+                                                                        >
+                                                                            <option value="">{options.length ? '選擇地點' : '請先選擇姓名'}</option>
+                                                                            {options.map(n => <option key={n} value={n}>{n}</option>)}
+                                                                        </select>
+                                                                    );
+                                                                })()}
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-bold text-gray-500 mb-1">打卡項目</label>
+                                                                <select 
+                                                                    className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100"
+                                                                    value={manualClockForm.type}
+                                                                    onChange={e => setManualClockForm(prev => ({ ...prev, type: e.target.value }))}
+                                                                >
+                                                                    {typeOptions.map(opt => (
+                                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-bold text-gray-500 mb-1">班別</label>
+                                                                <div className="inline-flex text-[11px] font-bold rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setManualClockForm(prev => ({ ...prev, shift: 'day' }))}
+                                                                        className={`px-2 py-1 ${
+                                                                            manualClockForm.shift !== 'night'
+                                                                                ? 'bg-blue-600 text-white'
+                                                                                : 'text-gray-600 bg-gray-50'
+                                                                        }`}
+                                                                    >
+                                                                        日班
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setManualClockForm(prev => ({ ...prev, shift: 'night' }))}
+                                                                        className={`px-2 py-1 ${
+                                                                            manualClockForm.shift === 'night'
+                                                                                ? 'bg-indigo-600 text-white'
+                                                                                : 'text-gray-600 bg-gray-50'
+                                                                        }`}
+                                                                    >
+                                                                        夜班
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 mb-1">打卡日期</label>
+                                                                    <input 
+                                                                        type="date"
+                                                                        className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100"
+                                                                        value={manualClockForm.date}
+                                                                        onChange={e => setManualClockForm(prev => ({ ...prev, date: e.target.value }))}
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 mb-1">打卡時間</label>
+                                                                    <input 
+                                                                        type="time"
+                                                                        className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100"
+                                                                        value={manualClockForm.time}
+                                                                        onChange={e => setManualClockForm(prev => ({ ...prev, time: e.target.value }))}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex justify-end gap-2 mt-4">
+                                                                <button 
+                                                                    onClick={()=>{ setShowManualClockModal(false); }}
+                                                                    className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700"
+                                                                >
+                                                                    取消
+                                                                </button>
+                                                                <button 
+                                                                    onClick={async()=>{ 
+                                                                        try {
+                                                                            const user = usersList.find(u => u.id === manualClockForm.userId);
+                                                                            if (!user) { alert('請選擇姓名'); return; }
+                                                                            if (!manualClockForm.date || !manualClockForm.time) { alert('請輸入日期與時間'); return; }
+                                                                            const dt = new Date(`${manualClockForm.date}T${manualClockForm.time}:00`);
+                                                                            const communityId = selectedCommunity?.id || (user.communityIds?.[0] || user.communityId || '');
+                                                                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                                                                                userId: user.id,
+                                                                                userName: user.name,
+                                                                                communityId,
+                                                                                type: manualClockForm.type,
+                                                                                checkInLocationName: manualClockForm.locationName || '',
+                                                                                checkInTime: dt.toISOString(),
+                                                                                timestamp: dt,
+                                                                                isNightShift: manualClockForm.shift === 'night',
+                                                                                createdAt: serverTimestamp()
+                                                                            });
+                                                                            setToast('已新增手動打卡');
+                                                                            setShowManualClockModal(false);
+                                                                        } catch (e) {
+                                                                            alert('新增失敗: ' + (e.message || e.code));
+                                                                        }
+                                                                    }}
+                                                                    className="px-3 py-2 rounded-2xl bg-red-600 text-white"
+                                                                >
+                                                                    儲存
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {communityMapSelectedUserId && (
+                                        <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                            <div className="flex items-center gap-2">
+                                                <Users className="w-4 h-4" />
+                                                <span>帳號: <span className="font-bold">{usersList.find(u => u.id === communityMapSelectedUserId)?.name || '未知'}</span></span>
+                                            </div>
+                                            <button 
+                                                onClick={() => setCommunityMapSelectedUserId(null)}
+                                                className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                            >
+                                                取消選取
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-3 pb-24">
+                                        {!selectedCommunity ? (
+                                            <div className="text-center text-gray-400 py-8">請選擇社區</div>
+                                        ) : (
+                                            <>
+                                                {(function(){
+                                                    const pendingMakeups = makeupRequests.filter(req => 
+                                                        req.status === 'pending' && 
+                                                        communityUserIds.includes(req.userId)
+                                                    );
+                                                    
+                                                    if (pendingMakeups.length === 0) return null;
+
+                                                    return (
+                                                        <div className="mb-6 space-y-3">
+                                                            <div className="flex items-center gap-2 px-1">
+                                                                <ClipboardList className="w-5 h-5 text-yellow-600" />
+                                                                <h3 className="font-bold text-gray-800">待核准補打卡 ({pendingMakeups.length})</h3>
+                                                            </div>
+                                                            {pendingMakeups.map(req => {
+                                                                const user = usersList.find(u => u.id === req.userId) || {};
+                                                                return (
+                                                                    <div key={req.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                                                                        <div className="flex items-start gap-3">
+                                                                            <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                                <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
+                                                                                    {user.avatarUrl ? (
+                                                                                        <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                                    ) : (
+                                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                                            {req.userName?.[0]}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                                {user.role && (
+                                                                                    <div className={`text-[10px] px-1.5 py-0.5 rounded-lg w-fit whitespace-nowrap ${
+                                                                                        user.role === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                                        user.role === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                                        user.role === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                                        user.role === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                                        user.role === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                                        'bg-gray-100 text-gray-700'
+                                                                                    }`}>
+                                                                                        {user.role.substring(0, 4)}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="font-bold text-gray-800">{req.userName}</div>
+                                                                                <div className="text-xs font-bold text-gray-700 mt-1">
+                                                                                    補{req.target === 'out' ? '下班' : '上班'}打卡: {req.date} ({req.target === 'out' ? '下班' : '上班'})
+                                                                                </div>
+                                                                                <div className="text-xs text-gray-600 mt-0.5">
+                                                                                    補卡時間: {req.target === 'out' ? req.endTime : req.startTime}
+                                                                                </div>
+                                                                                <div className="text-[11px] text-gray-600 mt-0.5">
+                                                                                    打卡位置: {req.checkInLocationName || '-'}
+                                                                                </div>
+                                                                                <div className="text-[11px] text-gray-600 mt-0.5">
+                                                                                    未打卡原因: {req.reasonType === 'other' ? (req.reasonRemark || '其他') : '忘記打卡'}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex flex-col gap-2 ml-auto">
+                                                                                <button 
+                                                                                    onClick={() => {
+                                                                                        setEditingMakeupRequest(req);
+                                                                                        setMakeupEditForm({
+                                                                                            startTime: req.startTime || '09:00',
+                                                                                            endTime: req.endTime || '18:00',
+                                                                                            locationId: req.locationId || '',
+                                                                                            reasonType: req.reasonType || 'forgot',
+                                                                                            reasonRemark: req.reasonRemark || ''
+                                                                                        });
+                                                                                        setShowMakeupEditModal(true);
+                                                                                    }}
+                                                                                    className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                                    title="編輯"
+                                                                                >
+                                                                                    <Edit className="w-5 h-5" />
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={async () => {
+                                                                                        if (!confirm('確認刪除此補打卡申請？')) return;
+                                                                                        try {
+                                                                                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id));
+                                                                                        } catch (e) {
+                                                                                            console.error(e);
+                                                                                            alert('刪除失敗: ' + e.message);
+                                                                                        }
+                                                                                    }}
+                                                                                    className="w-12 h-12 rounded-lg flex items-center justify-center border transition-opacity bg-red-50 text-red-500 border-red-100 hover:opacity-90"
+                                                                                    title="刪除"
+                                                                                >
+                                                                                    <Trash2 className="w-5 h-5" />
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="mt-3 flex gap-2">
+                                                                            <button
+                                                                                onClick={async () => {
+                                                                                    const targetText = req.target === 'out' ? '下班' : '上班';
+                                                                                    if (!confirm(`確認核准 ${req.userName} 的補打卡申請？\n系統將自動補入 ${req.date} 的${targetText}打卡紀錄。`)) return;
+                                                                                    try {
+                                                                                        const batch = writeBatch(db);
+                                                                                        
+                                                                                        const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id);
+                                                                                        batch.update(reqRef, { 
+                                                                                            status: 'approved',
+                                                                                            approvedBy: dbUser.name,
+                                                                                            approvedAt: serverTimestamp()
+                                                                                        });
+
+                                                                                        if (req.target !== 'out') {
+                                                                                            const inTime = new Date(`${req.date}T${req.startTime}:00`);
+                                                                                            const inRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                            batch.set(inRef, {
+                                                                                                userId: req.userId,
+                                                                                                userName: req.userName,
+                                                                                                communityId: selectedCommunity?.id || '',
+                                                                                                type: req.scheduleType === 'duty' ? 'duty_in' : 'work_in',
+                                                                                                checkInTime: inTime.toISOString(),
+                                                                                                timestamp: inTime,
+                                                                                                createdAt: serverTimestamp(),
+                                                                                                modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准', time: req.startTime }
+                                                                                            });
+                                                                                        }
+
+                                                                                        if (req.target === 'out') {
+                                                                                            const outTime = new Date(`${req.date}T${req.endTime}:00`);
+                                                                                            
+                                                                                            const outRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'));
+                                                                                            batch.set(outRef, {
+                                                                                                userId: req.userId,
+                                                                                                userName: req.userName,
+                                                                                                communityId: selectedCommunity?.id || '',
+                                                                                                type: req.scheduleType === 'duty' ? 'duty_out' : 'work_out',
+                                                                                                checkInTime: outTime.toISOString(),
+                                                                                                timestamp: outTime,
+                                                                                                createdAt: serverTimestamp(),
+                                                                                                modification: { status: 'approved', approver: dbUser.name, reason: '補打卡申請核准', time: req.endTime }
+                                                                                            });
+                                                                                        }
+
+                                                                                        await batch.commit();
+                                                                                        alert('已核准並補入打卡紀錄');
+                                                                                    } catch (err) {
+                                                                                        console.error(err);
+                                                                                        alert('核准失敗: ' + err.message);
+                                                                                    }
+                                                                                }}
+                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                            >
+                                                                                核准
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={async () => {
+                                                                                    if (!confirm('確認拒絕此申請？')) return;
+                                                                                    try {
+                                                                                        const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id);
+                                                                                        await updateDoc(reqRef, { 
+                                                                                            status: 'rejected',
+                                                                                            rejectedBy: dbUser.name,
+                                                                                            rejectedAt: serverTimestamp()
+                                                                                        });
+                                                                                    } catch (err) {
+                                                                                        console.error(err);
+                                                                                        alert('操作失敗: ' + err.message);
+                                                                                    }
+                                                                                }}
+                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                            >
+                                                                                拒絕
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                {(function(){
+                                                    const pendingModifications = attendanceList.filter(req => 
+                                                        req.modification?.status === 'pending' && 
+                                                        communityUserIds.includes(req.userId)
+                                                    );
+                                                    
+                                                    if (pendingModifications.length === 0) return null;
+
+                                                    return (
+                                                        <div className="mb-6 space-y-3">
+                                                            <div className="flex items-center gap-2 px-1">
+                                                                <Edit className="w-5 h-5 text-yellow-600" />
+                                                                <h3 className="font-bold text-gray-800">待核准修改 ({pendingModifications.length})</h3>
+                                                            </div>
+                                                            <div className="flex flex-col gap-3">
+                                                            {pendingModifications.map(r => {
+                                                                const user = usersList.find(u => u.id === r.userId) || {};
+                                                                let seconds;
+                                                                if (r.checkInTime) {
+                                                                    seconds = new Date(r.checkInTime).getTime() / 1000;
+                                                                } else if (r.timestamp?.seconds) {
+                                                                    seconds = r.timestamp.seconds;
+                                                                } else if (r.timestamp instanceof Date) {
+                                                                    seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                                } else {
+                                                                    seconds = Date.now() / 1000;
+                                                                }
+                                                                
+                                                                const rDate = new Date(seconds * 1000);
+                                                                const dateStr = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
+                                                                const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                const modifiedTime = r.modification?.time || timeStr.substring(0, 5);
+                                                                
+                                                                const typeMap = {
+                                                                    'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                    'work_in': { text: '上班(補)', class: 'bg-green-50 text-green-600 border border-green-200' },
+                                                                    'duty_in': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                    'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                    'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                    'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                    'work_out': { text: '下班(補)', class: 'bg-red-50 text-red-600 border border-red-200' },
+                                                                    'duty_out': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                    'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                    'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                    'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
+                                                                    'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
+                                                                    'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
+                                                                    'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
+                                                                    'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' }
+                                                                };
+                                                                const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
+                                                                
+                                                                let finalText = config.text;
+                                                                if (['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address)) {
+                                                                    finalText += ` ${r.checkInLocationName || r.address}`;
+                                                                }
+
+                                                                return (
+                                                                    <div key={r.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm">
+                                                                        <div className="flex items-start gap-3">
+                                                                            <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                                <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
+                                                                                    {user.avatarUrl ? (
+                                                                                        <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                                    ) : (
+                                                                                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                                            {user.name?.[0]}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                                {user.role && (
+                                                                                    <div className={`text-[10px] px-1.5 py-0.5 rounded-lg w-fit whitespace-nowrap ${
+                                                                                        user.role === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                                        user.role === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                                        user.role === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                                        user.role === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                                        user.role === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                                        'bg-gray-100 text-gray-700'
+                                                                                    }`}>
+                                                                                        {user.role.substring(0, 4)}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="font-bold text-gray-800">{user.name}</div>
+                                                                                <div className={`text-xs font-bold mt-1 px-1.5 py-0.5 rounded-lg w-fit ${config.class}`}>
+                                                                                    {finalText}
+                                                                                </div>
+                                                                                <div className="text-xs font-bold text-gray-700 mt-1">
+                                                                                    申請修改: {dateStr}
+                                                                                </div>
+                                                                                <div className="text-xs font-bold text-blue-600 mt-0.5">
+                                                                                    補打卡時間: {modifiedTime}
+                                                                                </div>
+                                                                                <div className="text-[11px] text-gray-600 mt-0.5">
+                                                                                    原因: {r.modification?.reason || '無'}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="mt-3 flex gap-2">
+                                                                            <button 
+                                                                                onClick={() => handleQuickApprove(r)}
+                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                            >
+                                                                                核准
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleQuickReject(r)}
+                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                            >
+                                                                                拒絕
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                {records.length === 0 ? (
+                                                    <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                        本日尚無打卡紀錄
+                                                    </div>
+                                                ) : (
+                                                    records.map(r => {
+                                                        const user = usersList.find(u => u.id === r.userId) || {};
+                                                        
+                                                        let seconds;
+                                                        if (r.timestamp?.seconds) {
+                                                            seconds = r.timestamp.seconds;
+                                                        } else if (r.timestamp instanceof Date) {
+                                                            seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                        } else {
+                                                            seconds = Date.now() / 1000;
+                                                        }
+                                                        const recordDateObj = new Date(seconds * 1000);
+                                                        const timeStr = recordDateObj.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                        
+                                                        const dateStr = `${recordDateObj.getFullYear()}-${String(recordDateObj.getMonth() + 1).padStart(2,'0')}-${String(recordDateObj.getDate()).padStart(2,'0')}`;
+                                                        const schedule = schedulesList.find(s => s.userId === r.userId && s.date === dateStr);
+                                                        const isNightShiftDisplay = !!(r.isNightShift || (schedule && (schedule.startTime === '12:00' || schedule.crossDay === true)));
+                                                        
+                                                        return (
+                                                            <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
+                                                                r.modification?.status === 'approved' ? 'border-green-500' :
+                                                                r.modification?.status === 'rejected' ? 'border-red-500' :
+                                                                r.modification?.status === 'pending' ? 'border-orange-500' :
+                                                                'border-gray-100'
+                                                            }`}>
+                                                                <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                    <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
+                                                                        {user.avatarUrl ? (
+                                                                            <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                        ) : (
+                                                                            <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                                {user.name?.[0]}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    {user.role && (
+                                                                        <div className={`text-[10px] px-1.5 py-0.5 rounded-lg w-fit whitespace-nowrap ${
+                                                                            user.role === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                            user.role === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                            user.role === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                            user.role === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                            user.role === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                            'bg-gray-100 text-gray-700'
+                                                                        }`}>
+                                                                            {user.role.substring(0, 4)}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <div>
+                                                                            <div className="font-bold text-gray-800 flex items-center gap-2">
+                                                                                {r.userName}
+                                                                                {(function(){
+                                                                                    const typeMap = {
+                                                                                        'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                                        'work_in': { text: '上班(補)', class: 'bg-green-50 text-green-600 border border-green-200' },
+                                                                                        'duty_in': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                                        'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                                        'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                                        'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                                        'work_out': { text: '下班(補)', class: 'bg-red-50 text-red-600 border border-red-200' },
+                                                                                        'duty_out': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                                        'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                                        'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                                        'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
+                                                                                        'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
+                                                                                        'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
+                                                                                        'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
+                                                                                        'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' }
+                                                                                    };
+                                                                                    const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
+                                                                                    
+                                                                                    let finalText = config.text;
+                                                                                    if (['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address)) {
+                                                                                        finalText += ` ${r.checkInLocationName || r.address}`;
+                                                                                    }
+
+                                                                                    return (
+                                                                                        <>
+                                                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${config.class}`}>
+                                                                                                {finalText}
+                                                                                            </span>
+                                                                                            {isNightShiftDisplay && (
+                                                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">
+                                                                                                    夜班
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </>
+                                                                                    );
+                                                                                })()}
+                                                                                {r.modification?.status === 'approved' && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-green-100 text-green-700">核准</span>
+                                                                                )}
+                                                                                {r.modification?.status === 'rejected' && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-red-100 text-red-700">拒絕</span>
+                                                                                )}
+                                                                                {r.modification?.status === 'pending' && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">待核准</span>
+                                                                                )}
+                                                                            </div>
+                                                                            {r.modification ? (
+                                                                                <>
+                                                                                    <div className="text-sm font-bold text-blue-600 mt-0.5 flex items-center gap-1">
+                                                                                        <Clock className="w-3 h-3" /> 補打卡時間: {r.modification.time || timeStr.substring(0, 5)}
+                                                                                    </div>
+                                                                                </>
+                                                                            ) : (
+                                                                                <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                    <Clock className="w-3 h-3" /> {timeStr}
+                                                                                </div>
+                                                                            )}
+                                                                            <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                                <MapPin className="w-3 h-3" /> {r.checkInLocationName || r.address || '未記錄'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex gap-2">
+                                                                            <div className="flex gap-2 items-end">
+                                                                                <div className="flex flex-col gap-2">
+                                                                                    {(function(){
+                                                                                        const loc = (function(){
+                                                                                            const raw = r.location;
+                                                                                            if (!raw) return null;
+                                                                                            if (typeof raw === 'string') {
+                                                                                                const parts = raw.split(',');
+                                                                                                if (parts.length >= 2) {
+                                                                                                    const lat = parseFloat((parts[0] || '').trim());
+                                                                                                    const lng = parseFloat((parts[1] || '').trim());
+                                                                                                    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                                                }
+                                                                                                return null;
+                                                                                            }
+                                                                                            if (Array.isArray(raw) && raw.length >= 2) {
+                                                                                                const lat = parseFloat(raw[0]);
+                                                                                                const lng = parseFloat(raw[1]);
+                                                                                                if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                                                return null;
+                                                                                            }
+                                                                                            if (typeof raw === 'object') {
+                                                                                                const lat = parseFloat(raw.lat ?? raw.latitude);
+                                                                                                const lng = parseFloat(raw.lng ?? raw.longitude);
+                                                                                                if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+                                                                                            }
+                                                                                            return null;
+                                                                                        })();
+
+                                                                                        const fallbackMapImgUrl = loc
+                                                                                            ? `https://maps.googleapis.com/maps/api/staticmap?center=${loc.lat},${loc.lng}&zoom=15&size=100x100&maptype=roadmap&markers=color:red%7C${loc.lat},${loc.lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`
+                                                                                            : null;
+
+                                                                                        let mapImgUrl = fallbackMapImgUrl;
+                                                                                        if (loc && Array.isArray(usersList)) {
+                                                                                            const iconOwner = usersList.find(u => u.id === r.userId) || null;
+                                                                                            const iconSrc = (iconOwner && iconOwner.avatarUrl && /^https?:\/\//i.test(iconOwner.avatarUrl)) ? iconOwner.avatarUrl : null;
+                                                                                            if (iconSrc) {
+                                                                                                const iconUrl = encodeURIComponent(iconSrc);
+                                                                                                const withIcon = `https://maps.googleapis.com/maps/api/staticmap?center=${loc.lat},${loc.lng}&zoom=15&size=100x100&maptype=roadmap&markers=icon:${iconUrl}%7C${loc.lat},${loc.lng}&key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY`;
+                                                                                                if (withIcon.length <= 1800) mapImgUrl = withIcon;
+                                                                                            }
+                                                                                        }
+
+                                                                                        return (
+                                                                                            <button 
+                                                                                                onClick={() => {
+                                                                                                    if (loc) {
+                                                                                                        setMapPreviewTarget({
+                                                                                                            lat: loc.lat,
+                                                                                                            lng: loc.lng,
+                                                                                                            name: r.userName + ' - ' + (r.address || '打卡位置'),
+                                                                                                            radius: 10
+                                                                                                        });
+                                                                                                    } else {
+                                                                                                        alert('無座標資訊: ' + (r.address || ''));
+                                                                                                    }
+                                                                                                }}
+                                                                                                className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                                            >
+                                                                                                {mapImgUrl ? (
+                                                                                                    <img
+                                                                                                        src={mapImgUrl}
+                                                                                                        className="w-full h-full object-cover"
+                                                                                                        alt="地圖"
+                                                                                                        onError={(e) => {
+                                                                                                            if (fallbackMapImgUrl && e.currentTarget.src !== fallbackMapImgUrl) {
+                                                                                                                e.currentTarget.src = fallbackMapImgUrl;
+                                                                                                            }
+                                                                                                        }}
+                                                                                                    />
+                                                                                                ) : (
+                                                                                                    <MapPin className="w-5 h-5" />
+                                                                                                )}
+                                                                                            </button>
+                                                                                        );
+                                                                                    })()}
+                                                                                    
+                                                                                    <button 
+                                                                                        onClick={() => {
+                                                                                            setAdminEditData(r);
+                                                                                            setShowAdminEditModal(true);
+                                                                                        }}
+                                                                                        className="w-12 h-12 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity"
+                                                                                    >
+                                                                                        <Settings className="w-5 h-5" />
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={() => handleAdminDeleteRecord(r)}
+                                                                                        className="w-12 h-12 rounded-lg bg-red-50 text-red-500 flex items-center justify-center border border-red-100 hover:opacity-90 transition-opacity"
+                                                                                    >
+                                                                                        <Trash2 className="w-5 h-5" />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                    </div>
+                                </div>
+                                );
+                            })()}
+
                             {communitySubtab === 'account' && (
-                                <div className="space-y-4 pb-32">
+                                <div className="pb-32">
+                                    <div className="bg-white rounded-2xl shadow-sm p-3 space-y-4">
+                                        <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                        <div>
+                                            <span className="text-gray-600 font-bold mr-2"> 目前選擇社區:</span>
+                                            <span className="text-red-600 font-bold">{(communities || []).find(c => c.id === communityTabSelectedId)?.name || '未選擇'}</span>
+                                        </div>
+                                    </div>
                                     <div className="flex justify-end">
                                         <button
                                             onClick={handleAddUserClick}
@@ -15157,7 +16774,15 @@
                                                         <div className="text-center text-gray-400 py-8">尚無符合條件的帳號</div>
                                                     ) : (
                                                         filteredUsers.map(u => (
-                                                            <div key={u.id} className="p-3 bg-gray-50 rounded-2xl flex items-center justify-between gap-3">
+                                                            <div key={u.id} className="p-3 bg-gray-50 rounded-2xl flex items-center justify-between gap-3 cursor-pointer hover:bg-blue-50 hover:border-blue-200 transition-colors border border-transparent"
+                                                                 onClick={() => { 
+                                                                    setCommunityMapSelectedUserId(u.id); 
+                                                                    setCommunitySubtab('schedule'); 
+                                                                    const now = new Date();
+                                                                    setCadreScheduleSelectedDate(now);
+                                                                    setCadreScheduleDate(now);
+                                                                 }}
+                                                            >
                                                                 <div className="flex-1 min-w-0 flex items-center gap-3">
                                                                     <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 overflow-hidden shrink-0">
                                                                         {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : (u.name?.[0] || '?')}
@@ -15182,7 +16807,7 @@
                                                                 <div className="text-right text-xs text-gray-500 flex flex-col items-end gap-1 shrink-0">
                                                                     <div className="hidden sm:block">{u.email}</div>
                                                                     <div>{u.phone}</div>
-                                                                    <div className="flex gap-2 mt-1">
+                                                                    <div className="flex gap-2 mt-1" onClick={e => e.stopPropagation()}>
                                                                         {u.role !== 'admin' && (
                                                                             <>
                                                                                 <button 
@@ -15207,6 +16832,7 @@
                                                 </>
                                             );
                                         })()}
+                                    </div>
                                     </div>
                                 </div>
                             )}
@@ -22335,7 +23961,8 @@
                                                 />
                                                 <datalist id="location-suggestions">
                                                     {(function() {
-                                                        const targetUser = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                                        const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                                                        const targetUser = usersList.find(u => u.id === targetUserId);
                                                         if (!targetUser) return null;
                                                         
                                                         const options = [];
