@@ -7956,6 +7956,13 @@
             const [mapPreviewTarget, setMapPreviewTarget] = useState(null);
             const [previewImageUrl, setPreviewImageUrl] = useState(null);
             const [communityTabSelectedId, setCommunityTabSelectedId] = useState(null);
+            const [communityAvatarOrders, setCommunityAvatarOrders] = useState({});
+            const [communityAvatarReorderIds, setCommunityAvatarReorderIds] = useState(null);
+            const [communityAvatarDragId, setCommunityAvatarDragId] = useState(null);
+            const communityAvatarRowRef = useRef(null);
+            const communityAvatarLongPressTimerRef = useRef(null);
+            const communityAvatarPointerRef = useRef({ pointerId: null, dragUserId: null });
+            const communityAvatarPreventClickRef = useRef(false);
             const [communityUserFilterRole, setCommunityUserFilterRole] = useState('');
             const [communityUserFilterName, setCommunityUserFilterName] = useState('');
             const [cadreAccountFilterRole, setCadreAccountFilterRole] = useState('');
@@ -7995,6 +8002,24 @@
                     }
                 }
             }, [activeTab, communityTabSelectedId, dbUser, communities]);
+
+            const isSystemAdmin = useMemo(() => {
+                if (!dbUser) return false;
+                if (String(dbUser.role || '').trim().toLowerCase() === 'admin') return true;
+                const roleObj = (roles || []).find(r => String(r.id) === String(dbUser.role));
+                return !!(roleObj && String(roleObj.name || '').includes('系統管理員'));
+            }, [dbUser, roles]);
+
+            useEffect(() => {
+                if (!dbUser || !communityTabSelectedId) return;
+                const commId = String(communityTabSelectedId);
+                const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'community_avatar_orders', commId);
+                return onSnapshot(orderRef, (snap) => {
+                    const data = snap.exists() ? snap.data() : null;
+                    const order = data && Array.isArray(data.order) ? data.order.map(x => String(x)) : [];
+                    setCommunityAvatarOrders(prev => ({ ...prev, [commId]: order }));
+                });
+            }, [dbUser?.id, communityTabSelectedId]);
 
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
@@ -11778,7 +11803,89 @@
                                 </div>
                             )}
                             {activeTab === 'community' && (
-                                <div className="absolute top-full left-0 right-0 h-[8vh] bg-white/80 backdrop-blur-sm flex items-center gap-3 overflow-x-auto px-4 no-scrollbar z-30 shadow-sm flex-nowrap whitespace-nowrap">
+                                <div
+                                    ref={communityAvatarRowRef}
+                                    onPointerMove={(e) => {
+                                        if (!isSystemAdmin) return;
+                                        if (!communityAvatarReorderIds || !communityAvatarDragId) return;
+                                        if (e.pointerId !== communityAvatarPointerRef.current.pointerId) return;
+                                        const container = communityAvatarRowRef.current;
+                                        if (!container) return;
+                                        e.preventDefault();
+                                        const children = Array.from(container.children || []);
+                                        if (children.length === 0) return;
+                                        const x = e.clientX;
+                                        let targetIndex = children.length - 1;
+                                        for (let i = 0; i < children.length; i++) {
+                                            const rect = children[i].getBoundingClientRect();
+                                            const mid = rect.left + rect.width / 2;
+                                            if (x < mid) { targetIndex = i; break; }
+                                        }
+                                        const fromIndex = communityAvatarReorderIds.indexOf(String(communityAvatarDragId));
+                                        if (fromIndex === -1) return;
+                                        if (targetIndex === fromIndex) return;
+                                        setCommunityAvatarReorderIds(prev => {
+                                            if (!prev) return prev;
+                                            const arr = [...prev];
+                                            const [moved] = arr.splice(fromIndex, 1);
+                                            arr.splice(Math.max(0, Math.min(arr.length, targetIndex)), 0, moved);
+                                            return arr;
+                                        });
+                                    }}
+                                    onPointerUp={(e) => {
+                                        if (communityAvatarLongPressTimerRef.current) {
+                                            clearTimeout(communityAvatarLongPressTimerRef.current);
+                                            communityAvatarLongPressTimerRef.current = null;
+                                        }
+                                        if (!isSystemAdmin) return;
+                                        if (!communityAvatarReorderIds) return;
+                                        if (e.pointerId !== communityAvatarPointerRef.current.pointerId) return;
+                                        const container = communityAvatarRowRef.current;
+                                        if (container && container.releasePointerCapture) {
+                                            try { container.releasePointerCapture(e.pointerId); } catch {}
+                                        }
+                                        communityAvatarPointerRef.current = { pointerId: null, dragUserId: null };
+                                        const commId = String(communityTabSelectedId || '');
+                                        const finalOrder = (communityAvatarReorderIds || []).map(x => String(x));
+                                        setCommunityAvatarReorderIds(null);
+                                        setCommunityAvatarDragId(null);
+                                        if (!commId) return;
+                                        setCommunityAvatarOrders(prev => ({ ...prev, [commId]: finalOrder }));
+                                        (async () => {
+                                            try {
+                                                await setDoc(
+                                                    doc(db, 'artifacts', appId, 'public', 'data', 'community_avatar_orders', commId),
+                                                    {
+                                                        order: finalOrder,
+                                                        updatedAt: serverTimestamp(),
+                                                        updatedBy: (dbUser && dbUser.id) || '',
+                                                        updatedByName: (dbUser && dbUser.name) || ''
+                                                    },
+                                                    { merge: true }
+                                                );
+                                            } catch (err) {
+                                                console.error(err);
+                                            }
+                                        })();
+                                    }}
+                                    onPointerCancel={(e) => {
+                                        if (communityAvatarLongPressTimerRef.current) {
+                                            clearTimeout(communityAvatarLongPressTimerRef.current);
+                                            communityAvatarLongPressTimerRef.current = null;
+                                        }
+                                        if (!isSystemAdmin) return;
+                                        if (!communityAvatarReorderIds) return;
+                                        if (e.pointerId !== communityAvatarPointerRef.current.pointerId) return;
+                                        const container = communityAvatarRowRef.current;
+                                        if (container && container.releasePointerCapture) {
+                                            try { container.releasePointerCapture(e.pointerId); } catch {}
+                                        }
+                                        communityAvatarPointerRef.current = { pointerId: null, dragUserId: null };
+                                        setCommunityAvatarReorderIds(null);
+                                        setCommunityAvatarDragId(null);
+                                    }}
+                                    className={`absolute top-full left-0 right-0 h-[8vh] bg-white/80 backdrop-blur-sm flex items-center gap-3 overflow-x-auto px-4 no-scrollbar z-30 shadow-sm flex-nowrap whitespace-nowrap ${communityAvatarReorderIds && isSystemAdmin ? 'touch-none select-none' : ''}`}
+                                >
                                     {(function() {
                                         const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
                                         if (!selectedCommunity) return null;
@@ -11802,7 +11909,39 @@
                                         
                                         if (companyUsers.length === 0) return <div className="text-xs text-gray-400">尚無人員</div>;
 
-                                        return companyUsers.map(u => {
+                                        const getRolePriority = (u) => {
+                                            const rName = (roles || []).find(r => r.id === u.role)?.name;
+                                            if (rName === '總幹事') return 1;
+                                            if (rName === '秘書') return 2;
+                                            if (rName === '清潔') return 3;
+                                            if (rName === '機電') return 4;
+                                            if (rName === '保全') return 5;
+                                            return 99;
+                                        };
+                                        const baseSortedUsers = [...companyUsers].sort((a, b) => {
+                                            const pa = getRolePriority(a);
+                                            const pb = getRolePriority(b);
+                                            if (pa !== pb) return pa - pb;
+                                            return (a.name || '').localeCompare(b.name || '');
+                                        });
+                                        const commId = String(selectedCommunity.id);
+                                        const savedOrder = (communityAvatarOrders && communityAvatarOrders[commId]) ? communityAvatarOrders[commId] : [];
+                                        const orderIndex = new Map((savedOrder || []).map((id, idx) => [String(id), idx]));
+                                        const orderedUsers = [...baseSortedUsers].sort((a, b) => {
+                                            const ia = orderIndex.has(String(a.id)) ? orderIndex.get(String(a.id)) : Number.POSITIVE_INFINITY;
+                                            const ib = orderIndex.has(String(b.id)) ? orderIndex.get(String(b.id)) : Number.POSITIVE_INFINITY;
+                                            if (ia !== ib) return ia - ib;
+                                            const pa = getRolePriority(a);
+                                            const pb = getRolePriority(b);
+                                            if (pa !== pb) return pa - pb;
+                                            return (a.name || '').localeCompare(b.name || '');
+                                        });
+                                        const userById = new Map(orderedUsers.map(u => [String(u.id), u]));
+                                        const orderedIds = orderedUsers.map(u => String(u.id));
+                                        const displayIds = (isSystemAdmin && communityAvatarReorderIds) ? communityAvatarReorderIds : orderedIds;
+                                        const displayUsers = displayIds.map(id => userById.get(String(id))).filter(Boolean);
+
+                                        return displayUsers.map(u => {
                                             const isSelected = cadreMapSelectedUserId === u.id;
                                             
                                             const schedule = todaySchedules[u.id];
@@ -11965,8 +12104,33 @@
                                                     key={u.id}
                                                     className={`flex-shrink-0 flex flex-col items-center gap-1 cursor-pointer group rounded-lg p-1 transition-colors ${bgColorClass} ${animateClass} ${
                                                         isSelected ? 'ring-2 ring-red-500' : ''
-                                                    }`}
+                                                    } ${communityAvatarReorderIds && isSystemAdmin ? 'cursor-grab active:cursor-grabbing' : ''} ${communityAvatarDragId && String(communityAvatarDragId) === String(u.id) ? 'opacity-60' : ''}`}
+                                                    onPointerDown={(e) => {
+                                                        if (!isSystemAdmin) return;
+                                                        if (communityAvatarReorderIds) return;
+                                                        const pointerId = e.pointerId;
+                                                        communityAvatarPointerRef.current = { pointerId, dragUserId: String(u.id) };
+                                                        if (communityAvatarLongPressTimerRef.current) {
+                                                            clearTimeout(communityAvatarLongPressTimerRef.current);
+                                                            communityAvatarLongPressTimerRef.current = null;
+                                                        }
+                                                        communityAvatarLongPressTimerRef.current = setTimeout(() => {
+                                                            if (communityAvatarPointerRef.current.pointerId !== pointerId) return;
+                                                            setCommunityAvatarReorderIds(orderedIds);
+                                                            setCommunityAvatarDragId(String(u.id));
+                                                            communityAvatarPreventClickRef.current = true;
+                                                            const container = communityAvatarRowRef.current;
+                                                            if (container && container.setPointerCapture) {
+                                                                try { container.setPointerCapture(pointerId); } catch {}
+                                                            }
+                                                        }, 450);
+                                                    }}
                                                     onClick={() => {
+                                                        if (communityAvatarPreventClickRef.current) {
+                                                            communityAvatarPreventClickRef.current = false;
+                                                            return;
+                                                        }
+                                                        if (communityAvatarReorderIds && isSystemAdmin) return;
                                                         if (isSelected) {
                                                             setCadreMapSelectedUserId(null);
                                                             if (activeTab === 'community' && communitySubtab === 'schedule') {
@@ -12000,6 +12164,22 @@
                                                                 {u.name?.[0]}
                                                             </div>
                                                         )}
+                                                        {(function(){
+                                                            const roleName = roles.find(r => r.id === u.role)?.name || '';
+                                                            if (!roleName) return null;
+                                                            const roleClass =
+                                                                roleName === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                roleName === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                roleName === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                roleName === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                roleName === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                'bg-gray-100 text-gray-700';
+                                                            return (
+                                                                <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-10 h-[12px] leading-[12px] text-[10px] px-1.5 py-0 rounded-lg whitespace-nowrap shadow-sm pointer-events-none ${roleClass}`}>
+                                                                    {roleName.substring(0, 4)}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                     <span className={`text-[10px] font-medium max-w-[48px] truncate ${bgColorClass.includes('bg-gray-800') ? 'text-white' : (isSelected ? 'text-red-600 font-bold' : 'text-gray-600')}`}>
                                                         {todayLeaveInfo ? `請假-${todayLeaveInfo.hours}hr` : u.name}
@@ -16164,7 +16344,7 @@
                                                                 return (
                                                                     <div key={req.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
                                                                         <div className="flex items-start gap-3">
-                                                                            <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                            <div className="relative flex-shrink-0">
                                                                                 <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
                                                                                     {user.avatarUrl ? (
                                                                                         <img src={user.avatarUrl} className="w-full h-full object-cover" />
@@ -16174,18 +16354,22 @@
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
-                                                                                {user.role && (
-                                                                                    <div className={`text-[10px] px-1.5 py-0.5 rounded-lg w-fit whitespace-nowrap ${
-                                                                                        user.role === '總幹事' ? 'bg-red-100 text-red-700' :
-                                                                                        user.role === '秘書' ? 'bg-purple-100 text-purple-700' :
-                                                                                        user.role === '清潔' ? 'bg-green-100 text-green-700' :
-                                                                                        user.role === '機電' ? 'bg-blue-100 text-blue-700' :
-                                                                                        user.role === '保全' ? 'bg-yellow-100 text-yellow-700' :
-                                                                                        'bg-gray-100 text-gray-700'
-                                                                                    }`}>
-                                                                                        {user.role.substring(0, 4)}
-                                                                                    </div>
-                                                                                )}
+                                                                                {(function(){
+                                                                                    const roleName = roles.find(r => r.id === user.role)?.name || '';
+                                                                                    if (!roleName) return null;
+                                                                                    const roleClass =
+                                                                                        roleName === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                                        roleName === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                                        roleName === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                                        roleName === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                                        roleName === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                                        'bg-gray-100 text-gray-700';
+                                                                                    return (
+                                                                                        <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-10 h-[12px] leading-[12px] text-[10px] px-1.5 py-0 rounded-lg whitespace-nowrap shadow-sm pointer-events-none ${roleClass}`}>
+                                                                                            {roleName.substring(0, 4)}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
                                                                             </div>
                                                                             <div className="flex-1 min-w-0">
                                                                                 <div className="font-bold text-gray-800">{req.userName}</div>
@@ -16381,7 +16565,7 @@
                                                                 return (
                                                                     <div key={r.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm">
                                                                         <div className="flex items-start gap-3">
-                                                                            <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                            <div className="relative flex-shrink-0">
                                                                                 <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
                                                                                     {user.avatarUrl ? (
                                                                                         <img src={user.avatarUrl} className="w-full h-full object-cover" />
@@ -16391,18 +16575,22 @@
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
-                                                                                {user.role && (
-                                                                                    <div className={`text-[10px] px-1.5 py-0.5 rounded-lg w-fit whitespace-nowrap ${
-                                                                                        user.role === '總幹事' ? 'bg-red-100 text-red-700' :
-                                                                                        user.role === '秘書' ? 'bg-purple-100 text-purple-700' :
-                                                                                        user.role === '清潔' ? 'bg-green-100 text-green-700' :
-                                                                                        user.role === '機電' ? 'bg-blue-100 text-blue-700' :
-                                                                                        user.role === '保全' ? 'bg-yellow-100 text-yellow-700' :
-                                                                                        'bg-gray-100 text-gray-700'
-                                                                                    }`}>
-                                                                                        {user.role.substring(0, 4)}
-                                                                                    </div>
-                                                                                )}
+                                                                                {(function(){
+                                                                                    const roleName = roles.find(r => r.id === user.role)?.name || '';
+                                                                                    if (!roleName) return null;
+                                                                                    const roleClass =
+                                                                                        roleName === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                                        roleName === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                                        roleName === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                                        roleName === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                                        roleName === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                                        'bg-gray-100 text-gray-700';
+                                                                                    return (
+                                                                                        <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-10 h-[12px] leading-[12px] text-[10px] px-1.5 py-0 rounded-lg whitespace-nowrap shadow-sm pointer-events-none ${roleClass}`}>
+                                                                                            {roleName.substring(0, 4)}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
                                                                             </div>
                                                                             <div className="flex-1 min-w-0">
                                                                                 <div className="font-bold text-gray-800">{user.name}</div>
@@ -16472,7 +16660,7 @@
                                                                 r.modification?.status === 'pending' ? 'border-orange-500' :
                                                                 'border-gray-100'
                                                             }`}>
-                                                                <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                <div className="relative flex-shrink-0">
                                                                     <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
                                                                         {user.avatarUrl ? (
                                                                             <img src={user.avatarUrl} className="w-full h-full object-cover" />
@@ -16482,18 +16670,22 @@
                                                                             </div>
                                                                         )}
                                                                     </div>
-                                                                    {user.role && (
-                                                                        <div className={`text-[10px] px-1.5 py-0.5 rounded-lg w-fit whitespace-nowrap ${
-                                                                            user.role === '總幹事' ? 'bg-red-100 text-red-700' :
-                                                                            user.role === '秘書' ? 'bg-purple-100 text-purple-700' :
-                                                                            user.role === '清潔' ? 'bg-green-100 text-green-700' :
-                                                                            user.role === '機電' ? 'bg-blue-100 text-blue-700' :
-                                                                            user.role === '保全' ? 'bg-yellow-100 text-yellow-700' :
-                                                                            'bg-gray-100 text-gray-700'
-                                                                        }`}>
-                                                                            {user.role.substring(0, 4)}
-                                                                        </div>
-                                                                    )}
+                                                                    {(function(){
+                                                                        const roleName = roles.find(r => r.id === user.role)?.name || '';
+                                                                        if (!roleName) return null;
+                                                                        const roleClass =
+                                                                            roleName === '總幹事' ? 'bg-red-100 text-red-700' :
+                                                                            roleName === '秘書' ? 'bg-purple-100 text-purple-700' :
+                                                                            roleName === '清潔' ? 'bg-green-100 text-green-700' :
+                                                                            roleName === '機電' ? 'bg-blue-100 text-blue-700' :
+                                                                            roleName === '保全' ? 'bg-yellow-100 text-yellow-700' :
+                                                                            'bg-gray-100 text-gray-700';
+                                                                        return (
+                                                                            <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 z-10 h-[12px] leading-[12px] text-[10px] px-1.5 py-0 rounded-lg whitespace-nowrap shadow-sm pointer-events-none ${roleClass}`}>
+                                                                                {roleName.substring(0, 4)}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex justify-between items-center">
