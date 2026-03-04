@@ -2825,6 +2825,8 @@
                     '保全數': c.guardCount || 0,
                     '白天哨數': c.dayGuardCount || 0,
                     '晚上哨數': c.nightGuardCount || 0,
+                    '白天哨點': (c.dayGuardPoints || []).join(','),
+                    '晚上哨點': (c.nightGuardPoints || []).join(','),
                     '社區地址': c.address || '',
                     '緯度': c.coordLat || '',
                     '經度': c.coordLng || '',
@@ -2870,6 +2872,8 @@
                                 guardCount: parseInt(row['保全數'] || 0),
                                 dayGuardCount: parseInt(row['白天哨數'] || 0),
                                 nightGuardCount: parseInt(row['晚上哨數'] || 0),
+                                dayGuardPoints: row['白天哨點'] ? row['白天哨點'].toString().split(',').map(s=>s.trim()) : [],
+                                nightGuardPoints: row['晚上哨點'] ? row['晚上哨點'].toString().split(',').map(s=>s.trim()) : [],
                                 address: row['社區地址'] || '',
                                 coordLat: row['緯度'] || '',
                                 coordLng: row['經度'] || '',
@@ -2913,7 +2917,10 @@
 
             const [editingUserId, setEditingUserId] = useState(null);
             const [showCommunityModal, setShowCommunityModal] = useState(false);
-            const [communityForm, setCommunityForm] = useState({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 });
+            const [communityForm, setCommunityForm] = useState({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, dayGuardPoints:[], nightGuardPoints:[], address:'', coordLat:'', coordLng:'', radiusMeters:100 });
+            const [showGuardPointModal, setShowGuardPointModal] = useState(false);
+            const [guardPointForm, setGuardPointForm] = useState({ id: '', name: '', type: 'day', count: 0, points: [] });
+            const [guardPointSaving, setGuardPointSaving] = useState(false);
             const [communitySaving, setCommunitySaving] = useState(false);
             const [communityError, setCommunityError] = useState('');
             const [mapTarget, setMapTarget] = useState(null);
@@ -4242,7 +4249,7 @@
                                 社區列表
                             </h3>
                             <div className="mb-4 flex gap-2">
-                                    <button onClick={()=>{ setCommunityForm({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, address:'', coordLat:'', coordLng:'', radiusMeters:100 }); setShowCommunityModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                    <button onClick={()=>{ setCommunityForm({ id:'', name:'', companyId:'', areaId:'', gmCount:0, secretaryCount:0, cleanCount:0, mechCount:0, guardCount:0, dayGuardCount:0, nightGuardCount:0, dayGuardPoints:[], nightGuardPoints:[], address:'', coordLat:'', coordLng:'', radiusMeters:100 }); setShowCommunityModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                     <button onClick={handleExportCommunities} className="bg-green-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-700">匯出</button>
                                     <label className="bg-blue-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-blue-700 cursor-pointer flex items-center">
                                         匯入
@@ -4280,13 +4287,33 @@
                                                 <div className="w-[160px] text-gray-700">{c.name || '-'}</div>
                                                 <div className="w-[140px] text-gray-700">{companyName}</div>
                                                 <div className="w-[120px] text-gray-700">{areaName}</div>
-                                                <div className="w-[80px] text-gray-700">{c.gmCount || 0}</div>
-                                                <div className="w-[80px] text-gray-700">{c.secretaryCount || 0}</div>
-                                                <div className="w-[80px] text-gray-700">{c.cleanCount || 0}</div>
-                                                <div className="w-[80px] text-gray-700">{c.mechCount || 0}</div>
-                                                <div className="w-[80px] text-gray-700">{c.guardCount || 0}</div>
-                                                <div className="w-[80px] text-gray-700">{c.dayGuardCount || 0}</div>
-                                                <div className="w-[80px] text-gray-700">{c.nightGuardCount || 0}</div>
+                                                <div className="w-[80px] text-gray-700">{(users || []).filter(u => { const r = roles.find(x => x.id === u.role); return (u.communityIds || (u.communityId ? [u.communityId] : [])).includes(c.id) && u.status === '在職' && r && r.name === '總幹事'; }).length}</div>
+                                                <div className="w-[80px] text-gray-700">{(users || []).filter(u => { const r = roles.find(x => x.id === u.role); return (u.communityIds || (u.communityId ? [u.communityId] : [])).includes(c.id) && u.status === '在職' && r && r.name === '秘書'; }).length}</div>
+                                                <div className="w-[80px] text-gray-700">{(users || []).filter(u => { const r = roles.find(x => x.id === u.role); return (u.communityIds || (u.communityId ? [u.communityId] : [])).includes(c.id) && u.status === '在職' && r && r.name === '清潔'; }).length}</div>
+                                                <div className="w-[80px] text-gray-700">{(users || []).filter(u => { const r = roles.find(x => x.id === u.role); return (u.communityIds || (u.communityId ? [u.communityId] : [])).includes(c.id) && u.status === '在職' && r && r.name === '機電'; }).length}</div>
+                                                <div className="w-[80px] text-gray-700">{(users || []).filter(u => { const r = roles.find(x => x.id === u.role); return (u.communityIds || (u.communityId ? [u.communityId] : [])).includes(c.id) && u.status === '在職' && r && r.name === '保全'; }).length}</div>
+                                                <div className="w-[80px] text-gray-700">
+                                                    {(c.dayGuardCount || 0) > 0 ? (
+                                                        <button onClick={()=>{
+                                                            const pts = [...(c.dayGuardPoints || [])];
+                                                            while(pts.length < (c.dayGuardCount || 0)) pts.push('');
+                                                            while(pts.length > (c.dayGuardCount || 0)) pts.pop();
+                                                            setGuardPointForm({ id: c.id, name: c.name, type: 'day', count: c.dayGuardCount || 0, points: pts });
+                                                            setShowGuardPointModal(true);
+                                                        }} className="text-blue-600 hover:underline font-bold">{c.dayGuardCount}</button>
+                                                    ) : '0'}
+                                                </div>
+                                                <div className="w-[80px] text-gray-700">
+                                                    {(c.nightGuardCount || 0) > 0 ? (
+                                                        <button onClick={()=>{
+                                                            const pts = [...(c.nightGuardPoints || [])];
+                                                            while(pts.length < (c.nightGuardCount || 0)) pts.push('');
+                                                            while(pts.length > (c.nightGuardCount || 0)) pts.pop();
+                                                            setGuardPointForm({ id: c.id, name: c.name, type: 'night', count: c.nightGuardCount || 0, points: pts });
+                                                            setShowGuardPointModal(true);
+                                                        }} className="text-blue-600 hover:underline font-bold">{c.nightGuardCount}</button>
+                                                    ) : '0'}
+                                                </div>
                                                 <div className="w-[200px] text-gray-700">{c.address || '-'}</div>
                                                 <div className="w-[160px] text-gray-700">{coord}</div>
                                                 <div className="w-[120px]">
@@ -4294,7 +4321,7 @@
                                                 </div>
                                                 <div className="w-[140px] text-gray-700">{c.radiusMeters || 0}</div>
                                                 <div className="w-[160px] flex gap-2 justify-start">
-                                                    <button onClick={()=>{ setCommunityForm({ id:c.id, name:c.name || '', companyId:c.companyId || '', areaId:c.areaId || '', gmCount:c.gmCount || 0, secretaryCount:c.secretaryCount || 0, cleanCount:c.cleanCount || 0, mechCount:c.mechCount || 0, guardCount:c.guardCount || 0, dayGuardCount:c.dayGuardCount || 0, nightGuardCount:c.nightGuardCount || 0, address:c.address || '', coordLat:c.coordLat || '', coordLng:c.coordLng || '', radiusMeters:c.radiusMeters || 100 }); setShowCommunityModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                    <button onClick={()=>{ setCommunityForm({ id:c.id, name:c.name || '', companyId:c.companyId || '', areaId:c.areaId || '', gmCount:c.gmCount || 0, secretaryCount:c.secretaryCount || 0, cleanCount:c.cleanCount || 0, mechCount:c.mechCount || 0, guardCount:c.guardCount || 0, dayGuardCount:c.dayGuardCount || 0, nightGuardCount:c.nightGuardCount || 0, dayGuardPoints: c.dayGuardPoints || [], nightGuardPoints: c.nightGuardPoints || [], address:c.address || '', coordLat:c.coordLat || '', coordLng:c.coordLng || '', radiusMeters:c.radiusMeters || 100 }); setShowCommunityModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                     <button onClick={()=>{ setConfirmDelete({ type:'community', id:c.id, label:c.name || c.id }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
                                                 </div>
                                                 <div className="w-[220px] text-gray-700">{c.updatedByName ? `${c.updatedByName} ${formatDateTime(c.updatedAt)}` : '-'}</div>
@@ -4349,17 +4376,53 @@
                                                     <label className="block text-xs font-bold text-gray-500 uppercase">機電數</label>
                                                     <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.mechCount} onChange={e=>setCommunityForm(prev=>({...prev, mechCount: parseInt(e.target.value||'0',10)}))} />
                                                 </div>
-                                                <div>
+                                                <div className="col-span-2">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase">保全數</label>
                                                     <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.guardCount} onChange={e=>setCommunityForm(prev=>({...prev, guardCount: parseInt(e.target.value||'0',10)}))} />
                                                 </div>
                                                 <div>
                                                     <label className="block text-xs font-bold text-gray-500 uppercase">白天哨數</label>
-                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.dayGuardCount} onChange={e=>setCommunityForm(prev=>({...prev, dayGuardCount: parseInt(e.target.value||'0',10)}))} />
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.dayGuardCount} onChange={e=>{
+                                                        const val = parseInt(e.target.value||'0',10);
+                                                        setCommunityForm(prev=>{
+                                                            const pts = [...(prev.dayGuardPoints||[])];
+                                                            while(pts.length < val) pts.push('');
+                                                            while(pts.length > val) pts.pop();
+                                                            return {...prev, dayGuardCount: val, dayGuardPoints: pts};
+                                                        });
+                                                    }} />
+                                                    {(communityForm.dayGuardPoints||[]).map((p,i)=>(
+                                                        <input key={i} placeholder={`哨點 ${i+1} 名稱`} className="w-full bg-gray-50 border-0 p-2 mt-2 rounded-xl text-xs" value={p} onChange={e=>{
+                                                            const v = e.target.value;
+                                                            setCommunityForm(prev=>{
+                                                                const pts = [...(prev.dayGuardPoints||[])];
+                                                                pts[i] = v;
+                                                                return {...prev, dayGuardPoints: pts};
+                                                            });
+                                                        }} />
+                                                    ))}
                                                 </div>
                                                 <div>
                                                     <label className="block text-xs font-bold text-gray-500 uppercase">晚上哨數</label>
-                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.nightGuardCount} onChange={e=>setCommunityForm(prev=>({...prev, nightGuardCount: parseInt(e.target.value||'0',10)}))} />
+                                                    <input type="number" className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.nightGuardCount} onChange={e=>{
+                                                        const val = parseInt(e.target.value||'0',10);
+                                                        setCommunityForm(prev=>{
+                                                            const pts = [...(prev.nightGuardPoints||[])];
+                                                            while(pts.length < val) pts.push('');
+                                                            while(pts.length > val) pts.pop();
+                                                            return {...prev, nightGuardCount: val, nightGuardPoints: pts};
+                                                        });
+                                                    }} />
+                                                    {(communityForm.nightGuardPoints||[]).map((p,i)=>(
+                                                        <input key={i} placeholder={`哨點 ${i+1} 名稱`} className="w-full bg-gray-50 border-0 p-2 mt-2 rounded-xl text-xs" value={p} onChange={e=>{
+                                                            const v = e.target.value;
+                                                            setCommunityForm(prev=>{
+                                                                const pts = [...(prev.nightGuardPoints||[])];
+                                                                pts[i] = v;
+                                                                return {...prev, nightGuardPoints: pts};
+                                                            });
+                                                        }} />
+                                                    ))}
                                                 </div>
                                             </div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">社區地址</label>
@@ -4381,7 +4444,7 @@
                                         </div>
                                         <div className="flex justify-end gap-2 mt-4">
                                             <button onClick={()=>setShowCommunityModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
-                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); if (!user) { setCommunityError('沒有登入權限，請先登入'); return; } const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!name) { setCommunityError('請輸入社區名稱'); return; } const latNum = communityForm.coordLat !== '' && communityForm.coordLat != null ? parseFloat(communityForm.coordLat) : undefined; const lngNum = communityForm.coordLng !== '' && communityForm.coordLng != null ? parseFloat(communityForm.coordLng) : undefined; const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, address: communityForm.address||'', coordLat: latNum, coordLng: lngNum, radiusMeters: communityForm.radiusMeters||0, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }; if (id) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { ...payload, updatedByName: '新增' }); setToast('新增成功'); } setShowCommunityModal(false); } catch(e) { console.error(e); setCommunityError(`儲存失敗：${e.code || e.message}`); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                            <button disabled={communitySaving} onClick={async()=>{ try { setCommunityError(''); setCommunitySaving(true); if (!user) { setCommunityError('沒有登入權限，請先登入'); return; } const id = (communityForm.id || '').trim(); const name = (communityForm.name || '').trim(); if (!name) { setCommunityError('請輸入社區名稱'); return; } const latNum = communityForm.coordLat !== '' && communityForm.coordLat != null ? parseFloat(communityForm.coordLat) : undefined; const lngNum = communityForm.coordLng !== '' && communityForm.coordLng != null ? parseFloat(communityForm.coordLng) : undefined; const payload = { name, companyId: communityForm.companyId || '', areaId: communityForm.areaId || '', gmCount: communityForm.gmCount||0, secretaryCount: communityForm.secretaryCount||0, cleanCount: communityForm.cleanCount||0, mechCount: communityForm.mechCount||0, guardCount: communityForm.guardCount||0, dayGuardCount: communityForm.dayGuardCount||0, nightGuardCount: communityForm.nightGuardCount||0, dayGuardPoints: communityForm.dayGuardPoints||[], nightGuardPoints: communityForm.nightGuardPoints||[], address: communityForm.address||'', coordLat: latNum, coordLng: lngNum, radiusMeters: communityForm.radiusMeters||0, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }; if (id) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', id), payload, { merge: true }); setToast(communities.find(x=>x.id===id)?'儲存成功':'新增成功'); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'communities'), { ...payload, updatedByName: '新增' }); setToast('新增成功'); } setShowCommunityModal(false); } catch(e) { console.error(e); setCommunityError(`儲存失敗：${e.code || e.message}`); } finally { setCommunitySaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                         </div>
                                     </div>
                                 </div>
@@ -4393,6 +4456,62 @@
                                         <div ref={mapTargetElRef} className="w-full h-80 rounded-2xl border"></div>
                                         <div className="flex justify-end gap-2 mt-4">
                                             <button onClick={()=>setMapTarget(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">關閉</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {showGuardPointModal && (
+                                <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">
+                                            {guardPointForm.name} - {guardPointForm.type === 'day' ? '白天' : '晚上'}哨點設定
+                                        </h4>
+                                        <div className="space-y-3">
+                                            {guardPointForm.points.map((p, i) => (
+                                                <div key={i}>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase">哨點 {i+1} 名稱</label>
+                                                    <input 
+                                                        className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" 
+                                                        value={p} 
+                                                        onChange={e => {
+                                                            const v = e.target.value;
+                                                            setGuardPointForm(prev => {
+                                                                const newPoints = [...prev.points];
+                                                                newPoints[i] = v;
+                                                                return { ...prev, points: newPoints };
+                                                            });
+                                                        }} 
+                                                        placeholder={`請輸入哨點 ${i+1} 名稱`}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="flex justify-end gap-2 mt-4">
+                                            <button onClick={() => setShowGuardPointModal(false)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
+                                            <button 
+                                                disabled={guardPointSaving}
+                                                onClick={async () => {
+                                                    try {
+                                                        setGuardPointSaving(true);
+                                                        const updateKey = guardPointForm.type === 'day' ? 'dayGuardPoints' : 'nightGuardPoints';
+                                                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', guardPointForm.id), {
+                                                            [updateKey]: guardPointForm.points,
+                                                            updatedByName: (currentUser && currentUser.name) || (user && user.email) || '',
+                                                            updatedAt: serverTimestamp()
+                                                        }, { merge: true });
+                                                        setToast('儲存成功');
+                                                        setShowGuardPointModal(false);
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                        setToast('儲存失敗');
+                                                    } finally {
+                                                        setGuardPointSaving(false);
+                                                    }
+                                                }} 
+                                                className="px-3 py-2 rounded-2xl bg-red-600 text-white"
+                                            >
+                                                儲存
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
