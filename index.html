@@ -6540,8 +6540,41 @@
                                         <MapPin className="w-5 h-5 text-red-600" />
                                         <span className="font-bold text-sm">
                                             {checkInLocation?.id === 'custom' ? '自定義地點' : (checkInLocation?.name || '定位中...')}
+                                            {(function(){
+                                                const role = (roles || []).find(r => r.id === currentUser?.role);
+                                                const roleName = role ? role.name : currentUser?.roleName;
+                                                
+                                                // Only for Security role
+                                                if (roleName !== '保全') return null;
+
+                                                // Get today's sentry point
+                                                const now = new Date();
+                                                const y = now.getFullYear();
+                                                const m = String(now.getMonth() + 1).padStart(2, '0');
+                                                const d = String(now.getDate()).padStart(2, '0');
+                                                const todayStr = `${y}-${m}-${d}`;
+                                                
+                                                const scheduleToday = mySchedules[todayStr];
+                                                const sp = scheduleToday?.sentryPoint || currentUser?.defaultSentryPoint;
+                                                
+                                                if (sp) {
+                                                    return (
+                                                        <>
+                                                            <span className="text-gray-300 mx-1">|</span>
+                                                            <span className="text-gray-600">{sp}</span>
+                                                        </>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                         </span>
-                                        {availableLocations.length > 1 && (
+                                        {availableLocations.length > 1 && (function(){
+                                            const role = (roles || []).find(r => r.id === currentUser?.role);
+                                            const roleName = role ? role.name : currentUser?.roleName;
+                                            // Hide 'Change' button for Security role as per request (read-only view)
+                                            if (roleName === '保全') return false;
+                                            return true;
+                                        })() && (
                                             <button 
                                                 onClick={() => setShowLocationSelector(true)}
                                                 className="text-xs bg-gray-100 px-3 py-1.5 rounded-lg text-gray-600 font-bold hover:bg-gray-200"
@@ -6579,6 +6612,35 @@
                                         )}
                                     </div>
                                 </div>
+                                
+                                {/* Sentry Point Display Block (Below) */}
+                                {(function(){
+                                    const role = (roles || []).find(r => r.id === currentUser?.role);
+                                    const roleName = role ? role.name : currentUser?.roleName;
+                                    
+                                    // Only for Security role
+                                    if (roleName !== '保全') return null;
+
+                                    // Get today's sentry point
+                                    const now = new Date();
+                                    const y = now.getFullYear();
+                                    const m = String(now.getMonth() + 1).padStart(2, '0');
+                                    const d = String(now.getDate()).padStart(2, '0');
+                                    const todayStr = `${y}-${m}-${d}`;
+                                    
+                                    const scheduleToday = mySchedules[todayStr];
+                                    const sp = scheduleToday?.sentryPoint || currentUser?.defaultSentryPoint;
+                                    
+                                    if (sp) {
+                                        return (
+                                            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2 text-sm">
+                                                <span className="text-gray-400 font-bold">哨點位置:</span>
+                                                <span className="text-gray-700 font-bold">{sp}</span>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
                                 
                                 {checkInLocation?.id === 'custom' && (
                                     <input 
@@ -7525,7 +7587,7 @@
             );
         };
 
-        const CommunitySettingsModal = ({ isOpen, onClose, communityId, communityName, users, roles }) => {
+        const CommunitySettingsModal = ({ isOpen, onClose, communityId, communityName, users, roles, communities }) => {
             if (!isOpen) return null;
 
             const [timeEdits, setTimeEdits] = useState({});
@@ -7580,6 +7642,23 @@
                 }
             };
 
+            const saveUserDefaultSentryPoint = async (userId, point) => {
+                setSavingUserId(userId);
+                setSaveErrorById(prev => ({ ...prev, [String(userId)]: '' }));
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(userId)), {
+                        defaultSentryPoint: point || '',
+                        updatedAt: serverTimestamp()
+                    });
+                } catch (e) {
+                    setSaveErrorById(prev => ({ ...prev, [String(userId)]: (e && (e.code || e.message)) ? String(e.code || e.message) : 'save_failed' }));
+                } finally {
+                    setSavingUserId(null);
+                }
+            };
+
+            const currentCommunity = (communities || []).find(c => c.id === communityId);
+
             const communityUsers = users.filter(u => {
                 if ((u.status || '在職') === '離職') return false;
                 
@@ -7633,6 +7712,9 @@
                                     const nightShiftValue = (timeEdits[String(u.id)] && timeEdits[String(u.id)].nightShift !== undefined)
                                         ? !!timeEdits[String(u.id)].nightShift
                                         : !!u.defaultIsNightShift;
+                                    const sentryPointValue = (timeEdits[String(u.id)] && timeEdits[String(u.id)].sentryPoint !== undefined)
+                                        ? timeEdits[String(u.id)].sentryPoint
+                                        : (u.defaultSentryPoint || '');
                                     return (
                                         <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl hover:shadow-md transition-shadow">
                                             <div className="flex items-center gap-3">
@@ -7707,6 +7789,31 @@
                                                     />
                                                     <span className="text-xs font-bold text-gray-700">夜班人員</span>
                                                 </label>
+                                                {roleName === '保全' && (
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="text-[10px] text-gray-400 font-bold">哨點</div>
+                                                        <select
+                                                            value={sentryPointValue}
+                                                            onChange={(e) => {
+                                                                const v = e.target.value;
+                                                                setTimeEdits(prev => ({
+                                                                    ...prev,
+                                                                    [String(u.id)]: { ...(prev[String(u.id)] || {}), sentryPoint: v }
+                                                                }));
+                                                                saveUserDefaultSentryPoint(u.id, v);
+                                                            }}
+                                                            className="w-[120px] px-2 py-1 text-xs border border-gray-200 rounded-lg bg-white"
+                                                        >
+                                                            <option value="">請選擇</option>
+                                                            {(nightShiftValue 
+                                                                ? (currentCommunity?.nightGuardPoints || []) 
+                                                                : (currentCommunity?.dayGuardPoints || [])
+                                                            ).map((p, i) => (
+                                                                <option key={i} value={p}>{p}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                )}
                                                 {savingUserId === u.id && (
                                                     <div className="text-[10px] text-gray-400 font-bold">儲存中</div>
                                                 )}
@@ -8395,7 +8502,7 @@
             }, [dbUser, companies, communities]);
 
             useEffect(() => {
-                if (activeTab === 'community' && !communityTabSelectedId && dbUser && communities) {
+                if (activeTab === 'community' && dbUser && communities) {
                     let userComms = [];
                     if (dbUser.role === 'admin') userComms = communities;
                     else {
@@ -8403,7 +8510,10 @@
                         userComms = communities.filter(c => commIds.includes(c.id));
                     }
                     if (userComms.length > 0) {
-                        setCommunityTabSelectedId(userComms[0].id);
+                        const isSelectedValid = communityTabSelectedId && userComms.some(c => c.id === communityTabSelectedId);
+                        if (!communityTabSelectedId || !isSelectedValid) {
+                            setCommunityTabSelectedId(userComms[0].id);
+                        }
                     }
                 }
             }, [activeTab, communityTabSelectedId, dbUser, communities]);
@@ -9116,6 +9226,9 @@
                         if (scheduleForm.location) {
                             scheduleData.location = scheduleForm.location;
                         }
+                        if (scheduleForm.sentryPoint) {
+                            scheduleData.sentryPoint = scheduleForm.sentryPoint;
+                        }
                     }
 
                     // Update local state immediately (Optimistic UI)
@@ -9277,6 +9390,7 @@
                                     scheduleData.endTime = '17:30';
                                     scheduleData.crossDay = false;
                                 }
+                                scheduleData.location = targetUserObj?.defaultSentryPoint || '';
                             }
 
                             promises.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId), scheduleData));
@@ -15050,6 +15164,56 @@
                                                     <div className="space-y-3">
                                                         <div className="bg-gray-50 p-3 rounded-xl">
                                                             <div className="text-xs font-bold text-gray-400 mb-1">班表排程</div>
+                                                            {(function(){
+                                                                if (!schedule || schedule.type === 'off' || schedule.type === 'comp_leave') return null;
+                                                                
+                                                                const u =
+                                                                    ((typeof dbUser !== 'undefined') && dbUser)
+                                                                        ? dbUser
+                                                                        : (((typeof currentUser !== 'undefined') && currentUser) ? currentUser : null);
+
+                                                                let locName = schedule.location || '';
+                                                                
+                                                                if (!locName && u) {
+                                                                     // 統一優先使用公司名稱，其次才使用社區名稱；最後預設為「台北公司」
+                                                                     const compId = (u.companyIds && u.companyIds.length > 0) ? u.companyIds[0] : u.companyId;
+                                                                     const comp = (companies || []).find(c => String(c.id) === String(compId));
+                                                                     if (comp) {
+                                                                         locName = comp.name;
+                                                                     } else {
+                                                                         // Fallback: 社區名稱
+                                                                         if (u.communityId) {
+                                                                             const c = (communities || []).find(c => String(c.id) === String(u.communityId));
+                                                                             if (c) locName = c.name;
+                                                                         } else if (u.communityIds && u.communityIds.length > 0) {
+                                                                             const c = (communities || []).find(c => String(c.id) === String(u.communityIds[0]));
+                                                                             if (c) locName = c.name;
+                                                                         }
+                                                                         if (!locName) locName = '台北公司';
+                                                                     }
+                                                                }
+                                                                
+                                                                if (!locName) return null;
+
+                                                                // Check for Security Role and Sentry Point
+                                                                const role = (roles || []).find(r => r.id === u?.role);
+                                                                const roleName = role ? role.name : u?.roleName;
+                                                                const isSecurity = roleName === '保全';
+                                                                const sp = isSecurity ? (schedule.sentryPoint || u?.defaultSentryPoint) : null;
+
+                                                                return (
+                                                                    <div className="flex items-center gap-1 mb-2">
+                                                                         <MapPin className="w-3 h-3 text-gray-400" />
+                                                                         <span className="text-xs font-bold text-gray-500">{locName}</span>
+                                                                         {sp && (
+                                                                             <>
+                                                                                 <span className="text-gray-300 mx-1">|</span>
+                                                                                 <span className="text-xs font-bold text-gray-500">{sp}</span>
+                                                                             </>
+                                                                         )}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                             {schedule && schedule.type !== 'comp_leave' ? (
                                                                 <div className="flex w-full py-2">
                                                                     <div className="flex-1 flex flex-col items-center border-r border-gray-200">
@@ -15627,7 +15791,7 @@
                                                                     else if (rName === '保全') counts.security++;
                                                                 });
                                                                 return (
-                                                                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-xs font-bold border-t border-red-200 pt-2">
+                                                                    <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                                         <span className="text-red-600">總幹事 : {counts.director}</span>
                                                                         <span className="text-gray-300">|</span>
                                                                         <span className="text-purple-600">秘書 : {counts.secretary}</span>
@@ -16057,7 +16221,7 @@
                                                 });
 
                                                 return (
-                                                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-xs font-bold border-t border-red-200 pt-2">
+                                                    <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                         <span className="text-red-600">總幹事 : {counts.director}</span>
                                                         <span className="text-gray-300">|</span>
                                                         <span className="text-purple-600">秘書 : {counts.secretary}</span>
@@ -16669,6 +16833,7 @@
                                                             const defaultStart = (targetUser && targetUser.defaultWorkStartTime) || '09:00';
                                                             const defaultEnd = (targetUser && targetUser.defaultWorkEndTime) || '17:30';
                                                             const defaultCrossDay = defaultStart > defaultEnd;
+                                                            const defaultSentryPoint = targetUser?.defaultSentryPoint || '';
                                                             
                                                             if (leave) {
                                                                 setScheduleForm({ type: 'leave' });
@@ -16679,12 +16844,13 @@
                                                                     endTime: schedule.endTime || defaultEnd,
                                                                     crossDay: schedule.crossDay || false,
                                                                     location: schedule.location || '',
+                                                                    sentryPoint: schedule.sentryPoint || defaultSentryPoint,
                                                                     leaveLabel: schedule.type === 'comp_leave' ? (schedule.leaveLabel || '補休') : ''
                                                                 });
                                                             } else if (isHoliday || isWeekend) {
-                                                                setScheduleForm({ type: 'holiday', location: '' });
+                                                                setScheduleForm({ type: 'holiday', location: '', sentryPoint: defaultSentryPoint });
                                                             } else {
-                                                                setScheduleForm({ type: 'work', startTime: defaultStart, endTime: defaultEnd, crossDay: defaultCrossDay, location: '', leaveLabel: '' });
+                                                                setScheduleForm({ type: 'work', startTime: defaultStart, endTime: defaultEnd, crossDay: defaultCrossDay, location: '', sentryPoint: defaultSentryPoint, leaveLabel: '' });
                                                             }
                                                             setShowScheduleModal(true);
                                                         }}
@@ -16717,28 +16883,33 @@
                                                                         {schedule.startTime} ~ {schedule.endTime}
                                                                     </div>
                                                                 )}
-                                                                {locationName && schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
-                                                                    <div 
-                                                                        onClick={() => {
-                                                                            setScheduleModalDate(dateStr);
-                                                                            setScheduleForm({
-                                                                                type: schedule.type,
-                                                                                startTime: schedule.startTime || '09:00',
-                                                                                endTime: schedule.endTime || '17:30',
-                                                                                crossDay: schedule.crossDay || false,
-                                                                                location: schedule.location || '',
-                                                                                leaveLabel: schedule.type === 'comp_leave' ? (schedule.leaveLabel || '補休') : ''
-                                                                            });
-                                                                            setShowScheduleModal(true);
-                                                                        }}
-                                                                        className="flex items-center gap-1 text-gray-500 text-sm font-bold bg-white px-2 py-1 rounded border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-                                                                        title="點擊編輯打卡位置"
-                                                                    >
-                                                                        <MapPin className="w-3 h-3" />
-                                                                        {locationName}
-                                                                        <Edit className="w-3 h-3 ml-1 opacity-40" />
-                                                                    </div>
-                                                                )}
+                                                                {/* Location and Sentry Point Display (Community Tab) */}
+                                                                {(function(){
+                                                                    if (schedule.type === 'off' || schedule.type === 'comp_leave') return null;
+                                                                    
+                                                                    // Check if user is Security
+                                                                    const isSecurity = targetUser?.roleName === '保全' || (roles || []).find(r => r.id === targetUser.role)?.name === '保全';
+                                                                    const sp = isSecurity ? (schedule.sentryPoint || targetUser.defaultSentryPoint) : null;
+                                                                    
+                                                                    if (!locationName && !sp) return null;
+
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1">
+                                                                            {locationName && (
+                                                                                <div className="flex items-center gap-1 text-gray-500 text-sm font-bold bg-white px-2 py-1 rounded border border-gray-200">
+                                                                                    <MapPin className="w-3 h-3" />
+                                                                                    {locationName}
+                                                                                </div>
+                                                                            )}
+                                                                            {sp && (
+                                                                                <div className="flex items-center gap-1 text-gray-500 text-xs font-bold px-1">
+                                                                                    <span className="text-gray-400">哨點:</span>
+                                                                                    <span>{sp}</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                         ) : (isHoliday || isWeekend) ? (
                                                             <div className="text-sm font-bold text-gray-500">假日</div>
@@ -17094,7 +17265,7 @@
                                                     <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
                                                     <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
                                                 </div>
-                                                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-xs font-bold border-t border-red-200 pt-2">
+                                                <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                     <span className="text-red-600">總幹事 : {counts.director}</span>
                                                     <span className="text-gray-300">|</span>
                                                     <span className="text-purple-600">秘書 : {counts.secretary}</span>
@@ -17197,7 +17368,7 @@
                                                 else if (rName === '保全') counts.security++;
                                             });
                                             return (
-                                                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-xs font-bold border-t border-red-200 pt-2">
+                                                <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                     <span className="text-red-600">總幹事 : {counts.director}</span>
                                                     <span className="text-gray-300">|</span>
                                                     <span className="text-purple-600">秘書 : {counts.secretary}</span>
@@ -18078,7 +18249,7 @@
                                                         else if (rName === '保全') counts.security++;
                                                     });
                                                     return (
-                                                        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-xs font-bold border-t border-red-200 pt-2">
+                                                        <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                             <span className="text-red-600">總幹事 : {counts.director}</span>
                                                             <span className="text-gray-300">|</span>
                                                             <span className="text-purple-600">秘書 : {counts.secretary}</span>
@@ -18445,7 +18616,7 @@
                                                 else if (rName === '保全') counts.security++;
                                             });
                                             return (
-                                                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-xs font-bold border-t border-red-200 pt-2">
+                                                <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                     <span className="text-red-600">總幹事 : {counts.director}</span>
                                                     <span className="text-gray-300">|</span>
                                                     <span className="text-purple-600">秘書 : {counts.secretary}</span>
@@ -20965,6 +21136,7 @@
                                                                     const defaultStart = (targetUser && targetUser.defaultWorkStartTime) || '09:00';
                                                                     const defaultEnd = (targetUser && targetUser.defaultWorkEndTime) || '17:30';
                                                                     const defaultCrossDay = defaultStart > defaultEnd;
+                                                                    const defaultSentryPoint = targetUser?.defaultSentryPoint || '';
 
                                                                     if (leave) {
                                                                     setScheduleForm({ type: 'leave', leaveLabel: '' });
@@ -20974,13 +21146,14 @@
                                                                             startTime: schedule.startTime || defaultStart,
                                                                             endTime: schedule.endTime || defaultEnd,
                                                                             crossDay: schedule.crossDay || false,
-                                                                        location: schedule.location || '',
-                                                                        leaveLabel: schedule.type === 'comp_leave' ? (schedule.leaveLabel || '補休') : ''
+                                                                            location: schedule.location || '',
+                                                                            sentryPoint: schedule.sentryPoint || defaultSentryPoint,
+                                                                            leaveLabel: schedule.type === 'comp_leave' ? (schedule.leaveLabel || '補休') : ''
                                                                         });
                                                                     } else if (isHoliday || isWeekend) {
-                                                                    setScheduleForm({ type: 'holiday', location: '', leaveLabel: '' });
+                                                                    setScheduleForm({ type: 'holiday', location: '', sentryPoint: defaultSentryPoint, leaveLabel: '' });
                                                                     } else {
-                                                                    setScheduleForm({ type: 'work', startTime: defaultStart, endTime: defaultEnd, crossDay: defaultCrossDay, location: '', leaveLabel: '' });
+                                                                    setScheduleForm({ type: 'work', startTime: defaultStart, endTime: defaultEnd, crossDay: defaultCrossDay, location: '', sentryPoint: defaultSentryPoint, leaveLabel: '' });
                                                                     }
                                                                     setShowScheduleModal(true);
                                                                 }}
@@ -21013,28 +21186,28 @@
                                                                                 {schedule.startTime} ~ {schedule.endTime}
                                                                             </div>
                                                                         )}
-                                                                        {locationName && schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
-                                                                            <div 
-                                                                                onClick={() => {
-                                                                                    setScheduleModalDate(dateStr);
-                                                                                    setScheduleForm({
-                                                                                        type: schedule.type,
-                                                                                        startTime: schedule.startTime || '09:00',
-                                                                                        endTime: schedule.endTime || '17:30',
-                                                                                        crossDay: schedule.crossDay || false,
-                                                                                        location: schedule.location || '',
-                                                                                        leaveLabel: schedule.type === 'comp_leave' ? (schedule.leaveLabel || '補休') : ''
-                                                                                    });
-                                                                                    setShowScheduleModal(true);
-                                                                                }}
-                                                                                className="flex items-center gap-1 text-gray-500 text-sm font-bold bg-white px-2 py-1 rounded border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-                                                                                title="點擊編輯打卡位置"
-                                                                            >
-                                                                                <MapPin className="w-3 h-3" />
-                                                                                {locationName}
-                                                                                <Edit className="w-3 h-3 ml-1 opacity-40" />
-                                                                            </div>
-                                                                        )}
+                                                                        {/* Location and Sentry Point Display */}
+                                                                        {(function(){
+                                                                            if (schedule.type === 'off' || schedule.type === 'comp_leave') return null;
+                                                                            
+                                                                            const isSecurity = targetUser?.roleName === '保全' || (roles || []).find(r => r.id === targetUser.role)?.name === '保全';
+                                                                            const sp = isSecurity ? (schedule.sentryPoint || targetUser.defaultSentryPoint) : null;
+                                                                            
+                                                                            if (!locationName && !sp) return null;
+
+                                                                            return (
+                                                                                <div className="flex items-center gap-1 text-gray-500 text-sm font-bold bg-white px-2 py-1 rounded border border-gray-200">
+                                                                                    <MapPin className="w-3 h-3" />
+                                                                                    <span>{locationName}</span>
+                                                                                    {sp && (
+                                                                                        <>
+                                                                                            <span className="text-gray-300 mx-1">|</span>
+                                                                                            <span>{sp}</span>
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
                                                                     </div>
                                                                 ) : (isHoliday || isWeekend) ? (
                                                                     <div className="text-sm font-bold text-gray-500">假日</div>
@@ -21879,7 +22052,10 @@
                                         
                                         if (userComms.length === 0) return null;
 
-                                        return [0, 1, 2].flatMap(setIndex => 
+                                        const shouldLoop = userComms.length > 3;
+                                        const sets = shouldLoop ? [0, 1, 2] : [0];
+
+                                        return sets.flatMap(setIndex => 
                                             userComms.map(comm => {
                                                 const name = comm.name || '';
                                                 const short = name.slice(0, 4);
@@ -21895,30 +22071,32 @@
                                                         id={`community-btn-${setIndex}-${comm.id}`}
                                                         onClick={() => {
                                                             setCommunityTabSelectedId(comm.id);
-                                                            // Center logic: Jump to middle set if needed, then smooth scroll
-                                                            setTimeout(() => {
-                                                                const container = document.getElementById('community-selection-scroll-container');
-                                                                const targetBtn = document.getElementById(`community-btn-1-${comm.id}`);
-                                                                
-                                                                if (container && targetBtn) {
-                                                                    const oneSetWidth = container.scrollWidth / 3;
+                                                            if (shouldLoop) {
+                                                                // Center logic: Jump to middle set if needed, then smooth scroll
+                                                                setTimeout(() => {
+                                                                    const container = document.getElementById('community-selection-scroll-container');
+                                                                    const targetBtn = document.getElementById(`community-btn-1-${comm.id}`);
                                                                     
-                                                                    // 1. Seamlessly jump to middle set (index 1) if user clicked in set 0 or 2
-                                                                    // This ensures we have scroll space on both sides and avoids long-distance panning
-                                                                    if (setIndex === 0) {
-                                                                        container.scrollLeft += oneSetWidth;
-                                                                    } else if (setIndex === 2) {
-                                                                        container.scrollLeft -= oneSetWidth;
+                                                                    if (container && targetBtn) {
+                                                                        const oneSetWidth = container.scrollWidth / 3;
+                                                                        
+                                                                        // 1. Seamlessly jump to middle set (index 1) if user clicked in set 0 or 2
+                                                                        // This ensures we have scroll space on both sides and avoids long-distance panning
+                                                                        if (setIndex === 0) {
+                                                                            container.scrollLeft += oneSetWidth;
+                                                                        } else if (setIndex === 2) {
+                                                                            container.scrollLeft -= oneSetWidth;
+                                                                        }
+                                                                        
+                                                                        // 2. Smooth scroll the target button (in the middle set) to the exact center
+                                                                        targetBtn.scrollIntoView({
+                                                                            behavior: 'smooth',
+                                                                            block: 'nearest',
+                                                                            inline: 'center'
+                                                                        });
                                                                     }
-                                                                    
-                                                                    // 2. Smooth scroll the target button (in the middle set) to the exact center
-                                                                    targetBtn.scrollIntoView({
-                                                                        behavior: 'smooth',
-                                                                        block: 'nearest',
-                                                                        inline: 'center'
-                                                                    });
-                                                                }
-                                                            }, 50);
+                                                                }, 50);
+                                                            }
                                                         }}
                                                         className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                             communityTabSelectedId === comm.id 
@@ -22772,6 +22950,7 @@
                         communityName={communities.find(c => c.id === communityTabSelectedId)?.name}
                         users={usersList}
                         roles={roles}
+                        communities={communities}
                     />
 
                     {/* Notification Popup */}
@@ -26128,6 +26307,39 @@
                                                 </datalist>
                                             </div>
                                         </div>
+                                        {(function() {
+                                            const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                                            const targetUser = usersList.find(u => u.id === targetUserId);
+                                            // 只對「保全」顯示哨點位置欄位
+                                            const roleName = targetUser ? (roles.find(r => r.id === targetUser.role)?.name || targetUser.roleName || targetUser.role) : '';
+                                            if (!targetUser || roleName !== '保全') return null;
+                                            // 依據「夜班人員」設定決定白天/晚上哨點
+                                            const isNight = !!targetUser.nightShift;
+                                            let comm = null;
+                                            if (targetUser.communityId) {
+                                                comm = (communities || []).find(c => String(c.id) === String(targetUser.communityId));
+                                            }
+                                            if (!comm && Array.isArray(targetUser.communityIds) && targetUser.communityIds.length > 0) {
+                                                const cid = targetUser.communityIds[0];
+                                                comm = (communities || []).find(c => String(c.id) === String(cid));
+                                            }
+                                            const points = isNight ? (comm?.nightGuardPoints || []) : (comm?.dayGuardPoints || []);
+                                            return (
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">哨點位置</label>
+                                                    <select
+                                                        value={scheduleForm.sentryPoint || ''}
+                                                        onChange={e => setScheduleForm(prev => ({ ...prev, sentryPoint: e.target.value }))}
+                                                        className="w-full bg-gray-50 border-0 p-3 rounded-xl text-lg font-bold text-gray-800 focus:ring-2 focus:ring-blue-100"
+                                                    >
+                                                        <option value="">請選擇</option>
+                                                        {points.map((p, idx) => (
+                                                            <option key={idx} value={p}>{p}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
 

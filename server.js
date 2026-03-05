@@ -5,7 +5,7 @@ const admin = require('firebase-admin');
 
 console.log("Starting server script...");
 
-const port = 8000;
+const port = 8001;
 const LOG_REQUESTS = process.env.LOG_REQUESTS === '1';
 const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
 
