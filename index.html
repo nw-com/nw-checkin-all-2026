@@ -10823,6 +10823,220 @@
 
             
 
+            // Daily Notification System (Check and Send)
+            useEffect(() => {
+                if (!dbUser || !appId || !communities || communities.length === 0) return;
+
+                const hasPermission = ['admin', 'manager', 'hr', 'property', 'cadre'].includes(dbUser.role) || 
+                                      (roles || []).find(r => r.id === dbUser.role)?.permissions?.some(p => ['cadre','overview'].includes(p));
+                
+                if (!hasPermission) return;
+
+                // 1. Receiver Logic (Listen to Notifications)
+                const qNotifications = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'notifications'),
+                    orderBy('createdAt', 'desc'),
+                    limit(10)
+                );
+
+                const sendPushNotification = async (title, body) => {
+                    if (!('Notification' in window)) return;
+                    if (Notification.permission !== 'granted') return;
+                    
+                    const ICON_URL = 'logo.svg';
+                    
+                    if ('serviceWorker' in navigator) {
+                        try {
+                            const reg = await navigator.serviceWorker.ready;
+                            await reg.showNotification(title, {
+                                body: body,
+                                icon: ICON_URL,
+                                badge: ICON_URL,
+                                data: { url: window.location.href }
+                            });
+                            return;
+                        } catch (e) { console.warn('SW notification failed', e); }
+                    }
+                    
+                    try {
+                        const n = new Notification(title, {
+                            body: body,
+                            icon: ICON_URL,
+                            badge: ICON_URL
+                        });
+                        n.onclick = () => window.focus();
+                    } catch (e) { console.error(e); }
+                };
+
+                const unsubReceiver = onSnapshot(qNotifications, (snap) => {
+                    snap.docChanges().forEach(change => {
+                        if (change.type === 'added') {
+                            const data = change.doc.data();
+                            const now = Date.now();
+                            const createdAt = data.createdAt?.toMillis?.() || 0;
+                            // Ignore notifications older than 24h
+                            if (now - createdAt > 24 * 60 * 60 * 1000) return; 
+
+                            const targetRoles = data.targetRoles || [];
+                            const targetCommunityId = data.communityId;
+                            
+                            // Role Check
+                            const customRole = (roles || []).find(r => r.id === dbUser.role);
+                            const myRole = dbUser.role;
+                            const isRoleMatch = targetRoles.includes(myRole) || 
+                                                (customRole && targetRoles.some(tr => (customRole.name || '').includes(tr) || (customRole.permissions || []).includes(tr)));
+
+                            if (!isRoleMatch && myRole !== 'admin') return;
+
+                            // Community Check
+                            let isCommunityMatch = false;
+                            if (myRole === 'admin') isCommunityMatch = true;
+                            else {
+                                const myComms = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                                isCommunityMatch = myComms.some(cid => String(cid) === String(targetCommunityId));
+                            }
+
+                            if (isCommunityMatch) {
+                                // Simple local storage check to avoid duplicate alerts in same session
+                                const shownKey = `notif_shown_${change.doc.id}`;
+                                if (!sessionStorage.getItem(shownKey)) {
+                                    sendPushNotification(data.title, data.body);
+                                    sessionStorage.setItem(shownKey, '1');
+                                }
+                            }
+                        }
+                    });
+                });
+
+                // 2. Sender Logic (Daily Check)
+                const checkDailyAnomalies = async () => {
+                    // Only users with full data access should run the check
+                    // 'property' role typically doesn't fetch all attendance/leaves, so they shouldn't generate the report
+                    // unless they have explicit cadre permissions which triggers the fetch.
+                    const canPerformCheck = ['admin', 'manager', 'hr', 'cadre'].includes(dbUser.role) || 
+                                          (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('cadre');
+                    
+                    if (!canPerformCheck) return;
+
+                    try {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        // Check if logs exist for today (to avoid redundant calculation)
+                        // Note: We check PER community.
+                        const qLogs = query(collection(db, 'artifacts', appId, 'public', 'data', 'daily_notification_logs'), where('date', '==', todayStr));
+                        const logsSnap = await getDocs(qLogs);
+                        const sentCommunityIds = new Set(logsSnap.docs.map(d => String(d.data().communityId)));
+
+                        // Filter communities I can check
+                        let checkableCommunities = communities;
+                        if (dbUser.role !== 'admin') {
+                            const myComms = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                            checkableCommunities = communities.filter(c => myComms.includes(c.id));
+                        }
+                        
+                        const uncheckedCommunities = checkableCommunities.filter(c => !sentCommunityIds.has(String(c.id)));
+                        if (uncheckedCommunities.length === 0) return;
+
+                        // Fetch Today's Schedules (All Users)
+                        const qSchedules = query(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), where('date', '==', todayStr));
+                        const schedSnap = await getDocs(qSchedules);
+                        const todaySchedules = schedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                        // Fetch Attendance (Today Only)
+                        const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+                        const qAttendance = query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), where('timestamp', '>=', startOfDay));
+                        const attSnap = await getDocs(qAttendance);
+                        const todayAttendance = attSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                        // Use existing leavesList state (limit 2000) for efficiency, assuming it contains recent pending leaves
+                        const pendingLeaves = (leavesList || []).filter(l => l.approvalStatus === 'pending');
+
+                        for (const comm of uncheckedCommunities) {
+                            let anomalies = 0;
+                            const commId = String(comm.id);
+                            
+                            // 1. Pending Leaves
+                            const commLeaves = pendingLeaves.filter(l => String(l.communityId) === commId).length;
+                            anomalies += commLeaves;
+
+                            // 2. Shift Anomalies & Vacancies
+                            const commSchedules = todaySchedules.filter(s => String(s.communityId) === commId);
+                            
+                            // Day Shift
+                            const daySchedules = commSchedules.filter(s => s.shift === 'day');
+                            const assignedDayPoints = new Set(daySchedules.map(s => s.sentryPoint));
+                            const dayGuardPoints = Array.from(new Set((comm.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                            const dayVacancies = dayGuardPoints.filter(p => !assignedDayPoints.has(p)).length;
+                            anomalies += dayVacancies;
+
+                            // Day Attendance Anomalies
+                            for (const sched of daySchedules) {
+                                const att = todayAttendance.find(a => a.userId === sched.userId && a.shift === 'day');
+                                const now = new Date();
+                                const hour = now.getHours();
+                                // Late if > 08:00 (assuming 07:00 start + buffer) and no checkin
+                                if (!att) {
+                                    if (hour >= 8) anomalies++;
+                                } else {
+                                    if (['遲到', '早退', '未打下班打卡'].includes(att.status)) anomalies++;
+                                }
+                            }
+
+                            // Night Shift
+                            const nightSchedules = commSchedules.filter(s => s.shift === 'night');
+                            const assignedNightPoints = new Set(nightSchedules.map(s => s.sentryPoint));
+                            const nightGuardPoints = Array.from(new Set((comm.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                            const nightVacancies = nightGuardPoints.filter(p => !assignedNightPoints.has(p)).length;
+                            anomalies += nightVacancies;
+
+                            // Night Attendance Anomalies
+                            for (const sched of nightSchedules) {
+                                const att = todayAttendance.find(a => a.userId === sched.userId && a.shift === 'night');
+                                const now = new Date();
+                                const hour = now.getHours();
+                                // Late if > 20:00 (assuming 19:00 start + buffer) and no checkin
+                                if (!att) {
+                                    if (hour >= 20) anomalies++;
+                                } else {
+                                    if (['遲到', '早退', '未打下班打卡'].includes(att.status)) anomalies++;
+                                }
+                            }
+
+                            if (anomalies > 0) {
+                                // Send Notification
+                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                                    title: '異常通知',
+                                    body: `${comm.name} 今日共有 ${anomalies} 筆異常事項(含待審核假單與缺哨/考勤異常)，請儘速處理。`,
+                                    communityId: commId,
+                                    targetRoles: ['admin', 'manager', 'hr', 'property', 'cadre'],
+                                    createdAt: serverTimestamp()
+                                });
+                                
+                                // Log Sent
+                                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'daily_notification_logs', `${todayStr}_${commId}`), {
+                                    date: todayStr,
+                                    communityId: commId,
+                                    sentAt: serverTimestamp(),
+                                    sentBy: dbUser.id
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Daily check error:', e);
+                    }
+                };
+
+                // Run check after 10 seconds to allow initial data sync and avoid race conditions
+                const timer = setTimeout(() => {
+                    checkDailyAnomalies().catch(console.error);
+                }, 10000);
+
+                return () => {
+                    unsubReceiver();
+                    clearTimeout(timer);
+                };
+
+            }, [dbUser, communities, roles, leavesList]);
+
             const seedData = async () => {
                 if (!user) return;
                 const baseCommRef = collection(db, 'artifacts', appId, 'public', 'data', 'communities');
@@ -12426,9 +12640,100 @@
                                 <div className="flex gap-2">
                                     <button 
                                         onClick={() => setCommunitySubtab('overview')} 
-                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'overview' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                        className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'overview' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                     >
                                         總覽
+                                        {(function() {
+                                            try {
+                                                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                                if (!selectedCommunity) return null;
+                                                const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                                                const roleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                const communityUsers = (usersList || []).filter(u => {
+                                                    let inCommunity = false;
+                                                    if (Array.isArray(u.communityIds) && u.communityIds.length > 0) {
+                                                        inCommunity = u.communityIds.some(cid => String(cid) === String(selectedCommunity.id));
+                                                    } else {
+                                                        inCommunity = String(u.communityId) === String(selectedCommunity.id);
+                                                    }
+                                                    const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                                                    const hasRole = roleIds.includes(u.role) || targetRoleNames.includes(rName);
+                                                    return inCommunity && hasRole && (u.status === '在職' || !u.status);
+                                                });
+                                                const now = new Date();
+                                                const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                const toSecs = (r) => {
+                                                    if (!r) return 0;
+                                                    if (r.timestamp?.seconds) return r.timestamp.seconds;
+                                                    if (r.createdAt?.seconds) return r.createdAt.seconds;
+                                                    if (r.timestamp instanceof Date) return Math.floor(r.timestamp.getTime()/1000);
+                                                    if (r.createdAt instanceof Date) return Math.floor(r.createdAt.getTime()/1000);
+                                                    return 0;
+                                                };
+                                                const parseTime = (t, defH=0, defM=0) => {
+                                                    if (!t || typeof t !== 'string') return { h: defH, m: defM };
+                                                    const [hh, mm] = t.split(':').map(v => parseInt(v, 10));
+                                                    return { h: Number.isFinite(hh) ? hh : defH, m: Number.isFinite(mm) ? mm : defM };
+                                                };
+                                                const isNight = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+                                                let redCount = 0;
+                                                // 缺哨統計
+                                                const needDay = Array.from(new Set((selectedCommunity?.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                const needNight = Array.from(new Set((selectedCommunity?.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                const assigned = { day: new Set(), night: new Set() };
+                                                communityUsers.forEach(u => {
+                                                    const schedule = (schedulesList || []).find(s => s.userId === u.id && s.date === todayStr && ['work', 'duty'].includes(s.type) && (!s.communityId || String(s.communityId) === String(selectedCommunity.id)));
+                                                    if (!schedule) return;
+                                                    // 打卡異常：遲到/早退/未打下班打卡
+                                                    const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
+                                                    const { h: eh, m: em } = parseTime(schedule?.endTime, 23, 59);
+                                                    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm, 0, 0);
+                                                    let end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eh, em, 0, 0);
+                                                    const crossDay = schedule?.crossDay === true || (eh*60+em) < (sh*60+sm);
+                                                    if (crossDay) end.setDate(end.getDate() + 1);
+                                                    const recs = (attendanceList || [])
+                                                        .filter(r => r.userId === u.id)
+                                                        .map(r => ({ ...r, _secs: toSecs(r) }))
+                                                        .filter(r => r._secs && (new Date(r._secs*1000) >= start) && (new Date(r._secs*1000) <= end))
+                                                        .filter(r => ['in','late_in','work_in','duty_in','out','late_out','work_out','duty_out'].includes(r.type))
+                                                        .sort((a,b)=>a._secs-b._secs);
+                                                    const firstIn = recs.find(r => ['in','late_in','work_in','duty_in'].includes(r.type));
+                                                    let lastOut = null; for (let i=recs.length-1;i>=0;i--){if(['out','late_out','work_out','duty_out'].includes(recs[i].type)){lastOut=recs[i];break;}}
+                                                    let statusText = '';
+                                                    if (lastOut?._secs) {
+                                                        const outTime = new Date(lastOut._secs*1000);
+                                                        statusText = outTime < end ? '早退' : '已下班';
+                                                    } else if (firstIn?._secs) {
+                                                        const inTime = new Date(firstIn._secs*1000);
+                                                        statusText = inTime > start ? '遲到' : '未打下班打卡';
+                                                    } else {
+                                                        statusText = now < start ? '未打上班打卡' : '遲到';
+                                                    }
+                                                    if (!lastOut?._secs && now > end) statusText = '未打下班打卡';
+                                                    if (['遲到','早退','未打下班打卡'].includes(statusText)) redCount++;
+                                                    // 哨點指派統計（保全）
+                                                    const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                                                    if (rName === '保全') {
+                                                        const sp = (schedule?.sentryPoint || u.defaultSentryPoint || '').trim();
+                                                        const shiftKey = isNight(schedule) ? 'night' : 'day';
+                                                        if (sp) assigned[shiftKey].add(sp);
+                                                    }
+                                                });
+                                                const missDay = needDay.filter(p => !assigned.day.has(p)).length;
+                                                const missNight = needNight.filter(p => !assigned.night.has(p)).length;
+                                                const abnormalTotal = redCount + missDay + missNight;
+                                                if (abnormalTotal > 0) {
+                                                    return (
+                                                        <div className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
+                                                            {abnormalTotal}
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            } catch (e) {
+                                                return null;
+                                            }
+                                        })()}
                                     </button>
                                     <button 
                                         onClick={() => setCommunitySubtab('map')} 
@@ -12444,9 +12749,14 @@
                                     </button>
                                     <button 
                                         onClick={() => setCommunitySubtab('leave')} 
-                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative whitespace-nowrap`}
                                     >
                                         請假
+                                        {leavesList.filter(l => l.approvalStatus === 'pending' && String(l.communityId) === String(communityTabSelectedId)).length > 0 && (
+                                            <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
+                                                {leavesList.filter(l => l.approvalStatus === 'pending' && String(l.communityId) === String(communityTabSelectedId)).length}
+                                            </span>
+                                        )}
                                     </button>
                                     <button 
                                         onClick={() => {
@@ -16803,21 +17113,21 @@
                                         const isHoliday = ['2026-01-01','2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22','2026-02-27','2026-02-28','2026-03-01','2026-04-03','2026-04-04','2026-04-05','2026-04-06','2026-05-01','2026-06-19','2026-06-20','2026-06-21','2026-09-25','2026-09-26','2026-09-27','2026-10-09','2026-10-10','2026-10-11','2026-12-25'].includes(dateStr);
                                         const isWeekend = targetDate.getDay() === 0 || targetDate.getDay() === 6;
 
+                                        // Determine Location Name based on Schedule first
                                         let locationName = '';
-                                        if (schedule && schedule.location) {
-                                            locationName = schedule.location;
-                                        } else if (communityMapSelectedUserId) {
-                                            // targetUser defined at top
-                                            if (targetUser) {
-                                                // Community Users Logic
-                                                if (targetUser.communityId) {
-                                                    const c = (communities || []).find(c => String(c.id) === String(targetUser.communityId));
-                                                    if (c) locationName = c.name;
-                                                } else if (targetUser.communityIds && targetUser.communityIds.length > 0) {
-                                                    const c = (communities || []).find(c => String(c.id) === String(targetUser.communityIds[0]));
-                                                    if (c) locationName = c.name;
-                                                }
+                                        if (schedule) {
+                                            if (schedule.communityId) {
+                                                const c = (communities || []).find(c => String(c.id) === String(schedule.communityId));
+                                                if (c) locationName = c.name;
                                             }
+                                            if (!locationName && schedule.location) {
+                                                locationName = schedule.location;
+                                            }
+                                        }
+                                        // Fallback to selected community only if no specific schedule location found
+                                        if (!locationName) {
+                                            const selectedCommunity = (communities || []).find(c => String(c.id) === String(communityTabSelectedId));
+                                            locationName = selectedCommunity?.name || '';
                                         }
 
                                         return (
@@ -16891,14 +17201,21 @@
                                                                     const isSecurity = targetUser?.roleName === '保全' || (roles || []).find(r => r.id === targetUser.role)?.name === '保全';
                                                                     const sp = isSecurity ? (schedule.sentryPoint || targetUser.defaultSentryPoint) : null;
                                                                     
-                                                                    if (!locationName && !sp) return null;
+                                                                    // 僅非管理層需顯示打卡位置（管理層：系統管理員、人事、物業、幹部）
+                                                                    const roleName = targetUser?.roleName || ((roles || []).find(r => r.id === targetUser?.role)?.name) || '';
+                                                                    const isManagement = ['系統管理員', '人事', '物業', '幹部'].includes(roleName);
+                                                                    if (isManagement) return null;
+
+                                                                    const loc = locationName || '';
+
+                                                                    if (!loc && !sp) return null;
 
                                                                     return (
                                                                         <div className="flex flex-col gap-1">
-                                                                            {locationName && (
+                                                                            {loc && (
                                                                                 <div className="flex items-center gap-1 text-gray-500 text-sm font-bold bg-white px-2 py-1 rounded border border-gray-200">
                                                                                     <MapPin className="w-3 h-3" />
-                                                                                    {locationName}
+                                                                                    {loc}
                                                                                 </div>
                                                                             )}
                                                                             {sp && (
@@ -17118,6 +17435,11 @@
                                     else if (rName === '保全') counts.security++;
                                 });
 
+                                let dayRedCount = 0;
+                                let nightRedCount = 0;
+                                const assignedDayPoints = new Set();
+                                const assignedNightPoints = new Set();
+
                                 const scheduleRowsByShiftAndRole = {
                                     day: new Map(),
                                     night: new Map()
@@ -17170,11 +17492,26 @@
                                     if (!lastOut?._secs && now > scheduleEnd) statusText = '未打下班打卡';
 
                                     const titleText = u.title || rName || '';
+                                    const sentryPointName = schedule?.sentryPoint || u.defaultSentryPoint || u.title || '';
                                     const shift = isNightSchedule(schedule) ? 'night' : 'day';
+
+                                    if (['遲到', '早退', '未打下班打卡'].includes(statusText)) {
+                                        if (shift === 'night') nightRedCount++;
+                                        else dayRedCount++;
+                                    }
+                                    if (rName === '保全') {
+                                        const sp = String(sentryPointName || '').trim();
+                                        if (sp) {
+                                            if (shift === 'night') assignedNightPoints.add(sp);
+                                            else assignedDayPoints.add(sp);
+                                        }
+                                    }
+
                                     scheduleRowsByShiftAndRole[shift].get(rName).push({
                                         id: u.id,
                                         roleName: rName,
                                         titleText,
+                                        sentryPointName,
                                         nameText: u.name || '',
                                         scheduleStartStr,
                                         scheduleEndStr,
@@ -17187,6 +17524,15 @@
                                         clockOutSecs: lastOut?._secs || 0
                                     });
                                 });
+
+                                const dayGuardPoints = Array.from(new Set((selectedCommunity?.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                const nightGuardPoints = Array.from(new Set((selectedCommunity?.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+
+                                const dayVacancies = dayGuardPoints.filter(p => !assignedDayPoints.has(p)).length;
+                                const nightVacancies = nightGuardPoints.filter(p => !assignedNightPoints.has(p)).length;
+
+                                dayRedCount += dayVacancies;
+                                nightRedCount += nightVacancies;
 
                                 roleOrder.forEach(r => {
                                     scheduleRowsByShiftAndRole.day.get(r).sort((a, b) => String(a.nameText || '').localeCompare(String(b.nameText || ''), 'zh-Hant'));
@@ -17218,37 +17564,113 @@
                                             {roleOrder.map(r => {
                                                 const arr = scheduleRowsByShiftAndRole[shift].get(r);
                                                 if (arr.length === 0) return null;
+                                                const renderRowCard = (row) => (
+                                                    <div key={row.id} className={`rounded-xl border border-gray-100 px-3 py-2 ${rowBgClass(row.statusText)}`}>
+                                                        <div className="grid grid-cols-12 gap-2 items-start text-[11px]">
+                                                            <div className="col-span-2 font-bold text-gray-700">{row.titleText || row.roleName}</div>
+                                                            <div className="col-span-2 font-bold text-gray-900">{row.nameText}</div>
+                                                            <div className="col-span-3">
+                                                                <div className="font-mono text-gray-800">{row.scheduleStartStr}</div>
+                                                                {(function(){
+                                                                    const shouldShow = Date.now() >= row.scheduleStartMs;
+                                                                    if (!shouldShow) return null;
+                                                                    return <div className="text-[11px] text-gray-500 font-mono">{row.clockInSecs ? row.clockInStr : '未打卡'}</div>;
+                                                                })()}
+                                                            </div>
+                                                            <div className="col-span-3">
+                                                                <div className="font-mono text-gray-800">{row.scheduleEndStr}</div>
+                                                                {(function(){
+                                                                    const shouldShow = Date.now() >= row.scheduleEndMs;
+                                                                    if (!shouldShow) return null;
+                                                                    return <div className="text-[11px] text-gray-500 font-mono">{row.clockOutSecs ? row.clockOutStr : '未打卡'}</div>;
+                                                                })()}
+                                                            </div>
+                                                            <div className="col-span-2 flex justify-end">
+                                                                <span className={`px-2 py-1 rounded-full text-[11px] font-bold ${statusClass(row.statusText)}`}>{row.statusText}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
                                                 return (
                                                     <div key={r}>
                                                         <div className={`text-xs font-bold mb-2 ${roleColorClass[r] || 'text-gray-700'}`}>{r}</div>
                                                         <div className="space-y-2">
-                                                            {arr.map(row => (
-                                                                <div key={row.id} className={`rounded-xl border border-gray-100 px-3 py-2 ${rowBgClass(row.statusText)}`}>
-                                                                    <div className="grid grid-cols-12 gap-2 items-start text-[11px]">
-                                                                        <div className="col-span-2 font-bold text-gray-700">{row.titleText || row.roleName}</div>
-                                                                        <div className="col-span-2 font-bold text-gray-900">{row.nameText}</div>
-                                                                        <div className="col-span-3">
-                                                                            <div className="font-mono text-gray-800">{row.scheduleStartStr}</div>
-                                                                            {(function(){
-                                                                                const shouldShow = Date.now() >= row.scheduleStartMs;
-                                                                                if (!shouldShow) return null;
-                                                                                return <div className="text-[11px] text-gray-500 font-mono">{row.clockInSecs ? row.clockInStr : '未打卡'}</div>;
-                                                                            })()}
-                                                                        </div>
-                                                                        <div className="col-span-3">
-                                                                            <div className="font-mono text-gray-800">{row.scheduleEndStr}</div>
-                                                                            {(function(){
-                                                                                const shouldShow = Date.now() >= row.scheduleEndMs;
-                                                                                if (!shouldShow) return null;
-                                                                                return <div className="text-[11px] text-gray-500 font-mono">{row.clockOutSecs ? row.clockOutStr : '未打卡'}</div>;
-                                                                            })()}
-                                                                        </div>
-                                                                        <div className="col-span-2 flex justify-end">
-                                                                            <span className={`px-2 py-1 rounded-full text-[11px] font-bold ${statusClass(row.statusText)}`}>{row.statusText}</span>
+                                                            {r === '保全' ? (function(){
+                                                                const selected = (communities || []).find(c => String(c.id) === String(communityTabSelectedId));
+                                                                const rawPoints = shift === 'night'
+                                                                    ? (selected?.nightGuardPoints || [])
+                                                                    : (selected?.dayGuardPoints || []);
+                                                                const points = Array.from(new Set((rawPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                                const byPoint = new Map();
+                                                                points.forEach(p => byPoint.set(p, []));
+                                                                const other = [];
+                                                                arr.forEach(row => {
+                                                                    const key = String(row.sentryPointName || row.titleText || '').trim();
+                                                                    if (key && byPoint.has(key)) byPoint.get(key).push(row);
+                                                                    else other.push(row);
+                                                                });
+
+                                                                const renderMissing = (p) => (
+                                                                    <div key={`missing-${p}`} className="rounded-xl border border-red-200 px-3 py-2 bg-red-50">
+                                                                        <div className="grid grid-cols-12 gap-2 items-start text-[11px]">
+                                                                            <div className="col-span-2 font-bold text-gray-700">{p}</div>
+                                                                            <div className="col-span-8 font-bold text-red-600">缺哨</div>
+                                                                            <div className="col-span-2 flex justify-end">
+                                                                                <span className="px-2 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-600 border border-red-200">缺哨</span>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
-                                                                </div>
-                                                            ))}
+                                                                );
+
+                                                                if (points.length === 0) {
+                                                                    const fallbackGroups = Array.from(
+                                                                        new Set(arr.map(row => String(row.sentryPointName || row.titleText || '').trim()).filter(Boolean))
+                                                                    );
+                                                                    if (fallbackGroups.length === 0) return arr.map(renderRowCard);
+                                                                    return (
+                                                                        <div className="space-y-3">
+                                                                            {fallbackGroups.map(p => (
+                                                                                <div key={p}>
+                                                                                    <div className="text-[11px] font-bold text-gray-700 mb-1">{p}</div>
+                                                                                    <div className="space-y-2">
+                                                                                        {arr.filter(row => String(row.sentryPointName || row.titleText || '').trim() === p).map(renderRowCard)}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                return (
+                                                                    <div className="space-y-3">
+                                                                        {points.map(p => {
+                                                                            const rows = byPoint.get(p) || [];
+                                                                            return (
+                                                                                <div key={p}>
+                                                                                    <div className="text-[11px] font-bold text-gray-700 mb-1">{p}</div>
+                                                                                    {rows.length === 0 ? (
+                                                                                        renderMissing(p)
+                                                                                    ) : (
+                                                                                        <div className="space-y-2">
+                                                                                            {rows.map(renderRowCard)}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                        {other.length > 0 && (
+                                                                            <div>
+                                                                                <div className="text-[11px] font-bold text-gray-700 mb-1">未指定哨點</div>
+                                                                                <div className="space-y-2">
+                                                                                    {other.map(renderRowCard)}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })() : (
+                                                                arr.map(renderRowCard)
+                                                            )}
                                                         </div>
                                                     </div>
                                                 );
@@ -17284,15 +17706,25 @@
                                                 <div className="flex gap-2 mb-3">
                                                     <button
                                                         onClick={() => setCommunityOverviewShift('day')}
-                                                        className={`flex-1 px-3 py-2 text-xs font-bold rounded-2xl ${communityOverviewShift === 'day' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                        className={`relative flex-1 px-3 py-2 text-xs font-bold rounded-2xl ${communityOverviewShift === 'day' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                                     >
                                                         日班
+                                                        {dayRedCount > 0 && (
+                                                            <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 text-xs font-bold text-white bg-red-600 rounded-full border-2 border-white transform scale-75 shadow-sm">
+                                                                {dayRedCount}
+                                                            </span>
+                                                        )}
                                                     </button>
                                                     <button
                                                         onClick={() => setCommunityOverviewShift('night')}
-                                                        className={`flex-1 px-3 py-2 text-xs font-bold rounded-2xl ${communityOverviewShift === 'night' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                        className={`relative flex-1 px-3 py-2 text-xs font-bold rounded-2xl ${communityOverviewShift === 'night' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                                     >
                                                         夜班
+                                                        {nightRedCount > 0 && (
+                                                            <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 text-xs font-bold text-white bg-red-600 rounded-full border-2 border-white transform scale-75 shadow-sm">
+                                                                {nightRedCount}
+                                                            </span>
+                                                        )}
                                                     </button>
                                                 </div>
                                                 {renderShiftContent(communityOverviewShift)}
@@ -22065,6 +22497,82 @@
                                                     ? <>{top}<br/>{bottom}</> 
                                                     : top || name;
     
+                                                // 計算該社區當日異常（紅底 + 缺哨）以決定紅色動畫效果
+                                                let hasAbnormal = false;
+                                                try {
+                                                    const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                                                    const roleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                    const communityUsers = (usersList || []).filter(u => {
+                                                        let inCommunity = false;
+                                                        if (Array.isArray(u.communityIds) && u.communityIds.length > 0) {
+                                                            inCommunity = u.communityIds.some(cid => String(cid) === String(comm.id));
+                                                        } else {
+                                                            inCommunity = String(u.communityId) === String(comm.id);
+                                                        }
+                                                        const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                                                        const hasRole = roleIds.includes(u.role) || targetRoleNames.includes(rName);
+                                                        return inCommunity && hasRole && (u.status === '在職' || !u.status);
+                                                    });
+                                                    const now = new Date();
+                                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                    const toSecs = (r) => {
+                                                        if (!r) return 0;
+                                                        if (r.timestamp?.seconds) return r.timestamp.seconds;
+                                                        if (r.createdAt?.seconds) return r.createdAt.seconds;
+                                                        if (r.timestamp instanceof Date) return Math.floor(r.timestamp.getTime()/1000);
+                                                        if (r.createdAt instanceof Date) return Math.floor(r.createdAt.getTime()/1000);
+                                                        return 0;
+                                                    };
+                                                    const parseTime = (t, defH=0, defM=0) => {
+                                                        if (!t || typeof t !== 'string') return { h: defH, m: defM };
+                                                        const [hh, mm] = t.split(':').map(v => parseInt(v, 10));
+                                                        return { h: Number.isFinite(hh) ? hh : defH, m: Number.isFinite(mm) ? mm : defM };
+                                                    };
+                                                    const isNight = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+                                                    let redCount = 0;
+                                                    const needDay = Array.from(new Set((comm?.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                    const needNight = Array.from(new Set((comm?.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                    const assigned = { day: new Set(), night: new Set() };
+                                                    communityUsers.forEach(u => {
+                                                        const schedule = (schedulesList || []).find(s => s.userId === u.id && s.date === todayStr && ['work', 'duty'].includes(s.type) && (!s.communityId || String(s.communityId) === String(comm.id)));
+                                                        if (!schedule) return;
+                                                        const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
+                                                        const { h: eh, m: em } = parseTime(schedule?.endTime, 23, 59);
+                                                        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm, 0, 0);
+                                                        let end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eh, em, 0, 0);
+                                                        const crossDay = schedule?.crossDay === true || (eh*60+em) < (sh*60+sm);
+                                                        if (crossDay) end.setDate(end.getDate() + 1);
+                                                        const recs = (attendanceList || [])
+                                                            .filter(r => r.userId === u.id)
+                                                            .map(r => ({ ...r, _secs: toSecs(r) }))
+                                                            .filter(r => r._secs && (new Date(r._secs*1000) >= start) && (new Date(r._secs*1000) <= end))
+                                                            .filter(r => ['in','late_in','work_in','duty_in','out','late_out','work_out','duty_out'].includes(r.type))
+                                                            .sort((a,b)=>a._secs-b._secs);
+                                                        const firstIn = recs.find(r => ['in','late_in','work_in','duty_in'].includes(r.type));
+                                                        let lastOut = null; for (let i=recs.length-1;i>=0;i--){if(['out','late_out','work_out','duty_out'].includes(recs[i].type)){lastOut=recs[i];break;}}
+                                                        let statusText = '';
+                                                        if (lastOut?._secs) {
+                                                            const outTime = new Date(lastOut._secs*1000);
+                                                            statusText = outTime < end ? '早退' : '已下班';
+                                                        } else if (firstIn?._secs) {
+                                                            const inTime = new Date(firstIn._secs*1000);
+                                                            statusText = inTime > start ? '遲到' : '未打下班打卡';
+                                                        } else {
+                                                            statusText = now < start ? '未打上班打卡' : '遲到';
+                                                        }
+                                                        if (!lastOut?._secs && now > end) statusText = '未打下班打卡';
+                                                        if (['遲到','早退','未打下班打卡'].includes(statusText)) redCount++;
+                                                        const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                                                        if (rName === '保全') {
+                                                            const sp = (schedule?.sentryPoint || u.defaultSentryPoint || '').trim();
+                                                            const shiftKey = isNight(schedule) ? 'night' : 'day';
+                                                            if (sp) assigned[shiftKey].add(sp);
+                                                        }
+                                                    });
+                                                    const missDay = needDay.filter(p => !assigned.day.has(p)).length;
+                                                    const missNight = needNight.filter(p => !assigned.night.has(p)).length;
+                                                    hasAbnormal = (redCount + missDay + missNight) > 0;
+                                                } catch (e) {}
                                                 return (
                                                     <button 
                                                         key={`${setIndex}-${comm.id}`}
@@ -22072,23 +22580,17 @@
                                                         onClick={() => {
                                                             setCommunityTabSelectedId(comm.id);
                                                             if (shouldLoop) {
-                                                                // Center logic: Jump to middle set if needed, then smooth scroll
                                                                 setTimeout(() => {
                                                                     const container = document.getElementById('community-selection-scroll-container');
                                                                     const targetBtn = document.getElementById(`community-btn-1-${comm.id}`);
                                                                     
                                                                     if (container && targetBtn) {
                                                                         const oneSetWidth = container.scrollWidth / 3;
-                                                                        
-                                                                        // 1. Seamlessly jump to middle set (index 1) if user clicked in set 0 or 2
-                                                                        // This ensures we have scroll space on both sides and avoids long-distance panning
                                                                         if (setIndex === 0) {
                                                                             container.scrollLeft += oneSetWidth;
                                                                         } else if (setIndex === 2) {
                                                                             container.scrollLeft -= oneSetWidth;
                                                                         }
-                                                                        
-                                                                        // 2. Smooth scroll the target button (in the middle set) to the exact center
                                                                         targetBtn.scrollIntoView({
                                                                             behavior: 'smooth',
                                                                             block: 'nearest',
@@ -22098,13 +22600,19 @@
                                                                 }, 50);
                                                             }
                                                         }}
-                                                        className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                        className={`relative w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                             communityTabSelectedId === comm.id 
                                                                 ? 'bg-red-600 text-white' 
                                                                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                        }`}
+                                                        } ${hasAbnormal ? 'ring-2 ring-red-400' : ''}`}
                                                     >
                                                         {displayName}
+                                                        {hasAbnormal && (
+                                                            <>
+                                                                <span className="absolute -top-1 -right-1 inline-flex h-2 w-2 rounded-full bg-red-600"></span>
+                                                                <span className="absolute -top-1 -right-1 inline-flex h-2 w-2 rounded-full bg-red-400 animate-ping"></span>
+                                                            </>
+                                                        )}
                                                     </button>
                                                 );
                                             })
@@ -22291,6 +22799,7 @@
                                     >
                                         <BarChart3 className="w-5 h-5 mb-1" /> 總覽
                                         {(function() {
+                                            // 還原為原藍點通知（與全域「總覽」相關）
                                             const count = (typeof getOverviewMeetingBadgeCount === 'function' ? getOverviewMeetingBadgeCount() : 0) + 
                                                           (typeof getOverviewDistrictMeetingBadgeCount === 'function' ? getOverviewDistrictMeetingBadgeCount() : 0) + 
                                                           (typeof getOverviewActivityBadgeCount === 'function' ? getOverviewActivityBadgeCount() : 0) + 
@@ -22324,40 +22833,119 @@
                                     >
                                         <Building2 className="w-5 h-5 mb-1" /> 社區
                                         {(function() {
-                                            if (!dbUser) return null;
-                                            let userComms = [];
-                                            if (dbUser.role === 'admin') userComms = communities || [];
-                                            else {
-                                                const commIds = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
-                                                userComms = (communities || []).filter(c => commIds.includes(c.id));
-                                            }
-                                            
-                                            if (userComms.length === 0) return null;
-                                            const commIds = userComms.map(c => String(c.id));
-                                            
-                                            const targetRoleNames = ['系統管理員', '人事', '幹部', '員工'];
-                                            const targetRoleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
-                                            const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds];
-                                            
-                                            const managedUsers = usersList.filter(u => {
-                                                let inCommunity = false;
-                                                if (Array.isArray(u.communityIds) && u.communityIds.length > 0) {
-                                                    inCommunity = u.communityIds.some(cid => commIds.includes(String(cid)));
-                                                } else {
-                                                    inCommunity = u.communityId && commIds.includes(String(u.communityId));
+                                            try {
+                                                if (!dbUser) return null;
+                                                let userComms = [];
+                                                if (dbUser.role === 'admin') userComms = communities || [];
+                                                else {
+                                                    const commIds0 = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                                                    userComms = (communities || []).filter(c => commIds0.includes(c.id));
                                                 }
-                                                return inCommunity && finalTargetRoles.includes(u.role);
-                                            });
-                                            const managedUserIds = managedUsers.map(u => u.id);
-                                            
-                                            const count = makeupRequests.filter(r => managedUserIds.includes(r.userId) && r.status === 'pending').length;
-                                            
-                                            if (count > 0) {
-                                                return (
-                                                    <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></div>
-                                                );
+                                                if (userComms.length === 0) return null;
+
+                                                const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                                                const roleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                const now = new Date();
+                                                const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                const toSecs = (r) => {
+                                                    if (!r) return 0;
+                                                    if (r.timestamp?.seconds) return r.timestamp.seconds;
+                                                    if (r.createdAt?.seconds) return r.createdAt.seconds;
+                                                    if (r.timestamp instanceof Date) return Math.floor(r.timestamp.getTime()/1000);
+                                                    if (r.createdAt instanceof Date) return Math.floor(r.createdAt.getTime()/1000);
+                                                    return 0;
+                                                };
+                                                const parseTime = (t, defH=0, defM=0) => {
+                                                    if (!t || typeof t !== 'string') return { h: defH, m: defM };
+                                                    const [hh, mm] = t.split(':').map(v => parseInt(v, 10));
+                                                    return { h: Number.isFinite(hh) ? hh : defH, m: Number.isFinite(mm) ? mm : defM };
+                                                };
+                                                const isNight = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+
+                                                let hasAbnormal = false;
+                                                for (const comm of userComms) {
+                                                    const communityUsers = (usersList || []).filter(u => {
+                                                        let inCommunity = false;
+                                                        if (Array.isArray(u.communityIds) && u.communityIds.length > 0) {
+                                                            inCommunity = u.communityIds.some(cid => String(cid) === String(comm.id));
+                                                        } else {
+                                                            inCommunity = String(u.communityId) === String(comm.id);
+                                                        }
+                                                        const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                                                        const hasRole = roleIds.includes(u.role) || targetRoleNames.includes(rName);
+                                                        return inCommunity && hasRole && (u.status === '在職' || !u.status);
+                                                    });
+                                                    let redCount = 0;
+                                                    const needDay = Array.from(new Set((comm?.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                    const needNight = Array.from(new Set((comm?.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+                                                    const assigned = { day: new Set(), night: new Set() };
+                                                    for (const u of communityUsers) {
+                                                        const schedule = (schedulesList || []).find(s => s.userId === u.id && s.date === todayStr && ['work', 'duty'].includes(s.type));
+                                                        if (!schedule) continue;
+                                                        const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
+                                                        const { h: eh, m: em } = parseTime(schedule?.endTime, 23, 59);
+                                                        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm, 0, 0);
+                                                        let end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eh, em, 0, 0);
+                                                        const crossDay = schedule?.crossDay === true || (eh*60+em) < (sh*60+sm);
+                                                        if (crossDay) end.setDate(end.getDate() + 1);
+                                                        const recs = (attendanceList || [])
+                                                            .filter(r => r.userId === u.id)
+                                                            .map(r => ({ ...r, _secs: toSecs(r) }))
+                                                            .filter(r => r._secs && (new Date(r._secs*1000) >= start) && (new Date(r._secs*1000) <= end))
+                                                            .filter(r => ['in','late_in','work_in','duty_in','out','late_out','work_out','duty_out'].includes(r.type))
+                                                            .sort((a,b)=>a._secs-b._secs);
+                                                        const firstIn = recs.find(r => ['in','late_in','work_in','duty_in'].includes(r.type));
+                                                        let lastOut = null; for (let i=recs.length-1;i>=0;i--){if(['out','late_out','work_out','duty_out'].includes(recs[i].type)){lastOut=recs[i];break;}}
+                                                        let statusText = '';
+                                                        if (lastOut?._secs) {
+                                                            const outTime = new Date(lastOut._secs*1000);
+                                                            statusText = outTime < end ? '早退' : '已下班';
+                                                        } else if (firstIn?._secs) {
+                                                            const inTime = new Date(firstIn._secs*1000);
+                                                            statusText = inTime > start ? '遲到' : '未打下班打卡';
+                                                        } else {
+                                                            statusText = now < start ? '未打上班打卡' : '遲到';
+                                                        }
+                                                        if (!lastOut?._secs && now > end) statusText = '未打下班打卡';
+                                                        if (['遲到','早退','未打下班打卡'].includes(statusText)) redCount++;
+                                                        const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                                                        if (rName === '保全') {
+                                                            const sp = (schedule?.sentryPoint || u.defaultSentryPoint || '').trim();
+                                                            const shiftKey = isNight(schedule) ? 'night' : 'day';
+                                                            if (sp) assigned[shiftKey].add(sp);
+                                                        }
+                                                    }
+                                                    const missDay = needDay.filter(p => !assigned.day.has(p)).length;
+                                                    const missNight = needNight.filter(p => !assigned.night.has(p)).length;
+                                                    if (redCount + missDay + missNight > 0) { hasAbnormal = true; break; }
+                                                }
+                                                if (hasAbnormal) {
+                                                    return <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></div>;
+                                                }
+
+                                                // 保留原本：待審核補打卡通知
+                                                const commIds = userComms.map(c => String(c.id));
+                                                const targetRoleNames2 = ['系統管理員', '人事', '幹部', '員工'];
+                                                const targetRoleIds2 = (roles || []).filter(r => targetRoleNames2.includes(r.name)).map(r => r.id);
+                                                const finalTargetRoles = ['admin', 'hr', 'cadre', 'staff', ...targetRoleIds2];
+                                                const managedUsers = usersList.filter(u => {
+                                                    let inCommunity = false;
+                                                    if (Array.isArray(u.communityIds) && u.communityIds.length > 0) {
+                                                        inCommunity = u.communityIds.some(cid => commIds.includes(String(cid)));
+                                                    } else {
+                                                        inCommunity = u.communityId && commIds.includes(String(u.communityId));
+                                                    }
+                                                    return inCommunity && finalTargetRoles.includes(u.role);
+                                                });
+                                                const managedUserIds = managedUsers.map(u => u.id);
+                                                const count = makeupRequests.filter(r => managedUserIds.includes(r.userId) && r.status === 'pending').length;
+                                                if (count > 0) {
+                                                    return <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></div>;
+                                                }
+                                                return null;
+                                            } catch (e) {
+                                                return null;
                                             }
-                                            return null;
                                         })()}
                                     </button>
                                 </div>
