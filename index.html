@@ -9151,6 +9151,26 @@
                 setUserAttendanceRecords([]);
                 setUserLeaveRequests([]);
 
+                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                if (selectedCommunity && communityMapSelectedUserId) {
+                    const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                    const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                    const allowedIds = new Set(
+                        (usersList || [])
+                            .filter(u => {
+                                const uComms = u.communityIds || (u.communityId ? [u.communityId] : []);
+                                return uComms.some(cid => String(cid) === String(selectedCommunity.id)) &&
+                                       targetRoleIds.includes(u.role) &&
+                                       (u.status === '在職' || !u.status);
+                            })
+                            .map(u => u.id)
+                    );
+                    if (!allowedIds.has(communityMapSelectedUserId)) {
+                        setCommunityMapSelectedUserId(null);
+                        return;
+                    }
+                }
+
                 if (!communityMapSelectedUserId) return;
 
                 const qSchedules = query(
@@ -9191,7 +9211,7 @@
                     unsubAttendance();
                     unsubLeaves();
                 };
-            }, [communityMapSelectedUserId, activeTab, communitySubtab]);
+            }, [communityMapSelectedUserId, activeTab, communitySubtab, communityTabSelectedId, usersList, roles, communities]);
 
             const handleSaveSchedule = async () => {
                 const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') ? communityMapSelectedUserId : cadreMapSelectedUserId;
@@ -12752,11 +12772,41 @@
                                         className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative whitespace-nowrap`}
                                     >
                                         請假
-                                        {leavesList.filter(l => l.approvalStatus === 'pending' && String(l.communityId) === String(communityTabSelectedId)).length > 0 && (
-                                            <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
-                                                {leavesList.filter(l => l.approvalStatus === 'pending' && String(l.communityId) === String(communityTabSelectedId)).length}
-                                            </span>
-                                        )}
+                                        {(() => {
+                                            try {
+                                                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                                                if (!selectedCommunity) return null;
+                                                
+                                                const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                                                const targetRoleIds = roles.filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                                                
+                                                const allowedIds = new Set(
+                                                    (usersList || [])
+                                                        .filter(u => {
+                                                            const uComms = u.communityIds || (u.communityId ? [u.communityId] : []);
+                                                            return uComms.some(cid => String(cid) === String(selectedCommunity.id)) &&
+                                                                   targetRoleIds.includes(u.role) &&
+                                                                   (u.status === '在職' || !u.status);
+                                                        })
+                                                        .map(u => u.id)
+                                                );
+                                                
+                                                const count = (leavesList || []).filter(l => (
+                                                    l.approvalStatus === 'pending' &&
+                                                    String(l.communityId) === String(communityTabSelectedId) &&
+                                                    allowedIds.has(l.userId)
+                                                )).length;
+                                                
+                                                if (count <= 0) return null;
+                                                return (
+                                                    <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
+                                                        {count}
+                                                    </span>
+                                                );
+                                            } catch (e) {
+                                                return null;
+                                            }
+                                        })()}
                                     </button>
                                     <button 
                                         onClick={() => {
@@ -16164,6 +16214,15 @@
                                                                                 )}
                                                                             </div>
                                                                             <div className="font-bold text-sm text-gray-800">{u.name}</div>
+                                                                            {u.phone && (
+                                                                                <a 
+                                                                                    href={`tel:${u.phone}`} 
+                                                                                    onClick={(e) => e.stopPropagation()}
+                                                                                    className="p-1 bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors border border-green-200"
+                                                                                >
+                                                                                    <Phone className="w-3 h-3" />
+                                                                                </a>
+                                                                            )}
                                                                             {u.title && <div className="text-xs text-gray-400 ml-auto">{u.title}</div>}
                                                                         </div>
                                                                         <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
@@ -17521,7 +17580,8 @@
                                         scheduleStartMs: scheduleStart.getTime(),
                                         scheduleEndMs: scheduleEnd.getTime(),
                                         clockInSecs: firstIn?._secs || 0,
-                                        clockOutSecs: lastOut?._secs || 0
+                                        clockOutSecs: lastOut?._secs || 0,
+                                        phone: u.phone
                                     });
                                 });
 
@@ -17585,8 +17645,17 @@
                                                                     return <div className="text-[11px] text-gray-500 font-mono">{row.clockOutSecs ? row.clockOutStr : '未打卡'}</div>;
                                                                 })()}
                                                             </div>
-                                                            <div className="col-span-2 flex justify-end">
+                                                            <div className="col-span-2 flex justify-end items-center gap-1">
                                                                 <span className={`px-2 py-1 rounded-full text-[11px] font-bold ${statusClass(row.statusText)}`}>{row.statusText}</span>
+                                                                {row.phone && (
+                                                                    <a 
+                                                                        href={`tel:${row.phone}`} 
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="p-1 bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors border border-green-200"
+                                                                    >
+                                                                        <Phone className="w-3 h-3" />
+                                                                    </a>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -18479,6 +18548,15 @@
                                                                                 {r.modification?.status === 'pending' && (
                                                                                     <span className="text-[10px] px-1.5 py-0.5 rounded-lg ml-1 bg-yellow-100 text-yellow-700">待核准</span>
                                                                                 )}
+                                                                                {user.phone && (
+                                                                                    <a 
+                                                                                        href={`tel:${user.phone}`} 
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                        className="p-1 bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors border border-green-200 ml-1"
+                                                                                    >
+                                                                                        <Phone className="w-3 h-3" />
+                                                                                    </a>
+                                                                                )}
                                                                             </div>
                                                                             {r.modification ? (
                                                                                 <>
@@ -18629,6 +18707,7 @@
 
                                     const records = selectedCommunity ? leavesList.filter(r => {
                                         if (!communityUserIds.includes(r.userId)) return false;
+                                        if (r.communityId && String(r.communityId) !== String(selectedCommunity.id)) return false;
                                         if (communityMapSelectedUserId && r.userId !== communityMapSelectedUserId) return false;
                                         
                                         if (r.approvalStatus === 'pending') return true;
@@ -19185,7 +19264,18 @@
                                                                 </div>
                                                                 <div className="text-right text-xs text-gray-500 flex flex-col items-end gap-1 shrink-0">
                                                                     <div className="hidden sm:block">{u.email}</div>
-                                                                    <div>{u.phone}</div>
+                                                                    <div className="flex items-center gap-1 justify-end">
+                                                                        <span>{u.phone}</span>
+                                                                        {u.phone && (
+                                                                            <a 
+                                                                                href={`tel:${u.phone}`} 
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                className="p-1 bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors border border-green-200"
+                                                                            >
+                                                                                <Phone className="w-3 h-3" />
+                                                                            </a>
+                                                                        )}
+                                                                    </div>
                                                                     <div className="flex gap-2 mt-1" onClick={e => e.stopPropagation()}>
                                                                         {u.role !== 'admin' && (
                                                                             <>
