@@ -60,11 +60,12 @@ const computeCommunityAnomaliesForToday = async () => {
   const attendanceRef = getPublicDataCollection(db, 'attendance');
   const leavesRef = getPublicDataCollection(db, 'leaves');
 
-  const [communitiesSnap, schedulesSnap, attendanceSnap, pendingLeavesSnap] = await Promise.all([
+  const [communitiesSnap, schedulesSnap, attendanceSnap, pendingLeavesSnap, usersSnap] = await Promise.all([
     communitiesRef.get(),
     schedulesRef.where('date', '==', todayStr).get(),
     attendanceRef.where('timestamp', '>=', startOfDay).where('timestamp', '<=', endOfDay).get(),
     leavesRef.where('approvalStatus', '==', 'pending').get(),
+    getPublicDataCollection(db, 'users').get(),
   ]);
 
   const communities = communitiesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -72,10 +73,36 @@ const computeCommunityAnomaliesForToday = async () => {
   const todayAttendance = attendanceSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const pendingLeaves = pendingLeavesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+  const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const results = [];
   for (const comm of communities) {
     const commId = String(comm.id);
     const commName = String(comm.name || '');
+
+    // Skip anomaly generation for communities without active users
+    const hasActiveUsers = users.some(u => {
+      const uComms = (u.communityIds && Array.isArray(u.communityIds)) ? u.communityIds : (u.communityId ? [u.communityId] : []);
+      const inComm = uComms.some(cid => String(cid) === String(commId));
+      const active = (u.status === '在職' || !u.status);
+      return inComm && active;
+    });
+    if (!hasActiveUsers) {
+      results.push({
+        communityId: commId,
+        communityName: commName,
+        date: todayStr,
+        total: 0,
+        anomalyIds: [],
+        breakdown: {
+          pendingLeaves: 0,
+          dayVacancies: 0,
+          nightVacancies: 0,
+          dayAttendanceAnomalies: 0,
+          nightAttendanceAnomalies: 0,
+        },
+      });
+      continue;
+    }
 
     const commSchedules = todaySchedules.filter(s => String(s.communityId) === commId);
 

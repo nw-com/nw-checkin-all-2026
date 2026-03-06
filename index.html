@@ -7446,7 +7446,8 @@
                 { key: 'map', label: '地圖' },
                 { key: 'schedule', label: '班表' },
                 { key: 'record', label: '紀錄' },
-                { key: 'account', label: '帳號' }
+                { key: 'account', label: '帳號' },
+                { key: 'report', label: '報表' }
             ],
             application: [
                 { key: 'signature', label: '簽呈' },
@@ -8377,6 +8378,18 @@
                     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                 }
             });
+            const [communityReportMonthDate, setCommunityReportMonthDate] = useState(new Date());
+            const [communityReportDate, setCommunityReportDate] = useState(() => {
+                try {
+                    return localStorage.getItem('last_community_report_date') || (function(){
+                        const d = new Date();
+                        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    })();
+                } catch {
+                    const d = new Date();
+                    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                }
+            });
 
             // Share Modal State
             const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -8549,6 +8562,7 @@
             const [showReviewModal, setShowReviewModal] = useState(false);
             const [reviewData, setReviewData] = useState(null);
             const [reportModalType, setReportModalType] = useState(null);
+            const [reportContext, setReportContext] = useState('cadre');
             const [isReportMonthOpen, setIsReportMonthOpen] = useState(false);
             const [reportSelectedUserIds, setReportSelectedUserIds] = useState([]);
             const [adminEditLoading, setAdminEditLoading] = useState(false);
@@ -8605,7 +8619,10 @@
 
                 let csvContent = '';
                 let filename = '報表.csv';
-                const ym = (cadreRecordDate || '').split('-').slice(0,2).join('-');
+                const reportDateStr = (reportContext === 'community' ? communityReportDate : cadreRecordDate) || '';
+                const ym = reportDateStr.split('-').slice(0,2).join('-');
+                const selectedUserId = reportContext === 'community' ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                const communityName = (communities || []).find(c => c.id === communityTabSelectedId)?.name || '';
 
                 if (reportModalType === 'attendance' || !reportModalType) {
                     // Horizontal Grid Report (Attendance)
@@ -8637,7 +8654,9 @@
                     }
                     
                     csvContent = rows.map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
-                    filename = `${ym}_${cadreCompany || '公司'}_出勤月報表.csv`;
+                    filename = reportContext === 'community'
+                        ? `${ym}_${communityName || '社區'}_出勤月報表.csv`
+                        : `${ym}_${cadreCompany || '公司'}_出勤月報表.csv`;
                     
                 } else {
                     // Vertical List Reports (Card, Outing, Leave)
@@ -8657,7 +8676,7 @@
 
                     csvContent = [header, ...data].map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
                     
-                    const u = usersList.find(x => x.id === cadreMapSelectedUserId);
+                    const u = usersList.find(x => x.id === selectedUserId);
                     const typeMap = { 'duty': '卡班', 'card': '卡班', 'outing': '外出', 'leave': '請假' };
                     const typeName = typeMap[reportModalType] || '報表';
                     filename = `${ym}_${u?.name || ''}_${typeName}月報表.csv`;
@@ -9032,6 +9051,10 @@
             useEffect(() => {
                 localStorage.setItem('last_community_record_date', communityRecordDate);
             }, [communityRecordDate]);
+
+            useEffect(() => {
+                localStorage.setItem('last_community_report_date', communityReportDate);
+            }, [communityReportDate]);
 
             useEffect(() => {
                 localStorage.setItem('last_schedule_form', JSON.stringify(scheduleForm));
@@ -10971,6 +10994,15 @@
                         const pendingLeaves = (leavesList || []).filter(l => l.approvalStatus === 'pending');
 
                         for (const comm of uncheckedCommunities) {
+                            const hasActiveUsers = (usersList || []).some(u => {
+                                const uComms = u.communityIds || (u.communityId ? [u.communityId] : []);
+                                const inComm = uComms.some(cid => String(cid) === String(comm.id));
+                                const active = (u.status === '在職' || !u.status);
+                                return inComm && active;
+                            });
+                            if (!hasActiveUsers) {
+                                continue;
+                            }
                             let anomalies = 0;
                             const commId = String(comm.id);
                             
@@ -11446,7 +11478,7 @@
                     } else {
                         // Create new leave record in 'leaves' collection
                         const submitUser = (leaveData.userId && Array.isArray(usersList)) ? (usersList.find(u => u.id === leaveData.userId) || dbUser) : dbUser;
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaves'), {
+                        const newLeaveRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaves'), {
                             userId: submitUser.id,
                             userName: submitUser.name,
                             userRole: submitUser.role,
@@ -11466,6 +11498,25 @@
                             photoUrl: photoUrl,
                             approvalStatus: 'pending'
                         });
+                        try {
+                            const communityId = leaveData.communityId || submitUser.communityId || '';
+                            const comm = (communities || []).find(c => String(c.id) === String(communityId));
+                            const commName = comm?.name || submitUser.communityName || '社區';
+                            const title = '異常通知';
+                            const body = `${commName} 新增 1 筆請假待審核，請儘速處理。`;
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                                title,
+                                body,
+                                communityId: communityId,
+                                targetRoles: ['admin','manager','hr','property','cadre'],
+                                createdAt: serverTimestamp(),
+                                source: 'client',
+                                type: 'leave_pending',
+                                relatedId: newLeaveRef.id
+                            });
+                        } catch (e) {
+                            console.warn('Failed to push leave notification:', e);
+                        }
                         alert('請假申請已送出');
                     }
                 } catch (e) {
@@ -12816,6 +12867,12 @@
                                         className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                     >
                                         班表
+                                    </button>
+                                    <button 
+                                        onClick={() => setCommunitySubtab('report')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'report' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                    >
+                                        報表
                                     </button>
                                     <button 
                                         onClick={() => setCommunitySubtab('account')} 
@@ -18708,6 +18765,113 @@
                                 );
                             })()}
 
+                            {communitySubtab === 'report' && hasSubPermission('community', 'record') && (
+                                <div className="pb-32">
+                                    <div className="bg-white rounded-2xl shadow-sm p-3 space-y-4">
+                                        <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
+                                            <div>
+                                                <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
+                                                <span className="text-red-600 font-bold">{(communities || []).find(c => c.id === communityTabSelectedId)?.name || '未選擇'}</span>
+                                            </div>
+                                        </div>
+                                        {communityMapSelectedUserId && (
+                                            <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <Users className="w-4 h-4" />
+                                                    <span>帳號: <span className="font-bold">{usersList.find(u => u.id === communityMapSelectedUserId)?.name || '未知'}</span></span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => setCommunityMapSelectedUserId(null)}
+                                                    className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                >
+                                                    取消選取
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <div className="flex gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar flex-nowrap whitespace-nowrap">
+                                            {communityMapSelectedUserId ? (
+                                                <>
+                                                    <button onClick={() => { setReportContext('community'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">出勤</button>
+                                                    <button onClick={() => { setReportContext('community'); setReportModalType('outing'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">外出</button>
+                                                    <button onClick={() => { setReportContext('community'); setReportModalType('duty'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">卡班</button>
+                                                    <button onClick={() => { setReportContext('community'); setReportModalType('leave'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => { setReportContext('community'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
+                                                    <button onClick={() => { setReportContext('community'); setShowSignOffReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">簽呈</button>
+                                                    <button onClick={() => { setReportContext('community'); setShowLeaveReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <div className="rounded-2xl border border-gray-100 p-4">
+                                            <div className="flex items-center justify-center mb-4">
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => setCommunityReportMonthDate(new Date(communityReportMonthDate.getFullYear(), communityReportMonthDate.getMonth() - 1, 1))}
+                                                        className="p-1 rounded-full hover:bg-gray-100"
+                                                    >
+                                                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                                                    </button>
+                                                    <span className="font-bold text-gray-800 text-lg">
+                                                        {communityReportMonthDate.getFullYear()}年 {communityReportMonthDate.getMonth() + 1}月
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setCommunityReportMonthDate(new Date(communityReportMonthDate.getFullYear(), communityReportMonthDate.getMonth() + 1, 1))}
+                                                        className="p-1 rounded-full hover:bg-gray-100"
+                                                    >
+                                                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                                {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                                                    <div key={d} className="text-xs font-bold text-gray-400 py-2">{d}</div>
+                                                ))}
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-1">
+                                                {(() => {
+                                                    const year = communityReportMonthDate.getFullYear();
+                                                    const month = communityReportMonthDate.getMonth();
+                                                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                                    const firstDayOfWeek = new Date(year, month, 1).getDay();
+                                                    const cells = [];
+                                                    for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+                                                    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                                                    const now = new Date();
+                                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                    return cells.map((dayNum, idx) => {
+                                                        if (!dayNum) {
+                                                            return <div key={`empty-${idx}`} className="p-2" />;
+                                                        }
+                                                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                                                        const isSelected = communityReportDate === dateStr;
+                                                        const isToday = todayStr === dateStr;
+                                                        return (
+                                                            <button
+                                                                key={dateStr}
+                                                                onClick={() => setCommunityReportDate(dateStr)}
+                                                                className={`p-2 rounded-lg text-xs font-bold transition-colors ${
+                                                                    isSelected
+                                                                        ? 'bg-red-50 text-red-600'
+                                                                        : isToday
+                                                                            ? 'bg-blue-50 text-blue-600'
+                                                                            : 'text-gray-700 hover:bg-gray-50'
+                                                                }`}
+                                                            >
+                                                                {dayNum}
+                                                            </button>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {communitySubtab === 'leave' && (
                                 (function() {
                                     // Permission check - using 'record' permission as proxy for leave management in community
@@ -22304,16 +22468,16 @@
                                             <div className="flex gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar flex-nowrap whitespace-nowrap">
                                                 {cadreMapSelectedUserId ? (
                                                     <>
-                                                        <button onClick={() => setReportModalType('attendance')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">出勤</button>
-                                                        <button onClick={() => setReportModalType('outing')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">外出</button>
-                                                        <button onClick={() => setReportModalType('duty')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">卡班</button>
-                                                        <button onClick={() => setReportModalType('leave')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">出勤</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setReportModalType('outing'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">外出</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setReportModalType('duty'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">卡班</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setReportModalType('leave'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <button onClick={() => setReportModalType('attendance')} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
-                                                        <button onClick={() => setShowSignOffReportModal(true)} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">簽呈</button>
-                                                        <button onClick={() => setShowLeaveReportModal(true)} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setShowSignOffReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">簽呈</button>
+                                                        <button onClick={() => { setReportContext('cadre'); setShowLeaveReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
                                                     </>
                                                 )}
                                             </div>
@@ -23732,7 +23896,8 @@
 
                                         <div className="flex items-center gap-3">
                                             {(function(){
-                                                const u = usersList.find(x => x.id === cadreMapSelectedUserId);
+                                                const selectedUserId = reportContext === 'community' ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                                                const u = usersList.find(x => x.id === selectedUserId);
                                                 if (!u) return null;
                                                 return (
                                                     <>
@@ -23750,7 +23915,13 @@
                                         </div>
                                         <div className="flex items-center justify-between w-full">
                                             <span className="text-lg font-bold text-gray-800">
-                                                {cadreCompany ? `${cadreCompany} - ` : ''}
+                                                {(() => {
+                                                    if (reportContext === 'community') {
+                                                        const name = (communities || []).find(c => c.id === communityTabSelectedId)?.name || '';
+                                                        return name ? `${name} - ` : '';
+                                                    }
+                                                    return cadreCompany ? `${cadreCompany} - ` : '';
+                                                })()}
                                                 {reportModalType === 'attendance' && '出勤報表'}
                                                 {reportModalType === 'outing' && '外出報表'}
                                                 {reportModalType === 'duty' && '卡班報表'}
@@ -23760,12 +23931,14 @@
                                                 <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
                                                     <button 
                                                         onClick={() => {
-                                                            const d = new Date(cadreRecordDate);
+                                                            const base = reportContext === 'community' ? communityReportDate : cadreRecordDate;
+                                                            const d = new Date(base);
                                                             d.setDate(1);
                                                             d.setMonth(d.getMonth() - 1);
                                                             const y = d.getFullYear();
                                                             const m = String(d.getMonth() + 1).padStart(2, '0');
-                                                            setCadreRecordDate(`${y}-${m}-01`);
+                                                            if (reportContext === 'community') setCommunityReportDate(`${y}-${m}-01`);
+                                                            else setCadreRecordDate(`${y}-${m}-01`);
                                                         }}
                                                         className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
                                                     >
@@ -23773,18 +23946,21 @@
                                                     </button>
                                                     <span className="text-sm font-bold text-gray-700 min-w-[80px] text-center">
                                                         {(() => {
-                                                            const d = new Date(cadreRecordDate);
+                                                            const base = reportContext === 'community' ? communityReportDate : cadreRecordDate;
+                                                            const d = new Date(base);
                                                             return `${d.getFullYear()}年${d.getMonth() + 1}月`;
                                                         })()}
                                                     </span>
                                                     <button 
                                                         onClick={() => {
-                                                            const d = new Date(cadreRecordDate);
+                                                            const base = reportContext === 'community' ? communityReportDate : cadreRecordDate;
+                                                            const d = new Date(base);
                                                             d.setDate(1);
                                                             d.setMonth(d.getMonth() + 1);
                                                             const y = d.getFullYear();
                                                             const m = String(d.getMonth() + 1).padStart(2, '0');
-                                                            setCadreRecordDate(`${y}-${m}-01`);
+                                                            if (reportContext === 'community') setCommunityReportDate(`${y}-${m}-01`);
+                                                            else setCadreRecordDate(`${y}-${m}-01`);
                                                         }}
                                                         className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-gray-600 transition-all"
                                                     >
@@ -23809,7 +23985,7 @@
                                     <div className="absolute left-4 top-full mt-2 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-[101] w-[160px] max-h-64 overflow-y-auto">
                                         {(function(){
                                             const now = new Date();
-                                            const selectedUserId = cadreMapSelectedUserId;
+                                            const selectedUserId = reportContext === 'community' ? communityMapSelectedUserId : cadreMapSelectedUserId;
                                             const source = reportModalType === 'leave' 
                                                 ? leavesList.filter(r => !selectedUserId || r.userId === selectedUserId)
                                                 : attendanceList.filter(r => !selectedUserId || r.userId === selectedUserId);
@@ -23847,11 +24023,15 @@
                                                 months = arr;
                                             }
                                             
-                                            const currentYM = cadreRecordDate.split('-').slice(0,2).join('-');
+                                            const currentYM = (reportContext === 'community' ? communityReportDate : cadreRecordDate).split('-').slice(0,2).join('-');
                                             return months.map(m => (
                                                 <button 
                                                     key={m} 
-                                                    onClick={() => { setCadreRecordDate(`${m}-01`); setIsReportMonthOpen(false); }}
+                                                    onClick={() => { 
+                                                        if (reportContext === 'community') setCommunityReportDate(`${m}-01`);
+                                                        else setCadreRecordDate(`${m}-01`);
+                                                        setIsReportMonthOpen(false);
+                                                    }}
                                                     className={`w-full text-left px-3 py-1.5 rounded-lg text-sm ${m === currentYM ? 'bg-gray-100 font-bold' : 'hover:bg-gray-50'}`}
                                                 >
                                                     {m}
@@ -23904,12 +24084,14 @@
                             </style>
                             <div className="flex-1 overflow-y-auto p-4">
                                 {(function(){
-                                    const targetDate = new Date(cadreRecordDate);
+                                    const reportDateStr = reportContext === 'community' ? communityReportDate : cadreRecordDate;
+                                    const selectedUserId = reportContext === 'community' ? communityMapSelectedUserId : cadreMapSelectedUserId;
+                                    const targetDate = new Date(reportDateStr);
                                     const targetYear = targetDate.getFullYear();
                                     const targetMonth = targetDate.getMonth();
                                     
                                     if (reportModalType === 'leave') {
-                                        if (!cadreMapSelectedUserId) {
+                                        if (!selectedUserId) {
                                             return (
                                                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                                                     <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
@@ -23917,7 +24099,7 @@
                                                 </div>
                                             );
                                         }
-                                        const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                        const user = usersList.find(u => u.id === selectedUserId);
                                         const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
                                         const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
                                         const weekMap = ['日','一','二','三','四','五','六'];
@@ -23963,7 +24145,7 @@
                                             return { s, e };
                                         };
                                         const monthLeaves = leavesList.filter(l => {
-                                            if (l.userId !== cadreMapSelectedUserId) return false;
+                                            if (l.userId !== selectedUserId) return false;
                                             const { s, e } = parseLeaveRange(l);
                                             if (!s || !e || isNaN(s) || isNaN(e)) return false;
                                             return s <= monthEnd && e >= monthStart;
@@ -23986,7 +24168,7 @@
                                                         西北保全{user?.title || ''}{user?.name || ''}
                                                     </div>
                                                     <div className="text-center font-bold text-md text-gray-600 pb-3">
-                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 請假月報表
+                                                        {reportDateStr.split('-').slice(0,2).join('-')} 請假月報表
                                                     </div>
                                                     <div className="grid text-xs font-bold text-gray-600 bg-gray-50 rounded-xl" style={{ gridTemplateColumns: '10mm 10mm 20mm 30mm 30mm 30mm 15mm 15mm 30mm' }}>
                                                         <div className="px-3 py-2">日期</div>
@@ -24090,7 +24272,7 @@
                                         );
                                     }
                                     if (reportModalType === 'duty') {
-                                        if (!cadreMapSelectedUserId) {
+                                        if (!selectedUserId) {
                                             return (
                                                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                                                     <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
@@ -24098,12 +24280,12 @@
                                                 </div>
                                             );
                                         }
-                                        const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                        const user = usersList.find(u => u.id === selectedUserId);
                                         const weekMap = ['日','一','二','三','四','五','六'];
                                         const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
                                         const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
                                         const monthRecords = attendanceList.filter(r => {
-                                            if (r.userId !== cadreMapSelectedUserId) return false;
+                                            if (r.userId !== selectedUserId) return false;
                                             const ts = r.timestamp?.seconds;
                                             if (!ts) return false;
                                             const d = new Date(ts * 1000);
@@ -24186,7 +24368,7 @@
                                                         西北保全{user?.title || ''}{user?.name || ''}
                                                     </div>
                                                     <div className="text-center font-bold text-md text-gray-600 pb-3">
-                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 卡班月報表
+                                                        {reportDateStr.split('-').slice(0,2).join('-')} 卡班月報表
                                                     </div>
                                                     <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
                                                         <div className="px-3 py-2">日期</div>
@@ -24215,7 +24397,7 @@
                                         );
                                     }
                                     if (reportModalType === 'outing') {
-                                        if (!cadreMapSelectedUserId) {
+                                        if (!selectedUserId) {
                                             return (
                                                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                                                     <ClipboardList className="w-12 h-12 mb-4 opacity-20" />
@@ -24223,12 +24405,12 @@
                                                 </div>
                                             );
                                         }
-                                        const user = usersList.find(u => u.id === cadreMapSelectedUserId);
+                                        const user = usersList.find(u => u.id === selectedUserId);
                                         const weekMap = ['日','一','二','三','四','五','六'];
                                         const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
                                         const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
                                         const monthRecords = attendanceList.filter(r => {
-                                            if (r.userId !== cadreMapSelectedUserId) return false;
+                                            if (r.userId !== selectedUserId) return false;
                                             const ts = r.timestamp?.seconds;
                                             if (!ts) return false;
                                             const d = new Date(ts * 1000);
@@ -24308,7 +24490,7 @@
                                                         西北保全{user?.title || ''}{user?.name || ''}
                                                     </div>
                                                     <div className="text-center font-bold text-md text-gray-600 pb-3">
-                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 外出月報表
+                                                        {reportDateStr.split('-').slice(0,2).join('-')} 外出月報表
                                                     </div>
                                                     <div className="grid grid-cols-7 text-xs font-bold text-gray-600 bg-gray-50 rounded-xl">
                                                         <div className="px-3 py-2">日期</div>
@@ -24338,14 +24520,14 @@
                                     }
                                     
                                     const monthRecords = attendanceList.filter(r => {
-                                        if (!cadreMapSelectedUserId) return false;
-                                        if (r.userId !== cadreMapSelectedUserId) return false;
+                                        if (!selectedUserId) return false;
+                                        if (r.userId !== selectedUserId) return false;
                                         
                                         const rDate = new Date((r.timestamp?.seconds || 0) * 1000);
                                         return rDate.getFullYear() === targetYear && rDate.getMonth() === targetMonth;
                                     }).sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
 
-                                    if (!cadreMapSelectedUserId) {
+                                    if (!selectedUserId) {
                                         return (
                                             <div id="attendance-report" className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
                                                 <div className="min-w-[1200px]">
@@ -24409,10 +24591,16 @@
                                                     </div>
 
                                                     <div className="text-center font-bold text-lg text-gray-800 py-1">
-                                                        西北保全{cadreCompany}人員
+                                                        {(function(){
+                                                            if (reportContext === 'community') {
+                                                                const name = (communities || []).find(c => c.id === communityTabSelectedId)?.name || '';
+                                                                return name ? `${name}人員` : '社區人員';
+                                                            }
+                                                            return `西北保全${cadreCompany}人員`;
+                                                        })()}
                                                     </div>
                                                     <div className="text-center font-bold text-md text-gray-600 pb-3">
-                                                        {cadreRecordDate.split('-').slice(0,2).join('-')} 出勤月報表
+                                                        {((reportContext === 'community' ? communityReportDate : cadreRecordDate) || '').split('-').slice(0,2).join('-')} 出勤月報表
                                                     </div>
                                                     
                                                     <div className="grid grid-cols-[80px_repeat(31,minmax(24px,1fr))_repeat(7,32px)_150px] text-[10px] border-b border-r border-gray-300 user-select-none">
@@ -24509,7 +24697,7 @@
                                                                     // 2. Check Schedule
                                                                     // Prioritize userSchedules for the selected user (most reliable), otherwise use bulk list
                                                                     let schedule = null;
-                                                                    if (u.id === cadreMapSelectedUserId && userSchedules[dateStr]) {
+                                                                    if (u.id === selectedUserId && userSchedules[dateStr]) {
                                                                         schedule = userSchedules[dateStr];
                                                                     } else {
                                                                         schedule = uSchedules.find(s => s.date === dateStr);
