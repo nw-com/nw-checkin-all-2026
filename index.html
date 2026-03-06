@@ -16714,9 +16714,26 @@
                                                         return false;
                                                     })();
 
+                                                    const hasCheckIn = userAttendanceRecords.some(r => {
+                                                        const rDate = r.timestamp ? new Date(r.timestamp.seconds * 1000) : (r.createdAt ? new Date(r.createdAt.seconds * 1000) : null);
+                                                        if (!rDate) return false;
+                                                        return rDate.getFullYear() === year && rDate.getMonth() === month && rDate.getDate() === d;
+                                                    });
+                                                    
+                                                    const todayMidnight = new Date();
+                                                    todayMidnight.setHours(0,0,0,0);
+                                                    const isPastDate = currentDate < todayMidnight;
+
+                                                    const isAbnormalAbsent = isPastDate && 
+                                                                           schedule && (schedule.type === 'work' || schedule.type === 'duty') && 
+                                                                           !hasCheckIn && 
+                                                                           !isApprovedActualLeave;
+
                                                     // Determine segments for gradient
                                                     let segments = [];
-                                                    if ((isHoliday || isWeekend) && (!schedule || schedule.type === 'holiday')) {
+                                                    if (isAbnormalAbsent) {
+                                                        segments.push({ type: 'abnormal', ratio: 1 });
+                                                    } else if ((isHoliday || isWeekend) && (!schedule || schedule.type === 'holiday')) {
                                                         segments.push({ type: 'holiday', ratio: 1 });
                                                         cellClass = 'bg-gray-100 text-gray-800';
                                                     } else if (schedule && (schedule.type === 'work' || schedule.type === 'duty')) {
@@ -16794,9 +16811,12 @@
                                                             holiday: 'rgb(243, 244, 246)', // gray-100
                                                             off: 'rgb(87, 83, 78)', // stone-600 (for bg)
                                                             comp_leave: 'rgb(224, 231, 255)', // indigo-100
+                                                            abnormal: 'rgb(239, 68, 68)', // red-500
                                                         };
                                                         if (segments.length === 1) {
-                                                            if (segments[0].type === 'off') {
+                                                            if (segments[0].type === 'abnormal') {
+                                                                cellClass = 'bg-red-500 text-white border border-red-600';
+                                                            } else if (segments[0].type === 'off') {
                                                                 cellClass = 'bg-stone-500 text-white border border-stone-600';
                                                             } else if (segments[0].type === 'leave') {
                                                                 cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
@@ -16833,6 +16853,7 @@
                                                     }
                                                         
                                                     const dayLabel = (() => {
+                                                        if (isAbnormalAbsent) return '異常';
                                                         if (schedule && schedule.type === 'comp_leave') return schedule.leaveLabel === '指休' ? '指休' : '補休';
                                                         if (schedule && schedule.type === 'off') return '特休';
                                                         const hasLeave = (typeof leave !== 'undefined' && !!leave) || !!isApprovedActualLeave || (schedule && schedule.type === 'leave');
@@ -16877,6 +16898,9 @@
                                                 </div>
                                                 <div className="flex items-center gap-1 text-xs text-gray-500">
                                                     <div className="w-3 h-3 rounded bg-stone-500 border border-stone-600"></div> 休假
+                                                </div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                    <div className="w-3 h-3 rounded bg-red-500 border border-red-600"></div> 異常
                                                 </div>
                                                 <div className="flex items-center gap-1 text-xs text-gray-500">
                                                     <div className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200"></div> 補休
@@ -21165,9 +21189,26 @@
                                                                 return false;
                                                             })();
 
+                                                            const hasCheckIn = userAttendanceRecords.some(r => {
+                                                                const rDate = r.timestamp ? new Date(r.timestamp.seconds * 1000) : (r.createdAt ? new Date(r.createdAt.seconds * 1000) : null);
+                                                                if (!rDate) return false;
+                                                                return rDate.getFullYear() === year && rDate.getMonth() === month && rDate.getDate() === d;
+                                                            });
+                                                            
+                                                            const todayMidnight = new Date();
+                                                            todayMidnight.setHours(0,0,0,0);
+                                                            const isPastDate = currentDate < todayMidnight;
+
+                                                            const isAbnormalAbsent = isPastDate && 
+                                                                                   schedule && (schedule.type === 'work' || schedule.type === 'duty') && 
+                                                                                   !hasCheckIn && 
+                                                                                   !isApprovedActualLeave;
+
                                                             // Determine segments for gradient
                                                             let segments = [];
-                                                            if ((isHoliday || isWeekend) && (!schedule || schedule.type === 'holiday')) {
+                                                            if (isAbnormalAbsent) {
+                                                                segments.push({ type: 'abnormal', ratio: 1 });
+                                                            } else if ((isHoliday || isWeekend) && (!schedule || schedule.type === 'holiday')) {
                                                                 segments.push({ type: 'holiday', ratio: 1 });
                                                                 cellClass = 'bg-gray-100 text-gray-800';
                                                             } else if (schedule && (schedule.type === 'work' || schedule.type === 'duty')) {
@@ -21245,9 +21286,12 @@
                                                                     holiday: 'rgb(243, 244, 246)', // gray-100
                                                                     off: 'rgb(87, 83, 78)', // stone-600 (for bg)
                                                                     comp_leave: 'rgb(224, 231, 255)', // indigo-100
+                                                                    abnormal: 'rgb(239, 68, 68)', // red-500
                                                                 };
                                                                 if (segments.length === 1) {
-                                                                    if (segments[0].type === 'off') {
+                                                                    if (segments[0].type === 'abnormal') {
+                                                                        cellClass = 'bg-red-500 text-white border border-red-600';
+                                                                    } else if (segments[0].type === 'off') {
                                                                         cellClass = 'bg-stone-500 text-white border border-stone-600';
                                                                     } else if (segments[0].type === 'leave') {
                                                                         cellClass = 'bg-orange-100 text-orange-700 border border-orange-200';
@@ -21284,6 +21328,7 @@
                                                             }
                                                                 
                                                             const dayLabel = (() => {
+                                                                if (isAbnormalAbsent) return '異常';
                                                                 if (schedule && schedule.type === 'comp_leave') return schedule.leaveLabel === '指休' ? '指休' : '補休';
                                                                 if (schedule && schedule.type === 'off') return '特休';
                                                                 const hasLeave = (typeof leave !== 'undefined' && !!leave) || !!isApprovedActualLeave || (schedule && schedule.type === 'leave');
@@ -21328,6 +21373,9 @@
                                                         </div>
                                                         <div className="flex items-center gap-1 text-xs text-gray-500">
                                                             <div className="w-3 h-3 rounded bg-stone-500 border border-stone-600"></div> 休假
+                                                        </div>
+                                                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                                                            <div className="w-3 h-3 rounded bg-red-500 border border-red-600"></div> 異常
                                                         </div>
                                                         <div className="flex items-center gap-1 text-xs text-gray-500">
                                                             <div className="w-3 h-3 rounded bg-indigo-100 border border-indigo-200"></div> 補休
@@ -25586,14 +25634,14 @@
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setOverviewDutyModalOpen(false)}>
                             <div className="bg-white rounded-2xl w-full max-w-sm max-h-[80vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                                 <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-gray-500 text-lg font-bold">
+                                    <div className="flex items-center gap-1 whitespace-nowrap">
+                                        <span className="text-gray-500 text-sm font-bold">
                                             {companies.find(c => String(c.id) === String(dbUser?.companyId))?.name}
                                         </span>
-                                        <span className="text-gray-500 text-lg font-bold">
+                                        <span className="text-gray-500 text-sm font-bold">
                                             {(overviewDutyFridays[0]?.date || '').split('-').slice(0,2).join('年')}月
                                         </span>
-                                        <h3 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
+                                        <h3 className="font-bold text-gray-800 flex items-center gap-1 text-sm">
                                             <i className="fas fa-user-clock text-purple-600"></i>
                                             週五值班名單
                                         </h3>

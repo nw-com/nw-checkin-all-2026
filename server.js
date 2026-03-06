@@ -8,6 +8,9 @@ console.log("Starting server script...");
 const port = 8001;
 const LOG_REQUESTS = process.env.LOG_REQUESTS === '1';
 const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
+const APP_ID = process.env.APP_ID || 'default-attendance-app';
+const ENABLE_COMMUNITY_ANOMALY_NOTIFIER = process.env.ENABLE_COMMUNITY_ANOMALY_NOTIFIER !== '0';
+const COMMUNITY_ANOMALY_INTERVAL_MS = Number(process.env.COMMUNITY_ANOMALY_INTERVAL_MS || 5 * 60 * 1000);
 
 // Initialize Firebase Admin
 let adminInitialized = false;
@@ -22,6 +25,197 @@ const initFirebaseAdmin = () => {
   } catch (e) {
     console.error('Failed to initialize Firebase Admin:', e);
   }
+};
+
+const formatLocalYMD = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const getArtifactsDb = () => {
+  initFirebaseAdmin();
+  if (!adminInitialized) return null;
+  return admin.firestore();
+};
+
+const getPublicDataCollection = (db, collectionName) => {
+  return db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection(collectionName);
+};
+
+const getTargetRoles = () => (['admin', 'manager', 'hr', 'property', 'cadre']);
+
+const computeCommunityAnomaliesForToday = async () => {
+  const db = getArtifactsDb();
+  if (!db) return { ok: false, message: 'Firebase Admin not initialized', results: [] };
+
+  const now = new Date();
+  const todayStr = formatLocalYMD(now);
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  const communitiesRef = getPublicDataCollection(db, 'communities');
+  const schedulesRef = getPublicDataCollection(db, 'schedules');
+  const attendanceRef = getPublicDataCollection(db, 'attendance');
+  const leavesRef = getPublicDataCollection(db, 'leaves');
+
+  const [communitiesSnap, schedulesSnap, attendanceSnap, pendingLeavesSnap] = await Promise.all([
+    communitiesRef.get(),
+    schedulesRef.where('date', '==', todayStr).get(),
+    attendanceRef.where('timestamp', '>=', startOfDay).where('timestamp', '<=', endOfDay).get(),
+    leavesRef.where('approvalStatus', '==', 'pending').get(),
+  ]);
+
+  const communities = communitiesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const todaySchedules = schedulesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const todayAttendance = attendanceSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const pendingLeaves = pendingLeavesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  const results = [];
+  for (const comm of communities) {
+    const commId = String(comm.id);
+    const commName = String(comm.name || '');
+
+    const commSchedules = todaySchedules.filter(s => String(s.communityId) === commId);
+
+    const daySchedules = commSchedules.filter(s => s.shift === 'day');
+    const nightSchedules = commSchedules.filter(s => s.shift === 'night');
+
+    const dayGuardPoints = Array.from(new Set((comm.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+    const nightGuardPoints = Array.from(new Set((comm.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
+
+    const assignedDayPoints = new Set(daySchedules.map(s => String(s.sentryPoint || '').trim()).filter(Boolean));
+    const assignedNightPoints = new Set(nightSchedules.map(s => String(s.sentryPoint || '').trim()).filter(Boolean));
+
+    const dayVacancies = dayGuardPoints.filter(p => !assignedDayPoints.has(p));
+    const nightVacancies = nightGuardPoints.filter(p => !assignedNightPoints.has(p));
+
+    const hasAttendanceAnomaly = (att) => {
+      return ['遲到', '早退', '未打下班打卡'].includes(att.status);
+    };
+
+    const anomalyIds = [];
+
+    // Pending Leaves
+    const commPendingLeaves = pendingLeaves.filter(l => String(l.communityId) === commId);
+    commPendingLeaves.forEach(l => anomalyIds.push(`leave_${l.id}`));
+
+    // Vacancies
+    dayVacancies.forEach(p => anomalyIds.push(`vacancy_day_${todayStr}_${p}`));
+    nightVacancies.forEach(p => anomalyIds.push(`vacancy_night_${todayStr}_${p}`));
+
+    let dayAttendanceAnomalies = 0;
+    for (const sched of daySchedules) {
+      const att = todayAttendance.find(a => String(a.userId) === String(sched.userId) && a.shift === 'day');
+      if (!att) {
+        if (now.getHours() >= 8) {
+            dayAttendanceAnomalies++;
+            anomalyIds.push(`missing_day_${todayStr}_${sched.userId}`);
+        }
+      } else if (hasAttendanceAnomaly(att)) {
+        dayAttendanceAnomalies++;
+        anomalyIds.push(`abnormal_att_${att.id}`);
+      }
+    }
+
+    let nightAttendanceAnomalies = 0;
+    for (const sched of nightSchedules) {
+      const att = todayAttendance.find(a => String(a.userId) === String(sched.userId) && a.shift === 'night');
+      if (!att) {
+        if (now.getHours() >= 20) {
+            nightAttendanceAnomalies++;
+            anomalyIds.push(`missing_night_${todayStr}_${sched.userId}`);
+        }
+      } else if (hasAttendanceAnomaly(att)) {
+        nightAttendanceAnomalies++;
+        anomalyIds.push(`abnormal_att_${att.id}`);
+      }
+    }
+
+    const total = anomalyIds.length;
+
+    results.push({
+      communityId: commId,
+      communityName: commName,
+      date: todayStr,
+      total,
+      anomalyIds,
+      breakdown: {
+        pendingLeaves: commPendingLeaves.length,
+        dayVacancies: dayVacancies.length,
+        nightVacancies: nightVacancies.length,
+        dayAttendanceAnomalies,
+        nightAttendanceAnomalies,
+      },
+    });
+  }
+
+  return { ok: true, date: todayStr, results };
+};
+
+const checkAndNotifyCommunityAnomalies = async () => {
+  const db = getArtifactsDb();
+  if (!db) return { ok: false, message: 'Firebase Admin not initialized' };
+
+  const computed = await computeCommunityAnomaliesForToday();
+  if (!computed.ok) return computed;
+
+  const statesRef = getPublicDataCollection(db, 'community_anomaly_states');
+  const notificationsRef = getPublicDataCollection(db, 'notifications');
+
+  const todayStr = computed.date;
+  
+  let sent = 0;
+
+  for (const r of computed.results) {
+    const commId = String(r.communityId);
+    const stateDocRef = statesRef.doc(commId);
+    const stateDoc = await stateDocRef.get();
+    
+    const lastIds = new Set(stateDoc.exists ? (stateDoc.data().lastAnomalyIds || []) : []);
+    
+    // Identify NEW items
+    const newItems = r.anomalyIds.filter(id => !lastIds.has(id));
+    
+    const hasChanges = r.anomalyIds.length !== lastIds.size || !r.anomalyIds.every(id => lastIds.has(id));
+
+    if (newItems.length > 0) {
+        const breakdown = r.breakdown || {};
+        const bodyParts = [];
+        if (breakdown.pendingLeaves) bodyParts.push(`待審核假單 ${breakdown.pendingLeaves}`);
+        if (breakdown.dayVacancies) bodyParts.push(`日班缺哨 ${breakdown.dayVacancies}`);
+        if (breakdown.nightVacancies) bodyParts.push(`夜班缺哨 ${breakdown.nightVacancies}`);
+        if (breakdown.dayAttendanceAnomalies) bodyParts.push(`日班考勤異常 ${breakdown.dayAttendanceAnomalies}`);
+        if (breakdown.nightAttendanceAnomalies) bodyParts.push(`夜班考勤異常 ${breakdown.nightAttendanceAnomalies}`);
+
+        const body = `${r.communityName || '社區'} 新增異常事項，目前共有 ${r.total} 筆${bodyParts.length ? `（${bodyParts.join('、')}）` : ''}，請儘速處理。`;
+
+        await notificationsRef.add({
+            title: '社區異常通知',
+            body,
+            communityId: commId,
+            targetRoles: getTargetRoles(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'server',
+            type: 'community_anomaly',
+            date: todayStr,
+            anomalyIds: r.anomalyIds 
+        });
+        
+        sent++;
+    }
+
+    if (hasChanges) {
+        await stateDocRef.set({
+            lastAnomalyIds: r.anomalyIds,
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+            communityName: r.communityName
+        });
+    }
+  }
+
+  return { ok: true, date: todayStr, sent };
 };
 
 const mimeTypes = {
@@ -159,6 +353,21 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (urlPath === '/api/system/check-community-anomalies') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Method Not Allowed');
+      return;
+    }
+    checkAndNotifyCommunityAnomalies()
+      .then((result) => sendJson(res, 200, result))
+      .catch((e) => {
+        console.error('check-community-anomalies error:', e);
+        sendJson(res, 500, { ok: false, message: e.message || 'Internal server error' });
+      });
+    return;
+  }
+
   // Handle URL parameters (ignore them for file serving)
   let filePath = '.' + urlPath;
   if (filePath === './') {
@@ -228,3 +437,19 @@ server.on('error', (e) => {
 server.listen(port, () => {
     console.log(`Server running at http://localhost:${port}/`);
 });
+
+if (ENABLE_COMMUNITY_ANOMALY_NOTIFIER) {
+  const run = async () => {
+    try {
+      const result = await checkAndNotifyCommunityAnomalies();
+      if (LOG_REQUESTS) console.log('Community anomaly notifier:', result);
+    } catch (e) {
+      console.error('Community anomaly notifier error:', e);
+    }
+  };
+
+  setTimeout(() => {
+    run().catch(() => {});
+    setInterval(() => run().catch(() => {}), COMMUNITY_ANOMALY_INTERVAL_MS);
+  }, 10_000);
+}
