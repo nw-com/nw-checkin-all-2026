@@ -46,6 +46,23 @@ const getPublicDataCollection = (db, collectionName) => {
 
 const getTargetRoles = () => (['admin', 'manager', 'hr', 'property', 'cadre']);
 
+const getPushSettings = async (db) => {
+  try {
+    const docRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('settings').doc('push');
+    const docSnap = await docRef.get();
+    if (docSnap.exists) {
+      const data = docSnap.data() || {};
+      const roles = Array.isArray(data.targetRoles) ? data.targetRoles : undefined;
+      const userIds = Array.isArray(data.targetUserIds) ? data.targetUserIds : undefined;
+      return { targetRoles: roles, targetUserIds: userIds };
+    }
+    return null;
+  } catch (e) {
+    console.error('Failed to fetch push settings:', e);
+    return null;
+  }
+};
+
 const computeCommunityAnomaliesForToday = async () => {
   const db = getArtifactsDb();
   if (!db) return { ok: false, message: 'Firebase Admin not initialized', results: [] };
@@ -185,6 +202,10 @@ const checkAndNotifyCommunityAnomalies = async () => {
   const db = getArtifactsDb();
   if (!db) return { ok: false, message: 'Firebase Admin not initialized' };
 
+  const settings = await getPushSettings(db);
+  const targetRoles = (settings && Array.isArray(settings.targetRoles)) ? settings.targetRoles : getTargetRoles();
+  const targetUserIds = (settings && Array.isArray(settings.targetUserIds)) ? settings.targetUserIds : [];
+
   const computed = await computeCommunityAnomaliesForToday();
   if (!computed.ok) return computed;
 
@@ -218,17 +239,19 @@ const checkAndNotifyCommunityAnomalies = async () => {
 
         const body = `${r.communityName || '社區'} 新增異常事項，目前共有 ${r.total} 筆${bodyParts.length ? `（${bodyParts.join('、')}）` : ''}，請儘速處理。`;
 
-        await notificationsRef.add({
+        const payload = {
             title: '社區異常通知',
             body,
             communityId: commId,
-            targetRoles: getTargetRoles(),
+            targetRoles: targetRoles,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'server',
             type: 'community_anomaly',
             date: todayStr,
             anomalyIds: r.anomalyIds 
-        });
+        };
+        if (targetUserIds.length > 0) payload.targetUserIds = targetUserIds;
+        await notificationsRef.add(payload);
         
         sent++;
     }
