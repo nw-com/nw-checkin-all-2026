@@ -11640,16 +11640,26 @@
                             const commName = comm?.name || submitUser.communityName || '社區';
                             const title = '異常通知';
                             const body = `${commName} 新增 1 筆請假待審核，請儘速處理。`;
-                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
-                                title,
-                                body,
-                                communityId: communityId,
-                                targetRoles: ['admin','manager','hr','property','cadre'],
-                                createdAt: serverTimestamp(),
-                                source: 'client',
-                                type: 'leave_pending',
-                                relatedId: newLeaveRef.id
-                            });
+                            // Respect push settings
+                            const pushRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push');
+                            const pushSnap = await getDoc(pushRef);
+                            const data = pushSnap.exists() ? (pushSnap.data() || {}) : {};
+                            const targetRoles = Array.isArray(data.targetRoles) ? data.targetRoles : [];
+                            const targetUserIds = Array.isArray(data.targetUserIds) ? data.targetUserIds : [];
+                            if (targetRoles.length > 0 || targetUserIds.length > 0) {
+                                const payload = {
+                                    title,
+                                    body,
+                                    communityId: communityId,
+                                    targetRoles,
+                                    createdAt: serverTimestamp(),
+                                    source: 'client',
+                                    type: 'leave_pending',
+                                    relatedId: newLeaveRef.id
+                                };
+                                if (targetUserIds.length > 0) payload.targetUserIds = targetUserIds;
+                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), payload);
+                            }
                         } catch (e) {
                             console.warn('Failed to push leave notification:', e);
                         }
