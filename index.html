@@ -8214,21 +8214,37 @@
                     setNotifications([]);
                     return;
                 }
-                isFirstSnapshot.current = true;
-                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), orderBy('createdAt', 'desc'));
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    // System Notification Logic
-                    if (!isFirstSnapshot.current) {
-                        snapshot.docChanges().forEach((change) => {
-                            if (change.type === 'added') {
-                                const data = change.doc.data();
-                                const notif = { id: change.doc.id, ...data };
-                                if (isNotificationTarget(notif)) {
-                                    // Check for system notification permission
-                                    const hasPermission = 'Notification' in window && Notification.permission === 'granted';
-                                    if (hasPermission && enableSystemNotification) {
-                                        // Remove senderId check to allow testing self-notifications
-                                        // if (notif.senderId !== dbUser.id) {
+                let unsubReceiver = null;
+                let timer = null;
+                const setup = async () => {
+                    try {
+                        // Global kill switch: if push settings are empty, do not subscribe to notifications at all
+                        const pushRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push');
+                        const pushSnap = await getDoc(pushRef);
+                        const ps = pushSnap.exists() ? (pushSnap.data() || {}) : {};
+                        const psRoles = Array.isArray(ps.targetRoles) ? ps.targetRoles : [];
+                        const psUsers = Array.isArray(ps.targetUserIds) ? ps.targetUserIds : [];
+                        if (psRoles.length === 0 && psUsers.length === 0) {
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn('Failed to load push settings for subscription:', e);
+                        return;
+                    }
+    
+                    isFirstSnapshot.current = true;
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), orderBy('createdAt', 'desc'));
+                    unsubReceiver = onSnapshot(q, (snapshot) => {
+                        // System Notification Logic
+                        if (!isFirstSnapshot.current) {
+                            snapshot.docChanges().forEach((change) => {
+                                if (change.type === 'added') {
+                                    const data = change.doc.data();
+                                    const notif = { id: change.doc.id, ...data };
+                                    if (isNotificationTarget(notif)) {
+                                        // Check for system notification permission
+                                        const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+                                        if (hasPermission && enableSystemNotification) {
                                             try {
                                                 const showNotif = async () => {
                                                     const ICON_URL = 'logo.svg';
@@ -8270,24 +8286,28 @@
                                             } catch (e) {
                                                 console.error("Notification error:", e);
                                             }
-                                        // }
+                                        }
                                     }
                                 }
-                            }
+                            });
+                        } else {
+                            isFirstSnapshot.current = false;
+                        }
+        
+                        const list = [];
+                        snapshot.forEach((doc) => {
+                            list.push({ id: doc.id, ...doc.data() });
                         });
-                    } else {
-                        isFirstSnapshot.current = false;
-                    }
-
-                    const list = [];
-                    snapshot.forEach((doc) => {
-                        list.push({ id: doc.id, ...doc.data() });
+                        setNotifications(list);
+                    }, (error) => {
+                        console.error("Error fetching notifications: ", error);
                     });
-                    setNotifications(list);
-                }, (error) => {
-                    console.error("Error fetching notifications: ", error);
-                });
-                return () => unsubscribe();
+                };
+                setup();
+                return () => {
+                    if (unsubReceiver) unsubReceiver();
+                    if (timer) clearTimeout(timer);
+                };
             }, [dbUser]);
 
             useEffect(() => {
