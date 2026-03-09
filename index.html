@@ -11017,7 +11017,6 @@
                 
                 if (!hasPermission) return;
 
-                // 1. Receiver Logic (Listen to Notifications)
                 const qNotifications = query(
                     collection(db, 'artifacts', appId, 'public', 'data', 'notifications'),
                     orderBy('createdAt', 'desc'),
@@ -11053,46 +11052,73 @@
                     } catch (e) { console.error(e); }
                 };
 
-                const unsubReceiver = onSnapshot(qNotifications, (snap) => {
-                    snap.docChanges().forEach(change => {
-                        if (change.type === 'added') {
-                            const data = change.doc.data();
-                            const now = Date.now();
-                            const createdAt = data.createdAt?.toMillis?.() || 0;
-                            // Ignore notifications older than 24h
-                            if (now - createdAt > 24 * 60 * 60 * 1000) return; 
+                let unsubReceiver = null;
+                let timer = null;
+                let receiverFirst = true;
+                let pushSettingsUpdatedAtMs = 0;
+                let pushEnabled = false;
 
-                            const targetRoles = data.targetRoles || [];
-                            const targetUserIds = data.targetUserIds || [];
-                            const targetCommunityId = data.communityId;
-                            
-                            // Role Check
-                            const customRole = (roles || []).find(r => r.id === dbUser.role);
-                            const myRole = dbUser.role;
-                            const isRoleMatch = targetRoles.includes(myRole) || 
-                                                (customRole && targetRoles.some(tr => (customRole.name || '').includes(tr) || (customRole.permissions || []).includes(tr)));
-                            const isUserMatch = targetUserIds.includes(dbUser.id);
-                            if (!isRoleMatch && !isUserMatch) return;
+                const stopAll = () => {
+                    if (unsubReceiver) {
+                        unsubReceiver();
+                        unsubReceiver = null;
+                    }
+                    if (timer) {
+                        clearTimeout(timer);
+                        timer = null;
+                    }
+                };
 
-                            // Community Check
-                            let isCommunityMatch = false;
-                            if (myRole === 'admin') isCommunityMatch = true;
-                            else {
-                                const myComms = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
-                                isCommunityMatch = myComms.some(cid => String(cid) === String(targetCommunityId));
-                            }
+                const startAll = () => {
+                    if (unsubReceiver) return;
+                    receiverFirst = true;
+                    unsubReceiver = onSnapshot(qNotifications, (snap) => {
+                        if (receiverFirst) {
+                            receiverFirst = false;
+                            return;
+                        }
+                        snap.docChanges().forEach(change => {
+                            if (change.type === 'added') {
+                                const data = change.doc.data();
+                                const now = Date.now();
+                                const createdAt = data.createdAt?.toMillis?.() || 0;
+                                if (now - createdAt > 24 * 60 * 60 * 1000) return;
+                                if (pushSettingsUpdatedAtMs && createdAt < pushSettingsUpdatedAtMs) return;
+                                if (!pushEnabled) return;
 
-                            if (isCommunityMatch) {
-                                // Simple local storage check to avoid duplicate alerts in same session
-                                const shownKey = `notif_shown_${change.doc.id}`;
-                                if (!sessionStorage.getItem(shownKey)) {
-                                    sendPushNotification(data.title, data.body);
-                                    sessionStorage.setItem(shownKey, '1');
+                                const targetRoles = data.targetRoles || [];
+                                const targetUserIds = data.targetUserIds || [];
+                                const targetCommunityId = data.communityId;
+                                
+                                const customRole = (roles || []).find(r => r.id === dbUser.role);
+                                const myRole = dbUser.role;
+                                const isRoleMatch = targetRoles.includes(myRole) || 
+                                                    (customRole && targetRoles.some(tr => (customRole.name || '').includes(tr) || (customRole.permissions || []).includes(tr)));
+                                const isUserMatch = targetUserIds.includes(dbUser.id);
+                                if (!isRoleMatch && !isUserMatch) return;
+
+                                let isCommunityMatch = false;
+                                if (myRole === 'admin') isCommunityMatch = true;
+                                else {
+                                    const myComms = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                                    isCommunityMatch = myComms.some(cid => String(cid) === String(targetCommunityId));
+                                }
+
+                                if (isCommunityMatch) {
+                                    const shownKey = `notif_shown_${change.doc.id}`;
+                                    if (!sessionStorage.getItem(shownKey)) {
+                                        sendPushNotification(data.title, data.body);
+                                        sessionStorage.setItem(shownKey, '1');
+                                    }
                                 }
                             }
-                        }
+                        });
                     });
-                });
+
+                    timer = setTimeout(() => {
+                        checkDailyAnomalies().catch(console.error);
+                    }, 10000);
+                };
 
                 // 2. Sender Logic (Daily Check)
                 const checkDailyAnomalies = async () => {
@@ -11198,6 +11224,7 @@
 
                             if (anomalies > 0) {
                                 // Send Notification (respect push settings)
+                                let didSend = false;
                                 try {
                                     const pushRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push');
                                     const pushSnap = await getDoc(pushRef);
@@ -11214,18 +11241,21 @@
                                         };
                                         if (targetUserIds.length > 0) payload.targetUserIds = targetUserIds;
                                         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), payload);
+                                        didSend = true;
                                     }
                                 } catch (e) {
                                     console.error('Push settings not found or invalid, skip sending:', e);
                                 }
                                 
                                 // Log Sent
-                                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'daily_notification_logs', `${todayStr}_${commId}`), {
-                                    date: todayStr,
-                                    communityId: commId,
-                                    sentAt: serverTimestamp(),
-                                    sentBy: dbUser.id
-                                });
+                                if (didSend) {
+                                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'daily_notification_logs', `${todayStr}_${commId}`), {
+                                        date: todayStr,
+                                        communityId: commId,
+                                        sentAt: serverTimestamp(),
+                                        sentBy: dbUser.id
+                                    });
+                                }
                             }
                         }
                     } catch (e) {
@@ -11233,17 +11263,29 @@
                     }
                 };
 
-                // Run check after 10 seconds to allow initial data sync and avoid race conditions
-                const timer = setTimeout(() => {
-                    checkDailyAnomalies().catch(console.error);
-                }, 10000);
+                const unsubPushSettings = onSnapshot(
+                    doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push'),
+                    (snap) => {
+                        const ps = snap.exists() ? (snap.data() || {}) : {};
+                        const psRoles = Array.isArray(ps.targetRoles) ? ps.targetRoles : [];
+                        const psUsers = Array.isArray(ps.targetUserIds) ? ps.targetUserIds : [];
+                        pushSettingsUpdatedAtMs = ps.updatedAt?.toMillis?.() || 0;
+                        pushEnabled = (psRoles.length > 0 || psUsers.length > 0);
+                        if (!pushEnabled) stopAll();
+                        else startAll();
+                    },
+                    () => {
+                        pushEnabled = false;
+                        stopAll();
+                    }
+                );
 
                 return () => {
-                    unsubReceiver();
-                    clearTimeout(timer);
+                    stopAll();
+                    unsubPushSettings();
                 };
 
-            }, [dbUser, communities, roles, leavesList]);
+            }, [dbUser, communities, roles, leavesList, usersList]);
 
             const seedData = async () => {
                 if (!user) return;
