@@ -11052,8 +11052,7 @@
                             const isRoleMatch = targetRoles.includes(myRole) || 
                                                 (customRole && targetRoles.some(tr => (customRole.name || '').includes(tr) || (customRole.permissions || []).includes(tr)));
                             const isUserMatch = targetUserIds.includes(dbUser.id);
-
-                            if (!isRoleMatch && !isUserMatch && myRole !== 'admin') return;
+                            if (!isRoleMatch && !isUserMatch) return;
 
                             // Community Check
                             let isCommunityMatch = false;
@@ -11178,14 +11177,27 @@
                             }
 
                             if (anomalies > 0) {
-                                // Send Notification
-                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
-                                    title: '異常通知',
-                                    body: `${comm.name} 今日共有 ${anomalies} 筆異常事項(含待審核假單與缺哨/考勤異常)，請儘速處理。`,
-                                    communityId: commId,
-                                    targetRoles: ['admin', 'manager', 'hr', 'property', 'cadre'],
-                                    createdAt: serverTimestamp()
-                                });
+                                // Send Notification (respect push settings)
+                                try {
+                                    const pushRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push');
+                                    const pushSnap = await getDoc(pushRef);
+                                    const data = pushSnap.exists() ? (pushSnap.data() || {}) : {};
+                                    const targetRoles = Array.isArray(data.targetRoles) ? data.targetRoles : [];
+                                    const targetUserIds = Array.isArray(data.targetUserIds) ? data.targetUserIds : [];
+                                    if (targetRoles.length > 0 || targetUserIds.length > 0) {
+                                        const payload = {
+                                            title: '異常通知',
+                                            body: `${comm.name} 今日共有 ${anomalies} 筆異常事項(含待審核假單與缺哨/考勤異常)，請儘速處理。`,
+                                            communityId: commId,
+                                            targetRoles,
+                                            createdAt: serverTimestamp()
+                                        };
+                                        if (targetUserIds.length > 0) payload.targetUserIds = targetUserIds;
+                                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), payload);
+                                    }
+                                } catch (e) {
+                                    console.error('Push settings not found or invalid, skip sending:', e);
+                                }
                                 
                                 // Log Sent
                                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'daily_notification_logs', `${todayStr}_${commId}`), {

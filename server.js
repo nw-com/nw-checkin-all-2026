@@ -203,7 +203,7 @@ const checkAndNotifyCommunityAnomalies = async () => {
   if (!db) return { ok: false, message: 'Firebase Admin not initialized' };
 
   const settings = await getPushSettings(db);
-  const targetRoles = (settings && Array.isArray(settings.targetRoles)) ? settings.targetRoles : getTargetRoles();
+  const targetRoles = (settings && Array.isArray(settings.targetRoles)) ? settings.targetRoles : [];
   const targetUserIds = (settings && Array.isArray(settings.targetUserIds)) ? settings.targetUserIds : [];
 
   const computed = await computeCommunityAnomaliesForToday();
@@ -239,6 +239,10 @@ const checkAndNotifyCommunityAnomalies = async () => {
 
         const body = `${r.communityName || '社區'} 新增異常事項，目前共有 ${r.total} 筆${bodyParts.length ? `（${bodyParts.join('、')}）` : ''}，請儘速處理。`;
 
+        // Skip if no recipients configured
+        if ((targetRoles.length === 0) && (targetUserIds.length === 0)) {
+          continue;
+        }
         const payload = {
             title: '社區異常通知',
             body,
