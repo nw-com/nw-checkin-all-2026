@@ -2014,7 +2014,7 @@
         };
 
         // 2. Login Component (Mobile Optimized, Red Theme)
-        const Login = ({ onLogin, onLoginSuccess, isOnline }) => {
+        const Login = ({ onLogin, onLoginSuccess, isOnline, communities }) => {
             const [showUpgradeNotice, setShowUpgradeNotice] = useState(true);
             const [noticeCountdown, setNoticeCountdown] = useState(10);
 
@@ -2037,6 +2037,29 @@
             const [rememberMe, setRememberMe] = useState(true);
             const [showPassword, setShowPassword] = useState(false);
             const [isLoading, setIsLoading] = useState(false);
+            const [showRegisterModal, setShowRegisterModal] = useState(false);
+            const [registerForm, setRegisterForm] = useState({ name: '', email: '', phone: '', password: '', confirmPassword: '', nationalId: '', birthdate: '', applyingRole: '', applyingCommunityCode: '', jobTitle: '' });
+            const [registerMsg, setRegisterMsg] = useState('');
+            const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+            const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
+            const [applyingCommunityName, setApplyingCommunityName] = useState('');
+            const [applyingCommunityLookupMsg, setApplyingCommunityLookupMsg] = useState('');
+            const [registerAvatarUrl, setRegisterAvatarUrl] = useState('');
+            const [registerAvatarBusy, setRegisterAvatarBusy] = useState(false);
+            const registerAutoCloseTimerRef = useRef(null);
+            const [registerAutoCloseSec, setRegisterAutoCloseSec] = useState(0);
+
+            const closeRegisterModal = () => {
+                if (registerAutoCloseTimerRef.current) {
+                    clearTimeout(registerAutoCloseTimerRef.current);
+                    registerAutoCloseTimerRef.current = null;
+                }
+                setRegisterAutoCloseSec(0);
+                setRegisterMsg('');
+                setRegisterAvatarUrl('');
+                setRegisterForm({ name: '', email: '', phone: '', password: '', confirmPassword: '', nationalId: '', birthdate: '', applyingRole: '', applyingCommunityCode: '', jobTitle: '' });
+                setShowRegisterModal(false);
+            };
 
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -2066,7 +2089,184 @@
                 }
             };
 
+            const handleRegisterChange = (field, value) => {
+                setRegisterForm(prev => ({ ...prev, [field]: value }));
+            };
 
+            const fileToResizedDataUrl = (file) => new Promise((resolve, reject) => {
+                if (!file) return resolve('');
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error('read_failed'));
+                reader.onload = () => {
+                    const img = new Image();
+                    img.onerror = () => reject(new Error('image_load_failed'));
+                    img.onload = () => {
+                        const maxSize = 256;
+                        const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
+                        const w = Math.max(1, Math.round(img.width * ratio));
+                        const h = Math.max(1, Math.round(img.height * ratio));
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return resolve('');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/jpeg', 0.75));
+                    };
+                    img.src = String(reader.result || '');
+                };
+                reader.readAsDataURL(file);
+            });
+
+            const handleRegisterAvatarChange = async (files) => {
+                const file = files && files[0] ? files[0] : null;
+                if (!file) return;
+                setRegisterAvatarBusy(true);
+                try {
+                    const dataUrl = await fileToResizedDataUrl(file);
+                    setRegisterAvatarUrl(dataUrl);
+                } catch (e) {
+                    console.error(e);
+                    setRegisterAvatarUrl('');
+                    setRegisterMsg('大頭照處理失敗，請換一張再試');
+                } finally {
+                    setRegisterAvatarBusy(false);
+                }
+            };
+
+            useEffect(() => {
+                let mounted = true;
+                const communityId = String(registerForm.applyingCommunityCode || '').trim();
+
+                if (!communityId) {
+                    setApplyingCommunityName('');
+                    setApplyingCommunityLookupMsg('');
+                    return;
+                }
+
+                (async () => {
+                    const fromList = Array.isArray(communities) ? communities.find(c => String(c?.id) === communityId) : null;
+                    if (fromList && fromList.name) {
+                        setApplyingCommunityName(String(fromList.name || ''));
+                        setApplyingCommunityLookupMsg('');
+                        return;
+                    }
+                    let cachedName = '';
+                    try {
+                        const raw = localStorage.getItem('communities_cache_v1');
+                        if (raw) {
+                            const list = JSON.parse(raw);
+                            if (Array.isArray(list)) {
+                                cachedName = String((list.find(x => String(x?.id) === communityId)?.name) || '').trim();
+                            }
+                        }
+                    } catch {}
+                    if (cachedName) {
+                        setApplyingCommunityName(cachedName);
+                        setApplyingCommunityLookupMsg('');
+                    }
+                    try {
+                        if (!cachedName) setApplyingCommunityLookupMsg('查詢中...');
+                        const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', communityId));
+                        if (!mounted) return;
+                        if (!snap.exists()) {
+                            setApplyingCommunityName('');
+                            setApplyingCommunityLookupMsg('查無社區');
+                            return;
+                        }
+                        const data = snap.data();
+                        setApplyingCommunityName(data?.name || '');
+                        setApplyingCommunityLookupMsg(data?.name ? '' : '查無社區');
+                    } catch (e) {
+                        try {
+                            const r = await fetch(`/api/public/community-name?code=${encodeURIComponent(communityId)}`, {
+                                method: 'GET',
+                                headers: { 'Accept': 'application/json' }
+                            });
+                            const j = await r.json().catch(() => null);
+                            if (!mounted) return;
+                            if (r.ok && j && j.ok && j.exists && j.name) {
+                                setApplyingCommunityName(String(j.name));
+                                setApplyingCommunityLookupMsg('');
+                                return;
+                            }
+                            if (cachedName) {
+                                setApplyingCommunityName(cachedName);
+                                setApplyingCommunityLookupMsg('');
+                                return;
+                            }
+                            setApplyingCommunityName('');
+                            setApplyingCommunityLookupMsg('查無社區');
+                        } catch (e2) {
+                            if (!mounted) return;
+                            if (cachedName) {
+                                setApplyingCommunityName(cachedName);
+                                setApplyingCommunityLookupMsg('');
+                                return;
+                            }
+                            setApplyingCommunityName('');
+                            setApplyingCommunityLookupMsg('查詢失敗');
+                        }
+                    }
+                })();
+
+                return () => {
+                    mounted = false;
+                };
+            }, [registerForm.applyingCommunityCode, appId, communities]);
+
+            useEffect(() => {
+                if (!showRegisterModal) return;
+                if (registerAutoCloseSec <= 0) return;
+                const t = setTimeout(() => {
+                    setRegisterAutoCloseSec(s => Math.max(0, s - 1));
+                }, 1000);
+                return () => clearTimeout(t);
+            }, [showRegisterModal, registerAutoCloseSec]);
+
+            const handleRegisterSubmit = async (e) => {
+                e.preventDefault();
+                setRegisterMsg('');
+                if (registerAvatarBusy) {
+                    setRegisterMsg('大頭照處理中，請稍候再送出');
+                    return;
+                }
+                const { name, email, phone, password, confirmPassword, nationalId, birthdate, applyingRole, applyingCommunityCode, jobTitle } = registerForm;
+                if (!name || !email || !phone || !password || !confirmPassword || !applyingCommunityCode) {
+                    setRegisterMsg('請完整填寫所有欄位');
+                    return;
+                }
+                if (password !== confirmPassword) {
+                    setRegisterMsg('兩次輸入的密碼不一致');
+                    return;
+                }
+                
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pending_registrations'), {
+                        avatarUrl: registerAvatarUrl || '',
+                        name,
+                        email,
+                        phone,
+                        password, 
+                        nationalId,
+                        birthdate,
+                        applyingRole: applyingRole || '',
+                        communityId: String(applyingCommunityCode || '').trim(),
+                        jobTitle,
+                        status: 'pending',
+                        createdAt: serverTimestamp()
+                    });
+                    setRegisterMsg('資料已填寫，後續將由系統或管理員處理開通');
+                    setRegisterAutoCloseSec(5);
+                    if (registerAutoCloseTimerRef.current) clearTimeout(registerAutoCloseTimerRef.current);
+                    registerAutoCloseTimerRef.current = setTimeout(() => {
+                        closeRegisterModal();
+                    }, 5000);
+                } catch (err) {
+                    console.error("Register failed:", err);
+                    setRegisterMsg('註冊失敗: ' + err.message);
+                }
+            };
             return (
                 <div className="min-h-screen flex flex-col justify-center bg-gray-50 px-6 py-12">
                     {showUpgradeNotice && (
@@ -2159,6 +2359,15 @@
                             </button>
 
                             
+                            <button
+                                type="button"
+                                onClick={() => setShowRegisterModal(true)}
+                                disabled={isLoading}
+                                className="w-full mt-3 bg-white border border-red-200 text-red-600 font-bold py-3 rounded-2xl transition duration-200 hover:bg-red-50"
+                            >
+                                註冊帳號
+                            </button>
+
                             {!isOnline && (
                                 <div className="mt-3 text-center text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-2xl py-2">
                                     目前離線，請確認網路後再試
@@ -2166,7 +2375,197 @@
                             )}
                         </form>
 
-                        
+                        {showRegisterModal && (
+                            <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" onClick={closeRegisterModal}>
+                                <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col" onClick={e => e.stopPropagation()}>
+                                    <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                                        <h3 className="text-lg font-bold text-gray-800">註冊帳號</h3>
+                                        <button
+                                            type="button"
+                                            onClick={closeRegisterModal}
+                                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <form onSubmit={handleRegisterSubmit} className="p-6 space-y-4 text-sm flex-1 overflow-y-auto">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">上傳大頭照</label>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center font-bold text-gray-600 flex-shrink-0">
+                                                    {registerAvatarUrl ? (
+                                                        <img src={registerAvatarUrl} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        (registerForm.name?.[0] || '?')
+                                                    )}
+                                                </div>
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    disabled={registerAvatarBusy}
+                                                    onChange={e => handleRegisterAvatarChange(e.target.files)}
+                                                    className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                                {registerAvatarUrl && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setRegisterAvatarUrl('')}
+                                                        className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold flex-shrink-0"
+                                                    >
+                                                        移除
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">姓名</label>
+                                            <input
+                                                type="text"
+                                                value={registerForm.name}
+                                                onChange={e => handleRegisterChange('name', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                placeholder="請輸入姓名"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">職稱</label>
+                                            <input
+                                                type="text"
+                                                value={registerForm.jobTitle}
+                                                onChange={e => handleRegisterChange('jobTitle', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                placeholder="請輸入職稱"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">Email</label>
+                                            <input
+                                                type="email"
+                                                value={registerForm.email}
+                                                onChange={e => handleRegisterChange('email', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                placeholder="example@company.com"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">手機</label>
+                                            <input
+                                                type="tel"
+                                                value={registerForm.phone}
+                                                onChange={e => handleRegisterChange('phone', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                placeholder="09xxxxxxxx"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">密碼</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type={showRegisterPassword ? 'text' : 'password'}
+                                                        value={registerForm.password}
+                                                        onChange={e => handleRegisterChange('password', e.target.value)}
+                                                        className="w-full pr-12 bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                        placeholder="請輸入密碼"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowRegisterPassword(v => !v)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                                                    >
+                                                        {showRegisterPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">確認密碼</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type={showRegisterConfirmPassword ? 'text' : 'password'}
+                                                        value={registerForm.confirmPassword}
+                                                        onChange={e => handleRegisterChange('confirmPassword', e.target.value)}
+                                                        className="w-full pr-12 bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                        placeholder="再次輸入密碼"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowRegisterConfirmPassword(v => !v)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                                                    >
+                                                        {showRegisterConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">身分證號</label>
+                                            <input
+                                                type="text"
+                                                value={registerForm.nationalId}
+                                                onChange={e => handleRegisterChange('nationalId', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                placeholder="請輸入身分證號"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">出生年月日</label>
+                                            <input
+                                                type="date"
+                                                value={registerForm.birthdate}
+                                                onChange={e => handleRegisterChange('birthdate', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">應徵職位</label>
+                                            <select
+                                                value={registerForm.applyingRole}
+                                                onChange={e => handleRegisterChange('applyingRole', e.target.value)}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                            >
+                                                <option value="">請選擇</option>
+                                                <option value="總幹事">總幹事</option>
+                                                <option value="秘書">秘書</option>
+                                                <option value="清潔">清潔</option>
+                                                <option value="機電">機電</option>
+                                                <option value="保全">保全</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">應徵社區（社區代號）</label>
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="text"
+                                                    value={registerForm.applyingCommunityCode}
+                                                    onChange={e => handleRegisterChange('applyingCommunityCode', e.target.value)}
+                                                    className="w-[120px] bg-gray-50 border-0 p-3 rounded-xl text-gray-800 font-bold focus:ring-2 focus:ring-red-100"
+                                                    placeholder="請輸入社區代號"
+                                                />
+                                                <span className="w-[160px] text-gray-700 font-medium">
+                                                    {applyingCommunityName || '-'}
+                                                </span>
+                                                {applyingCommunityLookupMsg && (
+                                                    <span className="text-xs font-bold text-gray-400">{applyingCommunityLookupMsg}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {registerMsg && (
+                                            <div className="text-sm text-center p-3 rounded-2xl font-medium bg-blue-50 text-blue-700">
+                                                {registerMsg}{registerAutoCloseSec > 0 ? `（${registerAutoCloseSec} 秒後自動關閉）` : ''}
+                                            </div>
+                                        )}
+                                        <div className="pt-2 flex items-center justify-end gap-2">
+                                            <button type="button" onClick={closeRegisterModal} className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">
+                                                取消
+                                            </button>
+                                            <button type="submit" className="px-5 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700">
+                                                送出註冊
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
@@ -8056,6 +8455,12 @@
                 startDate: '',
                 communityIds: []
             });
+            const [pendingRegistrationsModalOpen, setPendingRegistrationsModalOpen] = useState(false);
+            const [pendingRegistrations, setPendingRegistrations] = useState([]);
+            const [pendingRegistrationsLoading, setPendingRegistrationsLoading] = useState(false);
+            const [pendingRegistrationsBusyId, setPendingRegistrationsBusyId] = useState('');
+            const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
+            const [pendingRegistrationsCountMap, setPendingRegistrationsCountMap] = useState({});
 
             const [meetingReminder, setMeetingReminder] = useState(null);
 
@@ -9024,13 +9429,24 @@
                 const name = user.name || '未知';
                 const type = signatureTypeMap[sig.type] || sig.type || '簽呈';
                 
-                // Get Company Name
-                let companyName = '';
-                if (user.companyId) {
-                    const company = companies.find(c => String(c.id) === String(user.companyId));
-                    if (company) companyName = company.name;
-                }
-                if (!companyName) companyName = '公司';
+                // Get Company Group Title
+                const resolveCompanyGroupTitle = () => {
+                    let company = null;
+                    if (user.companyId) {
+                        company = companies.find(c => String(c.id) === String(user.companyId)) || null;
+                    }
+                    if (!company && user.communityId) {
+                        const comm = communities.find(x => String(x.id) === String(user.communityId));
+                        if (comm && comm.companyId) {
+                            company = companies.find(c => String(c.id) === String(comm.companyId)) || null;
+                        }
+                    }
+                    const name = company?.name || '';
+                    if (name.includes('台北')) return '台北公司';
+                    if (name.includes('桃園')) return '桃園公司';
+                    return '公司';
+                };
+                const companyTitle = resolveCompanyGroupTitle();
 
                 // Get Application Time
                 let applyTimeStr = '';
@@ -9044,13 +9460,13 @@
                 
                 // Construct URLs with token and context
                 const baseUrl = window.location.href.split('?')[0];
-                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(applyTimeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}&kind=signature&rn=${encodeURIComponent(targetName)}`;
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(applyTimeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyTitle)}&at=${encodeURIComponent(applyTimeStr)}&kind=signature&rn=${encodeURIComponent(targetName)}`;
                 
                 // Use distinct actions for signature
                 const approveUrl = `${baseUrl}?action=approve_sig&id=${sig.id}&token=${token}${contextParams}`;
                 const rejectUrl = `${baseUrl}?action=reject_sig&id=${sig.id}&token=${token}${contextParams}`;
                 
-                const text = `給親愛的${targetName}，請核示\n\n📋【${companyName} 簽呈審核】\n\n👤 申請人：${name}\n📌 類型：${type}\n📅 申請時間：${applyTimeStr}\n📝 內容：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
+                const text = `給親愛的${targetName}，請核示\n\n📋【${companyTitle} 簽呈審核】\n\n👤 申請人：${name}\n📌 類型：${type}\n📅 申請時間：${applyTimeStr}\n📝 內容：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
                 
                 const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
                 window.open(shareUrl, '_blank');
@@ -10702,14 +11118,34 @@
             }, []);
 
             useEffect(() => {
-                if (!user) return;
                 const unsubscribes = [];
+                let cancelled = false;
+                const communitiesRef = collection(db, 'artifacts', appId, 'public', 'data', 'communities');
 
-                // Communities
+                const setAndCacheCommunities = (list) => {
+                    setCommunities(list);
+                    try {
+                        localStorage.setItem('communities_cache_v1', JSON.stringify(list.map(c => ({ id: c.id, name: c.name || '' }))));
+                    } catch {}
+                };
+
+                if (!user) {
+                    (async () => {
+                        try {
+                            const snap = await getDocs(communitiesRef);
+                            if (cancelled) return;
+                            setAndCacheCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                        } catch {}
+                    })();
+                    return () => {
+                        cancelled = true;
+                    };
+                }
+
                 unsubscribes.push(onSnapshot(
-                    collection(db, 'artifacts', appId, 'public', 'data', 'communities'),
-                    (snap) => setCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-                    (err) => handleFetchError(err, 'communities_snap')
+                    communitiesRef,
+                    (snap) => setAndCacheCommunities(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    () => {}
                 ));
 
                 // Roles
@@ -10723,7 +11159,10 @@
                     (err) => handleFetchError(err, 'roles_snap')
                 ));
 
-                return () => unsubscribes.forEach(u => u());
+                return () => {
+                    cancelled = true;
+                    unsubscribes.forEach(u => u());
+                };
             }, [user]);
 
             // 1. Stable Data (Companies, Areas, Users, All Attendance)
@@ -11120,7 +11559,8 @@
                                 if (!isRoleMatch && !isUserMatch) return;
 
                                 let isCommunityMatch = false;
-                                if (myRole === 'admin') isCommunityMatch = true;
+                                if (isUserMatch) isCommunityMatch = true;
+                                else if (myRole === 'admin') isCommunityMatch = true;
                                 else {
                                     const myComms = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
                                     isCommunityMatch = myComms.some(cid => String(cid) === String(targetCommunityId));
@@ -11814,34 +12254,33 @@
                 const name = user.name || r.userName || '未知';
                 const type = r.leaveReason || '請假';
                 
-                // Get Company or Community Name
-                let companyName = '';
-                
-                // 1. Try Community ID from record
-                if (r.communityId) {
-                    const c = communities.find(x => x.id === r.communityId);
-                    if (c) companyName = c.name;
-                }
-                
-                // 2. Try Company ID from record
-                if (!companyName && r.companyId) {
-                     const company = companies.find(c => String(c.id) === String(r.companyId));
-                     if (company) companyName = company.name;
-                }
-                
-                // 3. Try User's Community (if not found in record)
-                if (!companyName && user.communityId) {
-                    const c = communities.find(x => x.id === user.communityId);
-                    if (c) companyName = c.name;
-                }
-
-                // 4. Try User's Company (if not found in record)
-                if (!companyName && user.companyId) {
-                    const company = companies.find(c => String(c.id) === String(user.companyId));
-                    if (company) companyName = company.name;
-                }
-                
-                if (!companyName) companyName = '公司/社區';
+                // Resolve Company Group Title ("台北公司" 或 "桃園公司")
+                const resolveCompanyGroupTitle = () => {
+                    let company = null;
+                    if (r.companyId) {
+                        company = companies.find(c => String(c.id) === String(r.companyId)) || null;
+                    }
+                    if (!company && r.communityId) {
+                        const comm = communities.find(x => String(x.id) === String(r.communityId));
+                        if (comm && comm.companyId) {
+                            company = companies.find(c => String(c.id) === String(comm.companyId)) || null;
+                        }
+                    }
+                    if (!company && user.companyId) {
+                        company = companies.find(c => String(c.id) === String(user.companyId)) || null;
+                    }
+                    if (!company && user.communityId) {
+                        const comm = communities.find(x => String(x.id) === String(user.communityId));
+                        if (comm && comm.companyId) {
+                            company = companies.find(c => String(c.id) === String(comm.companyId)) || null;
+                        }
+                    }
+                    const name = company?.name || '';
+                    if (name.includes('台北')) return '台北公司';
+                    if (name.includes('桃園')) return '桃園公司';
+                    return '公司';
+                };
+                const companyTitle = resolveCompanyGroupTitle();
 
                 // Get Application Time
                 let applyTimeStr = '';
@@ -11862,11 +12301,11 @@
                 
                 // Construct URLs with token and context
                 const baseUrl = window.location.href.split('?')[0];
-                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyName)}&at=${encodeURIComponent(applyTimeStr)}&rn=${encodeURIComponent(targetName)}`;
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(type)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyTitle)}&at=${encodeURIComponent(applyTimeStr)}&rn=${encodeURIComponent(targetName)}`;
                 const approveUrl = `${baseUrl}?action=approve&id=${r.id}&token=${token}${contextParams}`;
                 const rejectUrl = `${baseUrl}?action=reject&id=${r.id}&token=${token}${contextParams}`;
                 
-                const text = `給親愛的${targetName}，請核示\n\n📋【${companyName} 請假審核】\n\n👤 申請人：${name}\n📌 假別：${type}\n📅 時間：${timeStr}\n📝 事由：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
+                const text = `給親愛的${targetName}，請核示\n\n📋【${companyTitle} 請假審核】\n\n👤 申請人：${name}\n📌 假別：${type}\n📅 時間：${timeStr}\n📝 事由：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
                 
                 const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
                 window.open(shareUrl, '_blank');
@@ -12095,6 +12534,219 @@
                 }
             };
 
+            const calculateAgeFromBirthdate = (birthdate) => {
+                if (!birthdate) return '';
+                const birth = new Date(birthdate);
+                const today = new Date();
+                let age = today.getFullYear() - birth.getFullYear();
+                const m = today.getMonth() - birth.getMonth();
+                if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+                return age;
+            };
+
+            const fetchPendingRegistrationsForCommunity = async (communityId) => {
+                setPendingRegistrationsLoading(true);
+                try {
+                    const q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'pending_registrations'),
+                        where('communityId', '==', String(communityId))
+                    );
+                    const snap = await getDocs(q);
+                    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                        .filter(r => (r.status || 'pending') === 'pending');
+                    list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                    setPendingRegistrations(list);
+                } catch (e) {
+                    console.error(e);
+                    setPendingRegistrations([]);
+                    setToast('讀取待審帳號失敗');
+                } finally {
+                    setPendingRegistrationsLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                if (!user || !dbUser) {
+                    setPendingRegistrationsCount(0);
+                    setPendingRegistrationsCountMap({});
+                    return;
+                }
+                const allowedCommIds = (() => {
+                    if (dbUser?.role === 'admin') return null;
+                    const ids = dbUser?.communityIds || (dbUser?.communityId ? [dbUser.communityId] : []);
+                    return new Set((ids || []).map(x => String(x)));
+                })();
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'pending_registrations'),
+                    where('status', '==', 'pending')
+                );
+                const unsub = onSnapshot(
+                    q,
+                    (snap) => {
+                        const next = {};
+                        snap.docs.forEach(d => {
+                            const data = d.data() || {};
+                            const cid = String(data.communityId || '').trim();
+                            if (!cid) return;
+                            if (allowedCommIds && !allowedCommIds.has(cid)) return;
+                            next[cid] = (next[cid] || 0) + 1;
+                        });
+                        setPendingRegistrationsCountMap(next);
+                        const selectedKey = String(communityTabSelectedId || '').trim();
+                        setPendingRegistrationsCount(selectedKey ? (next[selectedKey] || 0) : 0);
+                    },
+                    () => {
+                        setPendingRegistrationsCount(0);
+                        setPendingRegistrationsCountMap({});
+                    }
+                );
+                return () => unsub();
+            }, [user, dbUser, communityTabSelectedId]);
+
+            const pendingLeavesCountMap = useMemo(() => {
+                try {
+                    if (!user || !dbUser) return {};
+                    const allowedCommIds = (() => {
+                        if (dbUser?.role === 'admin') return null;
+                        const ids = dbUser?.communityIds || (dbUser?.communityId ? [dbUser.communityId] : []);
+                        return new Set((ids || []).map(x => String(x)));
+                    })();
+                    const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+                    const targetRoleIds = (roles || []).filter(r => targetRoleNames.includes(r.name)).map(r => r.id);
+                    const allowedUsersByComm = {};
+                    (usersList || []).forEach(u => {
+                        if (u.status && u.status !== '在職') return;
+                        const rName = u.roleName || ((roles || []).find(r => r.id === u.role)?.name) || '';
+                        const hasRole = targetRoleIds.includes(u.role) || targetRoleNames.includes(rName);
+                        if (!hasRole) return;
+                        const comms = Array.isArray(u.communityIds) && u.communityIds.length > 0
+                            ? u.communityIds
+                            : (u.communityId ? [u.communityId] : []);
+                        (comms || []).forEach(cidRaw => {
+                            const cid = String(cidRaw || '').trim();
+                            if (!cid) return;
+                            if (allowedCommIds && !allowedCommIds.has(cid)) return;
+                            if (!allowedUsersByComm[cid]) allowedUsersByComm[cid] = new Set();
+                            allowedUsersByComm[cid].add(String(u.id));
+                        });
+                    });
+                    const map = {};
+                    (leavesList || []).forEach(l => {
+                        if (l.approvalStatus !== 'pending') return;
+                        const cid = String(l.communityId || '').trim();
+                        if (!cid) return;
+                        if (allowedCommIds && !allowedCommIds.has(cid)) return;
+                        const allowedSet = allowedUsersByComm[cid];
+                        if (!allowedSet) return;
+                        if (!allowedSet.has(String(l.userId))) return;
+                        map[cid] = (map[cid] || 0) + 1;
+                    });
+                    return map;
+                } catch (e) {
+                    return {};
+                }
+            }, [user, dbUser, roles, usersList, leavesList]);
+
+            const openPendingRegistrationsModal = async () => {
+                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                if (!selectedCommunity) {
+                    setToast('請先選擇社區');
+                    return;
+                }
+                setPendingRegistrationsModalOpen(true);
+                await fetchPendingRegistrationsForCommunity(selectedCommunity.id);
+            };
+
+            const resolveRoleIdFromApplyingRole = (roleName) => {
+                const name = String(roleName || '').trim();
+                const dbRole = (roles || []).find(r => r.name === name);
+                if (dbRole) return dbRole.id;
+                const standardMap = {
+                    '總幹事': 'manager',
+                    '秘書': 'secretary',
+                    '清潔': 'cleaner',
+                    '機電': 'mechanic',
+                    '保全': 'guard'
+                };
+                return standardMap[name] || 'staff';
+            };
+
+            const handleApprovePendingRegistration = async (reg) => {
+                if (!reg) return;
+                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                if (!selectedCommunity) {
+                    setToast('請先選擇社區');
+                    return;
+                }
+                if (!reg.email || !reg.password || !reg.name) {
+                    setToast('資料不完整（Email/密碼/姓名）');
+                    return;
+                }
+                if (!confirm(`確定要將「${reg.name}」加入該社區帳號列表嗎？`)) return;
+
+                setPendingRegistrationsBusyId(reg.id);
+                try {
+                    const roleId = resolveRoleIdFromApplyingRole(reg.applyingRole);
+                    const startDate = new Date().toISOString().split('T')[0];
+
+                    await handleAddUser({
+                        name: reg.name,
+                        email: reg.email,
+                        password: reg.password,
+                        role: roleId,
+                        title: reg.jobTitle || '',
+                        phone: reg.phone || '',
+                        avatarUrl: (typeof reg.avatarUrl === 'string' ? reg.avatarUrl : '') || '',
+                        status: '在職',
+                        startDate,
+                        communityId: selectedCommunity.id,
+                        communityIds: [selectedCommunity.id]
+                    });
+
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pending_registrations', reg.id), {
+                        status: 'approved',
+                        approvedAt: serverTimestamp(),
+                        approvedById: dbUser?.id || '',
+                        approvedByName: dbUser?.name || ''
+                    });
+
+                    await fetchPendingRegistrationsForCommunity(selectedCommunity.id);
+                    setToast('已加入該社區帳號列表');
+                } catch (e) {
+                    console.error(e);
+                    setToast('加入失敗: ' + (e?.message || '請重試'));
+                } finally {
+                    setPendingRegistrationsBusyId('');
+                }
+            };
+
+            const handleRejectPendingRegistration = async (reg) => {
+                if (!reg) return;
+                const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
+                if (!selectedCommunity) {
+                    setToast('請先選擇社區');
+                    return;
+                }
+                if (!confirm(`確定要駁回「${reg.name}」的申請嗎？`)) return;
+
+                setPendingRegistrationsBusyId(reg.id);
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pending_registrations', reg.id), {
+                        status: 'rejected',
+                        rejectedAt: serverTimestamp(),
+                        rejectedById: dbUser?.id || '',
+                        rejectedByName: dbUser?.name || ''
+                    });
+                    await fetchPendingRegistrationsForCommunity(selectedCommunity.id);
+                    setToast('已駁回');
+                } catch (e) {
+                    console.error(e);
+                    setToast('駁回失敗: ' + (e?.message || '請重試'));
+                } finally {
+                    setPendingRegistrationsBusyId('');
+                }
+            };
+
             const handleAdminResetUserPassword = async () => {
                 if (!editingUser) return;
                 if (!editingUser.email) {
@@ -12287,7 +12939,7 @@
             }
 
             if (view === 'login') {
-                return <Login onLogin={handleLogin} onLoginSuccess={() => setView('dashboard')} isOnline={isOnline} />;
+                return <Login onLogin={handleLogin} onLoginSuccess={() => setView('dashboard')} isOnline={isOnline} communities={communities} />;
             }
 
             return (
@@ -13106,9 +13758,14 @@
                                     </button>
                                     <button 
                                         onClick={() => setCommunitySubtab('account')} 
-                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${communitySubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative whitespace-nowrap`}
                                     >
                                         帳號
+                                        {pendingRegistrationsCount > 0 && (
+                                            <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
+                                                {pendingRegistrationsCount}
+                                            </span>
+                                        )}
                                     </button>
                                 </div>
                             )}
@@ -19560,7 +20217,18 @@
                                             );
                                         })()}
                                     </div>
-                                    <div className="flex justify-end">
+                                    <div className="flex justify-end gap-2">
+                                        <button
+                                            onClick={openPendingRegistrationsModal}
+                                            className="relative px-4 py-2 bg-orange-100 text-orange-700 rounded-xl font-bold hover:bg-orange-200 shadow-lg shadow-orange-100 flex items-center gap-2"
+                                        >
+                                            待審帳號
+                                            {pendingRegistrationsCount > 0 && (
+                                                <span className="absolute -top-2 -right-2 min-w-6 h-6 px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center shadow-lg shadow-red-200">
+                                                    {pendingRegistrationsCount}
+                                                </span>
+                                            )}
+                                        </button>
                                         <button
                                             onClick={handleAddUserClick}
                                             className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 flex items-center gap-2"
@@ -23105,6 +23773,8 @@
                                                     const missDay = needDay.filter(p => !assigned.day.has(p)).length;
                                                     const missNight = needNight.filter(p => !assigned.night.has(p)).length;
                                                     hasAbnormal = (redCount + missDay + missNight) > 0;
+                                                    if ((pendingLeavesCountMap[String(comm.id)] || 0) > 0) hasAbnormal = true;
+                                                    if ((pendingRegistrationsCountMap[String(comm.id)] || 0) > 0) hasAbnormal = true;
                                                 } catch (e) {}
                                                 return (
                                                     <button 
@@ -26960,6 +27630,115 @@
                             </div>
                         );
                     })()}
+
+                    {pendingRegistrationsModalOpen && (
+                        <div className="fixed inset-0 z-[85] bg-black/50 flex items-center justify-center p-4" onClick={() => setPendingRegistrationsModalOpen(false)}>
+                            <div className="bg-white w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0 bg-white">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="text-xl font-bold text-gray-800 truncate">待審帳號</div>
+                                            {pendingRegistrationsCount > 0 && (
+                                                <span className="min-w-6 h-6 px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center shadow-lg shadow-red-200 flex-shrink-0">
+                                                    {pendingRegistrationsCount}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="text-xs font-bold text-gray-400 mt-1 truncate">
+                                            社區：{communityTabSelectedId} {(communities || []).find(c => c.id === communityTabSelectedId)?.name ? `- ${(communities || []).find(c => c.id === communityTabSelectedId)?.name}` : ''}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setPendingRegistrationsModalOpen(false)}
+                                        className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors"
+                                    >
+                                        <X className="w-6 h-6" />
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto p-6 bg-gray-50">
+                                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                        <table className="w-full text-sm text-left text-gray-500">
+                                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b border-gray-100">
+                                                <tr>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">角色</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">大頭照</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">姓名</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">手機</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">職稱</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">年齡</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">申請時間</th>
+                                                    <th scope="col" className="px-6 py-4 font-bold whitespace-nowrap">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {pendingRegistrationsLoading ? (
+                                                    <tr>
+                                                        <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
+                                                            讀取中...
+                                                        </td>
+                                                    </tr>
+                                                ) : pendingRegistrations.length > 0 ? (
+                                                    pendingRegistrations.map((reg) => (
+                                                        <tr key={reg.id} className="bg-white hover:bg-gray-50 transition-colors">
+                                                            <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                                                {reg.applyingRole || '-'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 overflow-hidden">
+                                                                    {reg.avatarUrl ? <img src={reg.avatarUrl} className="w-full h-full object-cover" /> : (reg.name?.[0] || '?')}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                                                {reg.name}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                {reg.phone || '-'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                {reg.jobTitle || '-'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <span className={Number(calculateAgeFromBirthdate(reg.birthdate) || 0) > 70 ? 'text-red-600 font-bold animate-pulse' : ''}>
+                                                                    {calculateAgeFromBirthdate(reg.birthdate)}{reg.birthdate ? ' 歲' : '-'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-gray-400 text-xs">
+                                                                {formatDateTime(reg.createdAt)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        onClick={() => handleApprovePendingRegistration(reg)}
+                                                                        disabled={pendingRegistrationsBusyId === reg.id}
+                                                                        className="px-3 py-2 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 font-bold disabled:opacity-50"
+                                                                    >
+                                                                        加入
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleRejectPendingRegistration(reg)}
+                                                                        disabled={pendingRegistrationsBusyId === reg.id}
+                                                                        className="px-3 py-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold disabled:opacity-50"
+                                                                    >
+                                                                        駁回
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                ) : (
+                                                    <tr>
+                                                        <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
+                                                            無待審帳號資料
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {isAddUserModalOpen && (
                         <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setIsAddUserModalOpen(false)}>

@@ -17,8 +17,14 @@ let adminInitialized = false;
 const initFirebaseAdmin = () => {
   if (adminInitialized) return;
   try {
+    const projectId =
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.GCLOUD_PROJECT ||
+      process.env.GCP_PROJECT ||
+      'nw-checkin-all-2026';
     admin.initializeApp({
       credential: admin.credential.applicationDefault(),
+      projectId,
     });
     adminInitialized = true;
     console.log('Firebase Admin initialized successfully');
@@ -394,6 +400,48 @@ const handleAdminResetPassword = async (req, res) => {
   }
 };
 
+const handlePublicCommunityName = async (req, res) => {
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Method Not Allowed');
+    return;
+  }
+
+  let code = '';
+  try {
+    const base = `http://${req.headers.host || `localhost:${port}`}`;
+    const u = new URL(req.url, base);
+    code = String(u.searchParams.get('code') || '').trim();
+  } catch (e) {
+    sendJson(res, 400, { ok: false, message: 'Bad Request' });
+    return;
+  }
+
+  if (!code) {
+    sendJson(res, 400, { ok: false, message: 'Missing code' });
+    return;
+  }
+
+  try {
+    const db = getArtifactsDb();
+    if (!db) {
+      sendJson(res, 500, { ok: false, message: 'Firebase Admin not initialized' });
+      return;
+    }
+
+    const snap = await getPublicDataCollection(db, 'communities').doc(code).get();
+    if (!snap.exists) {
+      sendJson(res, 200, { ok: true, exists: false, name: '' });
+      return;
+    }
+    const data = snap.data() || {};
+    sendJson(res, 200, { ok: true, exists: true, name: String(data.name || '') });
+  } catch (e) {
+    console.error('Public community name error:', e);
+    sendJson(res, 500, { ok: false, message: e.message || 'Internal server error' });
+  }
+};
+
 const server = http.createServer((req, res) => {
   // Log requests only when enabled, and skip known noisy paths
   const urlPath = req.url.split('?')[0];
@@ -402,6 +450,11 @@ const server = http.createServer((req, res) => {
   }
 
   // API Routes
+  if (urlPath === '/api/public/community-name') {
+    handlePublicCommunityName(req, res);
+    return;
+  }
+
   if (urlPath === '/api/admin/reset-password') {
     handleAdminResetPassword(req, res);
     return;
