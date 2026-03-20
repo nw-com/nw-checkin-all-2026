@@ -16187,6 +16187,27 @@
                                                             const et = new Date(year, month, d, Number(eh) || 0, Number(em) || 0, 0, 0);
                                                             isEarly = outTime < et || dayRecords.some(r => r.type === 'leave_early');
                                                         }
+                                                        let missingType = null;
+                                                        if (!isBeforeStartDate) {
+                                                            if (isPastDateGrid) {
+                                                                if (!inTime && !outTime) missingType = 'missing_both';
+                                                                else if (!inTime) missingType = 'missing_in';
+                                                                else if (!outTime) missingType = 'missing_out';
+                                                            } else if (isToday && schedule.startTime && schedule.endTime) {
+                                                                const now = new Date();
+                                                                const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
+                                                                const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
+                                                                const st = new Date(year, month, d, Number(sh) || 0, Number(sm) || 0, 0, 0);
+                                                                const et = new Date(year, month, d, Number(eh) || 0, Number(em) || 0, 0, 0);
+                                                                if (now >= et) {
+                                                                    if (!inTime && !outTime) missingType = 'missing_both';
+                                                                    else if (!inTime) missingType = 'missing_in';
+                                                                    else if (!outTime) missingType = 'missing_out';
+                                                                } else if (now >= st) {
+                                                                    if (!inTime) missingType = 'missing_in';
+                                                                }
+                                                            }
+                                                        }
                                                         if (isLate || isEarly) {
                                                             cellClass = 'bg-red-100 text-red-700 border border-red-200';
                                                             attendanceStatus = 'abnormal';
@@ -16194,10 +16215,10 @@
                                                         } else if (inTime && outTime) {
                                                             cellClass = 'bg-green-100 text-green-700 border border-green-200';
                                                             attendanceStatus = 'normal';
-                                                        } else if (!inTime && !outTime && isPastDateGrid && !isBeforeStartDate) {
-                                                            cellClass = 'bg-red-100 text-red-700 border border-red-200';
+                                                        } else if (missingType) {
+                                                            cellClass = 'bg-red-50 text-red-700 border border-red-200';
                                                             attendanceStatus = 'abnormal';
-                                                            statusType = 'absent';
+                                                            statusType = missingType;
                                                         }
                                                     }
 
@@ -16222,9 +16243,13 @@
                                                                 </span>
                                                             ) : schedule ? (
                                                                 <div className="flex flex-col items-center w-full">
-                                                                    <span className="text-[10px] scale-90 font-bold truncate w-full text-center px-1">
+                                                                    <span className={`text-[10px] scale-90 font-bold truncate w-full text-center px-1 ${(statusType === 'missing_in' || statusType === 'missing_out' || statusType === 'missing_both') ? 'text-red-600' : ''}`}>
                                                                         {attendanceStatus === 'normal' ? '正常' : 
-                                                                         attendanceStatus === 'abnormal' ? (statusType === 'absent' ? '異常-曠職' : '異常') :
+                                                                         attendanceStatus === 'abnormal' ? (
+                                                                            statusType === 'missing_in' ? '未打上班' :
+                                                                            statusType === 'missing_out' ? '未打下班' :
+                                                                            statusType === 'missing_both' ? '未打卡' : '異常'
+                                                                         ) :
                                                                          schedule.type === 'work' ? '上班' : 
                                                                          schedule.type === 'duty' ? '值班' : 
                                                                          schedule.type === 'card' ? '卡班' : 
