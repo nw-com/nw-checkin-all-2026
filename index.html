@@ -162,11 +162,29 @@
                 overlay.style.display = isLandscape ? 'flex' : 'none';
             }
 
-            async function tryLockPortrait() {
+            async function lockPortraitWithFullscreen() {
+                if (!screen || !screen.orientation || !screen.orientation.lock) return false;
                 try {
-                    if (!screen || !screen.orientation || !screen.orientation.lock) return;
                     await screen.orientation.lock('portrait');
-                } catch (_) {}
+                    return true;
+                } catch (_) {
+                    // 部分 Android 需要在全螢幕內鎖定
+                    var el = document.documentElement;
+                    if (el.requestFullscreen) {
+                        try {
+                            await el.requestFullscreen();
+                            await screen.orientation.lock('portrait');
+                            // 鎖定後不強制待在全螢幕，若支援可自動退出
+                            if (document.exitFullscreen) {
+                                try { await document.exitFullscreen(); } catch (_) {}
+                            }
+                            return true;
+                        } catch (_) {
+                            return false;
+                        }
+                    }
+                    return false;
+                }
             }
 
             function sync() {
@@ -183,14 +201,20 @@
             window.addEventListener('resize', sync, { passive: true });
             window.addEventListener('orientationchange', function () {
                 sync();
-                tryLockPortrait();
+                lockPortraitWithFullscreen();
+            });
+            window.addEventListener('pageshow', function () {
+                lockPortraitWithFullscreen();
+            });
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) lockPortraitWithFullscreen();
             });
 
-            document.addEventListener('touchstart', tryLockPortrait, { once: true, passive: true });
-            document.addEventListener('click', tryLockPortrait, { once: true, passive: true });
+            document.addEventListener('touchstart', lockPortraitWithFullscreen, { once: true, passive: true });
+            document.addEventListener('click', lockPortraitWithFullscreen, { once: true, passive: true });
 
             sync();
-            tryLockPortrait();
+            lockPortraitWithFullscreen();
         })();
     </script>
 
