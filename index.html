@@ -76,6 +76,25 @@
             animation: bg-red-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
+        html, body {
+            height: 100%;
+        }
+
+        #orientation-guard {
+            display: none;
+        }
+
+        @media (orientation: landscape) {
+            #orientation-guard {
+                display: flex;
+            }
+            #root {
+                filter: blur(2px);
+                pointer-events: none;
+                user-select: none;
+            }
+        }
+
         @media print {
             @page {
                 size: A4 portrait;
@@ -111,6 +130,66 @@
 </head>
 <body class="bg-gray-100 text-gray-900 font-sans antialiased">
     <div id="root"></div>
+    <div id="orientation-guard" role="status" aria-live="polite" class="fixed inset-0 z-[9999] items-center justify-center bg-black/70 p-6">
+        <div class="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 2v2"></path>
+                    <path d="M12 20v2"></path>
+                    <path d="m4.93 4.93 1.41 1.41"></path>
+                    <path d="m17.66 17.66 1.41 1.41"></path>
+                    <path d="M2 12h2"></path>
+                    <path d="M20 12h2"></path>
+                    <path d="m6.34 17.66-1.41 1.41"></path>
+                    <path d="m19.07 4.93-1.41 1.41"></path>
+                    <path d="M8 12a4 4 0 1 0 8 0a4 4 0 0 0-8 0"></path>
+                </svg>
+            </div>
+            <div class="text-lg font-semibold">請將手機轉回直向</div>
+            <div class="mt-2 text-sm text-gray-600">為了避免版面跑版，打卡系統僅支援直向顯示。</div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var mql = window.matchMedia ? window.matchMedia('(orientation: landscape)') : null;
+            var overlay = document.getElementById('orientation-guard');
+            function setOverlayVisible(isLandscape) {
+                if (!overlay) return;
+                overlay.style.display = isLandscape ? 'flex' : 'none';
+            }
+
+            async function tryLockPortrait() {
+                try {
+                    if (!screen || !screen.orientation || !screen.orientation.lock) return;
+                    await screen.orientation.lock('portrait');
+                } catch (_) {}
+            }
+
+            function sync() {
+                var isLandscape = mql ? !!mql.matches : (window.innerWidth > window.innerHeight);
+                setOverlayVisible(isLandscape);
+            }
+
+            if (mql && mql.addEventListener) {
+                mql.addEventListener('change', sync);
+            } else if (mql && mql.addListener) {
+                mql.addListener(sync);
+            }
+
+            window.addEventListener('resize', sync, { passive: true });
+            window.addEventListener('orientationchange', function () {
+                sync();
+                tryLockPortrait();
+            });
+
+            document.addEventListener('touchstart', tryLockPortrait, { once: true, passive: true });
+            document.addEventListener('click', tryLockPortrait, { once: true, passive: true });
+
+            sync();
+            tryLockPortrait();
+        })();
+    </script>
 
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef, useMemo } from 'react';
