@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>社區意見反應</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="社區意見反應">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone@7.23.8/babel.min.js"></script>
+
+    <!-- Import Map for Modules -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0"
+      }
+    }
+    </script>
+
+    <style>
+        /* Font Unification: Traditional Chinese */
+        body {
+            font-family: "Microsoft JhengHei", "PingFang TC", "Heiti TC", "Apple LiGothic Medium", "PMingLiU", sans-serif !important;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+        }
+
+        /* Full height layout */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* 防止整個頁面滾動，由 80% 區域自行滾動 */
+        }
+
+        #root {
+            height: 100%;
+            width: 100%;
+        }
+
+        /* Orientation Guard Styles */
+        #orientation-guard {
+            display: none;
+        }
+
+        @media (orientation: landscape) {
+            #orientation-guard {
+                display: flex;
+            }
+            #root {
+                filter: blur(2px);
+                pointer-events: none;
+                user-select: none;
+            }
+        }
+
+        /* Safe area for iPhone notch */
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans antialiased">
+    <div id="root"></div>
+
+    <!-- 橫向遮罩 (與 index.html 相同) -->
+    <div id="orientation-guard" role="status" aria-live="polite" class="fixed inset-0 z-[9999] items-center justify-center bg-black/70 p-6">
+        <div class="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 2v2"></path>
+                    <path d="M12 20v2"></path>
+                    <path d="m4.93 4.93 1.41 1.41"></path>
+                    <path d="m17.66 17.66 1.41 1.41"></path>
+                    <path d="M2 12h2"></path>
+                    <path d="M20 12h2"></path>
+                    <path d="m6.34 17.66-1.41 1.41"></path>
+                    <path d="m19.07 4.93-1.41 1.41"></path>
+                    <path d="M8 12a4 4 0 1 0 8 0a4 4 0 0 0-8 0"></path>
+                </svg>
+            </div>
+            <div class="text-lg font-semibold">請將手機轉回直向</div>
+            <div class="mt-2 text-sm text-gray-600">為了提供最佳瀏覽體驗，此頁面僅支援直向顯示。</div>
+        </div>
+    </div>
+
+    <!-- 手機直屏強制鎖定腳本 -->
+    <script>
+        (function () {
+            var mql = window.matchMedia ? window.matchMedia('(orientation: landscape)') : null;
+            var overlay = document.getElementById('orientation-guard');
+            function setOverlayVisible(isLandscape) {
+                if (!overlay) return;
+                overlay.style.display = isLandscape ? 'flex' : 'none';
+            }
+
+            async function tryLockPortrait() {
+                try {
+                    if (!screen || !screen.orientation || !screen.orientation.lock) return;
+                    await screen.orientation.lock('portrait');
+                } catch (_) {}
+            }
+
+            function sync() {
+                var isLandscape = mql ? !!mql.matches : (window.innerWidth > window.innerHeight);
+                setOverlayVisible(isLandscape);
+            }
+
+            if (mql && mql.addEventListener) {
+                mql.addEventListener('change', sync);
+            } else if (mql && mql.addListener) {
+                mql.addListener(sync);
+            }
+
+            window.addEventListener('resize', sync, { passive: true });
+            window.addEventListener('orientationchange', function () {
+                sync();
+                tryLockPortrait();
+            });
+
+            document.addEventListener('touchstart', tryLockPortrait, { once: true, passive: true });
+            document.addEventListener('click', tryLockPortrait, { once: true, passive: true });
+
+            sync();
+            tryLockPortrait();
+        })();
+    </script>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { MessageCircle, Phone, Send, Camera, X } from 'lucide-react';
+
+        function FeedbackApp() {
+            const [activeTab, setActiveTab] = useState('online');
+            const [communityId, setCommunityId] = useState('');
+            const [communityName, setCommunityName] = useState('');
+            const [photos, setPhotos] = useState([]);
+            const [showSuccess, setShowSuccess] = useState(false);
+            const fileInputRef = useRef(null);
+
+            // 讀取網址參數 (例如: feedback.html?id=A001&name=陽光社區)
+            useEffect(() => {
+                const params = new URLSearchParams(window.location.search);
+                const idParam = params.get('id') || 'C000';
+                const nameParam = params.get('name') || '測試社區';
+                setCommunityId(idParam);
+                setCommunityName(nameParam);
+            }, []);
+
+            const handlePhotoUpload = (e) => {
+                const files = Array.from(e.target.files);
+                if (photos.length + files.length > 3) {
+                    alert('最多只能上傳3張照片');
+                    return;
+                }
+                
+                const newPhotos = files.map(file => ({
+                    file,
+                    previewUrl: URL.createObjectURL(file)
+                }));
+                
+                setPhotos(prev => [...prev, ...newPhotos].slice(0, 3));
+            };
+
+            const removePhoto = (index) => {
+                setPhotos(prev => {
+                    const newPhotos = [...prev];
+                    URL.revokeObjectURL(newPhotos[index].previewUrl);
+                    newPhotos.splice(index, 1);
+                    return newPhotos;
+                });
+            };
+
+            const handleSubmit = () => {
+                // 這裡可以加入實際的 API 傳送邏輯
+                setShowSuccess(true);
+                setTimeout(() => {
+                    setShowSuccess(false);
+                    // 清空表單
+                    setPhotos(prev => {
+                        prev.forEach(p => URL.revokeObjectURL(p.previewUrl));
+                        return [];
+                    });
+                    document.querySelectorAll('input, textarea').forEach(el => el.value = '');
+                }, 3000); // 3秒後自動關閉
+            };
+
+            return (
+                <div className="flex flex-col h-full w-full bg-white">
+                    {/* 頁首 10% */}
+                    <header className="h-[10%] flex items-center justify-center bg-red-600 text-white shadow-md z-10 shrink-0">
+                        <h1 className="text-xl font-bold truncate px-4">
+                            {communityId} {communityName}
+                        </h1>
+                    </header>
+
+                    {/* 頁中 80% */}
+                    <main className="h-[80%] overflow-y-auto bg-gray-50 p-5">
+                        {activeTab === 'online' && (
+                            <div className="h-full flex flex-col animate-fade-in">
+                                <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 flex-1">
+                                    <h2 className="text-lg font-bold text-gray-800 mb-2">線上意見反應</h2>
+                                    <p className="text-sm text-gray-500 mb-5">請留下您的意見，我們將盡快為您處理。</p>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">戶號 / 姓名</label>
+                                            <input 
+                                                type="text" 
+                                                className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" 
+                                                placeholder="例：A棟3樓 王先生" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">聯繫電話 / 手機</label>
+                                            <input 
+                                                type="tel" 
+                                                className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" 
+                                                placeholder="例：0912-345-678" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">電子郵件 (選填)</label>
+                                            <input 
+                                                type="email" 
+                                                className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" 
+                                                placeholder="例：example@email.com" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">反應內容</label>
+                                            <textarea 
+                                                className="w-full border border-gray-300 rounded-lg p-3 text-base h-40 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all resize-none" 
+                                                placeholder="請詳細描述您的問題或建議..."
+                                            ></textarea>
+                                        </div>
+                                        
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">上傳照片 (最多 3 張)</label>
+                                            <div className="flex flex-wrap gap-3">
+                                                {photos.map((photo, index) => (
+                                                    <div key={index} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                                                        <img src={photo.previewUrl} alt={`上傳照片 ${index + 1}`} className="w-full h-full object-cover" />
+                                                        <button 
+                                                            onClick={() => removePhoto(index)}
+                                                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 shadow-sm hover:bg-red-600 active:bg-red-700"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                
+                                                {photos.length < 3 && (
+                                                    <div 
+                                                        onClick={() => fileInputRef.current?.click()}
+                                                        className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-red-400 hover:text-red-500 cursor-pointer transition-colors bg-gray-50"
+                                                    >
+                                                        <Camera size={24} className="mb-1" />
+                                                        <span className="text-[10px] font-medium">{photos.length}/3</span>
+                                                    </div>
+                                                )}
+                                                <input 
+                                                    type="file" 
+                                                    ref={fileInputRef} 
+                                                    className="hidden" 
+                                                    accept="image/*" 
+                                                    multiple 
+                                                    onChange={handlePhotoUpload} 
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            onClick={handleSubmit}
+                                            className="w-full bg-red-600 text-white rounded-lg py-3.5 font-bold text-lg flex items-center justify-center space-x-2 hover:bg-red-700 active:bg-red-800 transition-colors mt-4 shadow-sm"
+                                        >
+                                            <Send size={20} />
+                                            <span>送出意見</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'phone' && (
+                            <div className="h-full flex flex-col items-center justify-center animate-fade-in p-4">
+                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center">
+                                    <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-5">
+                                        <Phone size={40} />
+                                    </div>
+                                    <h2 className="text-xl font-bold text-gray-800 mb-2">客服專線</h2>
+                                    <p className="text-sm text-gray-500 mb-8">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
+                                    
+                                    <a 
+                                        href="tel:02-12345678" 
+                                        className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-4 font-bold text-lg hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
+                                    >
+                                        <Phone size={20} />
+                                        <span>撥打 02-1234-5678</span>
+                                    </a>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* 頁尾 10% */}
+                    <footer className="h-[10%] flex border-t border-gray-200 bg-white z-10 shrink-0 pb-safe">
+                        <button 
+                            onClick={() => setActiveTab('online')}
+                            className={`flex-1 flex flex-col items-center justify-center space-y-1 transition-colors ${
+                                activeTab === 'online' ? 'text-red-600 bg-red-50/50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                            }`}
+                        >
+                            <MessageCircle size={26} strokeWidth={activeTab === 'online' ? 2.5 : 2} />
+                            <span className="text-[13px] font-bold">線上</span>
+                        </button>
+                        
+                        {/* 分隔線 */}
+                        <div className="w-[1px] h-3/5 bg-gray-200 self-center"></div>
+
+                        <button 
+                            onClick={() => setActiveTab('phone')}
+                            className={`flex-1 flex flex-col items-center justify-center space-y-1 transition-colors ${
+                                activeTab === 'phone' ? 'text-red-600 bg-red-50/50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                            }`}
+                        >
+                            <Phone size={26} strokeWidth={activeTab === 'phone' ? 2.5 : 2} />
+                            <span className="text-[13px] font-bold">電話</span>
+                        </button>
+                    </footer>
+
+                    {/* 成功提示視窗 */}
+                    {showSuccess && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-6 animate-fade-in">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center shadow-xl transform scale-100 transition-transform duration-300">
+                                <div className="w-16 h-16 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">資料已傳送</h3>
+                                <p className="text-gray-600">感謝您的意見，我們會盡快回覆！</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<FeedbackApp />);
+    </script>
+</body>
+</html>
