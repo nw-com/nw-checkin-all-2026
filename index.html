@@ -8586,6 +8586,46 @@
             });
             const [enableSystemNotification, setEnableSystemNotification] = useState(true); // Default on
 
+            // Fake feedback data for Customer Service tab
+            const [feedbackData, setFeedbackData] = useState([
+                {
+                    communityId: 'A001',
+                    communityName: '陽光社區',
+                    residentName: '王大明',
+                    residentPhone: '0912345678',
+                    residentEmail: 'wang@example.com',
+                    residentFeedback: '大門門禁感應不良',
+                    status: false
+                },
+                {
+                    communityId: 'B002',
+                    communityName: '星光社區',
+                    residentName: '李小華',
+                    residentPhone: '0987654321',
+                    residentEmail: 'lee@example.com',
+                    residentFeedback: '地下室電燈閃爍',
+                    status: true
+                }
+            ]);
+
+            const toggleFeedbackStatus = (index) => {
+                setFeedbackData(prev => {
+                    const newData = [...prev];
+                    newData[index].status = !newData[index].status;
+                    return newData;
+                });
+            };
+
+            const deleteFeedbackItem = (index) => {
+                if (confirm('確定要刪除這筆資料嗎？')) {
+                    setFeedbackData(prev => {
+                        const newData = [...prev];
+                        newData.splice(index, 1);
+                        return newData;
+                    });
+                }
+            };
+
             // Notification Popup Logic
             const [activePopupNotification, setActivePopupNotification] = useState(null);
             const [ignoredNotificationIds, setIgnoredNotificationIds] = useState(new Set());
@@ -13663,6 +13703,12 @@
                                             })()}
                                         </button>
                                     )}
+                                    <button 
+                                        onClick={() => setOverviewSubtab('customerService')} 
+                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'customerService' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                    >
+                                        客服
+                                    </button>
                                     {hasSubPermission('overview', 'general') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('general')} 

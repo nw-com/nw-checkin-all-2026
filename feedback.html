@@ -138,7 +138,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import ReactDOM from 'react-dom/client';
-        import { MessageCircle, Phone, Send, Camera, X } from 'lucide-react';
+        import { MessageCircle, Phone, Send, Camera, X, Headset, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react';
 
         function FeedbackApp() {
             const [activeTab, setActiveTab] = useState('online');
@@ -147,6 +147,46 @@
             const [photos, setPhotos] = useState([]);
             const [showSuccess, setShowSuccess] = useState(false);
             const fileInputRef = useRef(null);
+            
+            // 假資料：客服列表
+            const [feedbackData, setFeedbackData] = useState([
+                {
+                    communityId: 'A001',
+                    communityName: '陽光社區',
+                    residentName: '王大明',
+                    residentPhone: '0912345678',
+                    residentEmail: 'wang@example.com',
+                    residentFeedback: '大門門禁感應不良',
+                    status: false
+                },
+                {
+                    communityId: 'B002',
+                    communityName: '星光社區',
+                    residentName: '李小華',
+                    residentPhone: '0987654321',
+                    residentEmail: 'lee@example.com',
+                    residentFeedback: '地下室電燈閃爍',
+                    status: true
+                }
+            ]);
+
+            const toggleStatus = (index) => {
+                setFeedbackData(prev => {
+                    const newData = [...prev];
+                    newData[index].status = !newData[index].status;
+                    return newData;
+                });
+            };
+
+            const deleteItem = (index) => {
+                if (confirm('確定要刪除這筆資料嗎？')) {
+                    setFeedbackData(prev => {
+                        const newData = [...prev];
+                        newData.splice(index, 1);
+                        return newData;
+                    });
+                }
+            };
 
             // 讀取網址參數 (例如: feedback.html?id=A001&name=陽光社區)
             useEffect(() => {
@@ -209,8 +249,13 @@
                         {activeTab === 'online' && (
                             <div className="h-full flex flex-col animate-fade-in">
                                 <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 flex-1">
-                                    <h2 className="text-lg font-bold text-gray-800 mb-2">線上意見反應</h2>
-                                    <p className="text-sm text-gray-500 mb-5">請留下您的意見，我們將盡快為您處理。</p>
+                                    <h2 className="text-lg font-bold text-gray-800 mb-2">
+                                        <span className="text-red-600 font-bold mr-2">西北保全&物業</span>
+                                        線上意見反應
+                                    </h2>
+                                    <p className="text-sm text-gray-500 mb-5 leading-relaxed">
+                                        感謝您提供寶貴意見，請填寫以下資訊，我們會盡快由專人為您處理。
+                                    </p>
                                     
                                     <div className="space-y-4">
                                         <div>
@@ -292,22 +337,124 @@
                             </div>
                         )}
 
+                        {/* 電話分頁內容 */}
                         {activeTab === 'phone' && (
-                            <div className="h-full flex flex-col items-center justify-center animate-fade-in p-4">
-                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center">
-                                    <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-5">
+                            <div className="h-full flex flex-col items-center p-4 bg-gray-50 animate-fade-in space-y-4 overflow-y-auto">
+                                {/* 台北、新北區塊 */}
+                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center relative shrink-0">
+                                    <div className="absolute top-4 left-4 text-black font-bold text-xl">
+                                        台北、新北
+                                    </div>
+                                    <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-5 mt-4">
                                         <Phone size={40} />
                                     </div>
                                     <h2 className="text-xl font-bold text-gray-800 mb-2">客服專線</h2>
                                     <p className="text-sm text-gray-500 mb-8">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
                                     
                                     <a 
-                                        href="tel:02-12345678" 
+                                        href="tel:02-25555389" 
                                         className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-4 font-bold text-lg hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
                                     >
                                         <Phone size={20} />
-                                        <span>撥打 02-1234-5678</span>
+                                        <span>撥打 02-2555-5389</span>
                                     </a>
+                                </div>
+
+                                {/* 桃園區塊 */}
+                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center relative shrink-0">
+                                    <div className="absolute top-4 left-4 text-black font-bold text-xl">
+                                        桃園
+                                    </div>
+                                    <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-5 mt-4">
+                                        <Phone size={40} />
+                                    </div>
+                                    <h2 className="text-xl font-bold text-gray-800 mb-2">客服專線</h2>
+                                    <p className="text-sm text-gray-500 mb-8">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
+                                    
+                                    <a 
+                                        href="tel:03-3026868" 
+                                        className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-4 font-bold text-lg hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
+                                    >
+                                        <Phone size={20} />
+                                        <span>撥打 03-302-6868</span>
+                                    </a>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 客服子分頁內容 */}
+                        {activeTab === 'customerService' && (
+                            <div className="h-full flex flex-col animate-fade-in">
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col">
+                                    <div className="p-4 border-b border-gray-100 shrink-0">
+                                        <h2 className="text-lg font-bold text-gray-800">
+                                            <span className="text-red-600 font-bold mr-2">西北保全&物業</span>
+                                            客服管理系統
+                                        </h2>
+                                    </div>
+                                    
+                                    <div className="flex-1 overflow-auto p-4">
+                                        <div className="min-w-max">
+                                            <table className="w-full border-collapse text-sm">
+                                                <thead>
+                                                    <tr className="bg-gray-50 border-b border-gray-200">
+                                                        <th className="p-3 text-left font-bold text-gray-700 whitespace-nowrap">社區編號</th>
+                                                        <th className="p-3 text-left font-bold text-gray-700 whitespace-nowrap">社區名稱</th>
+                                                        <th className="p-3 text-left font-bold text-gray-700 whitespace-nowrap">住戶姓名</th>
+                                                        <th className="p-3 text-left font-bold text-gray-700 whitespace-nowrap">住戶電話</th>
+                                                        <th className="p-3 text-left font-bold text-gray-700 whitespace-nowrap">住戶郵件</th>
+                                                        <th className="p-3 text-left font-bold text-gray-700 min-w-[200px]">住戶反應</th>
+                                                        <th className="p-3 text-center font-bold text-gray-700 whitespace-nowrap">狀況</th>
+                                                        <th className="p-3 text-center font-bold text-gray-700 whitespace-nowrap">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {feedbackData.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan="8" className="p-8 text-center text-gray-500">
+                                                                目前沒有任何意見反應資料
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        feedbackData.map((item, index) => (
+                                                            <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                                                <td className="p-3 text-gray-800 whitespace-nowrap">{item.communityId}</td>
+                                                                <td className="p-3 text-gray-800 whitespace-nowrap">{item.communityName}</td>
+                                                                <td className="p-3 text-gray-800 whitespace-nowrap">{item.residentName}</td>
+                                                                <td className="p-3 text-gray-800 whitespace-nowrap">{item.residentPhone}</td>
+                                                                <td className="p-3 text-gray-800 whitespace-nowrap">{item.residentEmail || '-'}</td>
+                                                                <td className="p-3 text-gray-800 break-all">{item.residentFeedback}</td>
+                                                                <td className="p-3 whitespace-nowrap">
+                                                                    <button 
+                                                                        onClick={() => toggleStatus(index)} 
+                                                                        className={`flex items-center justify-center w-full space-x-1 transition-colors ${item.status ? 'text-green-600' : 'text-gray-400 hover:text-orange-500'}`}
+                                                                    >
+                                                                        {item.status ? (
+                                                                            <ToggleRight size={24} className="text-green-500" />
+                                                                        ) : (
+                                                                            <ToggleLeft size={24} className="currentColor" />
+                                                                        )}
+                                                                        <span className="text-xs font-bold w-10 text-left">
+                                                                            {item.status ? '完成' : '未處理'}
+                                                                        </span>
+                                                                    </button>
+                                                                </td>
+                                                                <td className="p-3 whitespace-nowrap text-center">
+                                                                    <button 
+                                                                        onClick={() => deleteItem(index)} 
+                                                                        className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-md hover:bg-red-50 inline-flex"
+                                                                        title="刪除"
+                                                                    >
+                                                                        <Trash2 size={18} />
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -336,6 +483,19 @@
                         >
                             <Phone size={26} strokeWidth={activeTab === 'phone' ? 2.5 : 2} />
                             <span className="text-[13px] font-bold">電話</span>
+                        </button>
+                        
+                        {/* 分隔線 */}
+                        <div className="w-[1px] h-3/5 bg-gray-200 self-center"></div>
+
+                        <button 
+                            onClick={() => setActiveTab('customerService')}
+                            className={`flex-1 flex flex-col items-center justify-center space-y-1 transition-colors ${
+                                activeTab === 'customerService' ? 'text-red-600 bg-red-50/50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                            }`}
+                        >
+                            <Headset size={26} strokeWidth={activeTab === 'customerService' ? 2.5 : 2} />
+                            <span className="text-[13px] font-bold">客服</span>
                         </button>
                     </footer>
 
