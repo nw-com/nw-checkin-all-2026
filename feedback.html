@@ -21,6 +21,8 @@
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0"
       }
     }
@@ -138,15 +140,43 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import ReactDOM from 'react-dom/client';
-        import { MessageCircle, Phone, Send, Camera, X } from 'lucide-react';
+        import { initializeApp, setLogLevel } from 'firebase/app';
+        import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+        import { MessageCircle, Phone, Send } from 'lucide-react';
+
+        // --- Firebase Configuration ---
+        const getFirebaseConfig = () => {
+            if (typeof window !== 'undefined' && window.FIREBASE_CONFIG) {
+                return window.FIREBASE_CONFIG;
+            }
+            if (typeof __firebase_config !== 'undefined') {
+                try {
+                    return JSON.parse(__firebase_config);
+                } catch (e) {
+                    return {};
+                }
+            }
+            return {};
+        };
+
+        const firebaseConfig = getFirebaseConfig();
+        setLogLevel('silent');
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
         function FeedbackApp() {
             const [activeTab, setActiveTab] = useState('online');
             const [communityId, setCommunityId] = useState('');
             const [communityName, setCommunityName] = useState('');
-            const [photos, setPhotos] = useState([]);
             const [showSuccess, setShowSuccess] = useState(false);
-            const fileInputRef = useRef(null);
+
+            const [isSubmitting, setIsSubmitting] = useState(false);
+            const [formData, setFormData] = useState({
+                residentName: '',
+                residentPhone: '',
+                residentEmail: '',
+                residentFeedback: ''
+            });
 
             // 讀取網址參數 (例如: feedback.html?id=A001&name=陽光社區)
             useEffect(() => {
@@ -157,42 +187,50 @@
                 setCommunityName(nameParam);
             }, []);
 
-            const handlePhotoUpload = (e) => {
-                const files = Array.from(e.target.files);
-                if (photos.length + files.length > 3) {
-                    alert('最多只能上傳3張照片');
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleSubmit = async () => {
+                if (!formData.residentName || !formData.residentPhone || !formData.residentFeedback) {
+                    alert('請填寫必填欄位：姓名、電話、反應內容');
                     return;
                 }
-                
-                const newPhotos = files.map(file => ({
-                    file,
-                    previewUrl: URL.createObjectURL(file)
-                }));
-                
-                setPhotos(prev => [...prev, ...newPhotos].slice(0, 3));
-            };
 
-            const removePhoto = (index) => {
-                setPhotos(prev => {
-                    const newPhotos = [...prev];
-                    URL.revokeObjectURL(newPhotos[index].previewUrl);
-                    newPhotos.splice(index, 1);
-                    return newPhotos;
-                });
-            };
-
-            const handleSubmit = () => {
-                // 這裡可以加入實際的 API 傳送邏輯
-                setShowSuccess(true);
-                setTimeout(() => {
-                    setShowSuccess(false);
-                    // 清空表單
-                    setPhotos(prev => {
-                        prev.forEach(p => URL.revokeObjectURL(p.previewUrl));
-                        return [];
+                setIsSubmitting(true);
+                try {
+                    // 寫入 Firestore
+                    await addDoc(collection(db, "feedbacks"), {
+                        communityId,
+                        communityName,
+                        residentName: formData.residentName,
+                        residentPhone: formData.residentPhone,
+                        residentEmail: formData.residentEmail,
+                        residentFeedback: formData.residentFeedback,
+                        status: false, // 預設未處理
+                        createdAt: serverTimestamp()
                     });
-                    document.querySelectorAll('input, textarea').forEach(el => el.value = '');
-                }, 3000); // 3秒後自動關閉
+
+                    setShowSuccess(true);
+                    
+                    // 清空表單
+                    setFormData({
+                        residentName: '',
+                        residentPhone: '',
+                        residentEmail: '',
+                        residentFeedback: ''
+                    });
+                    
+                    setTimeout(() => {
+                        setShowSuccess(false);
+                    }, 3000); // 3秒後自動關閉
+                } catch (error) {
+                    console.error("Error adding document: ", error);
+                    alert("送出失敗，請稍後再試。錯誤：" + error.message);
+                } finally {
+                    setIsSubmitting(false);
+                }
             };
 
             return (
@@ -200,7 +238,7 @@
                     {/* 頁首 10% */}
                     <header className="h-[10%] flex items-center justify-center bg-red-600 text-white shadow-md z-10 shrink-0">
                         <h1 className="text-xl font-bold truncate px-4">
-                            {communityId} {communityName}
+                            {communityName}
                         </h1>
                     </header>
 
@@ -219,17 +257,23 @@
                                     
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">戶號 / 姓名</label>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">戶號 / 姓名 <span className="text-red-500">*</span></label>
                                             <input 
                                                 type="text" 
+                                                name="residentName"
+                                                value={formData.residentName}
+                                                onChange={handleInputChange}
                                                 className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" 
                                                 placeholder="例：A棟3樓 王先生" 
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">聯繫電話 / 手機</label>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">聯繫電話 / 手機 <span className="text-red-500">*</span></label>
                                             <input 
                                                 type="tel" 
+                                                name="residentPhone"
+                                                value={formData.residentPhone}
+                                                onChange={handleInputChange}
                                                 className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" 
                                                 placeholder="例：0912-345-678" 
                                             />
@@ -238,59 +282,37 @@
                                             <label className="block text-sm font-medium text-gray-700 mb-1">電子郵件 (選填)</label>
                                             <input 
                                                 type="email" 
+                                                name="residentEmail"
+                                                value={formData.residentEmail}
+                                                onChange={handleInputChange}
                                                 className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" 
                                                 placeholder="例：example@email.com" 
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">反應內容</label>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">反應內容 <span className="text-red-500">*</span></label>
                                             <textarea 
+                                                name="residentFeedback"
+                                                value={formData.residentFeedback}
+                                                onChange={handleInputChange}
                                                 className="w-full border border-gray-300 rounded-lg p-3 text-base h-40 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all resize-none" 
                                                 placeholder="請詳細描述您的問題或建議..."
                                             ></textarea>
                                         </div>
                                         
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">上傳照片 (最多 3 張)</label>
-                                            <div className="flex flex-wrap gap-3">
-                                                {photos.map((photo, index) => (
-                                                    <div key={index} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                                                        <img src={photo.previewUrl} alt={`上傳照片 ${index + 1}`} className="w-full h-full object-cover" />
-                                                        <button 
-                                                            onClick={() => removePhoto(index)}
-                                                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 shadow-sm hover:bg-red-600 active:bg-red-700"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                                
-                                                {photos.length < 3 && (
-                                                    <div 
-                                                        onClick={() => fileInputRef.current?.click()}
-                                                        className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-red-400 hover:text-red-500 cursor-pointer transition-colors bg-gray-50"
-                                                    >
-                                                        <Camera size={24} className="mb-1" />
-                                                        <span className="text-[10px] font-medium">{photos.length}/3</span>
-                                                    </div>
-                                                )}
-                                                <input 
-                                                    type="file" 
-                                                    ref={fileInputRef} 
-                                                    className="hidden" 
-                                                    accept="image/*" 
-                                                    multiple 
-                                                    onChange={handlePhotoUpload} 
-                                                />
-                                            </div>
-                                        </div>
-
                                         <button 
                                             onClick={handleSubmit}
-                                            className="w-full bg-red-600 text-white rounded-lg py-3.5 font-bold text-lg flex items-center justify-center space-x-2 hover:bg-red-700 active:bg-red-800 transition-colors mt-4 shadow-sm"
+                                            disabled={isSubmitting}
+                                            className={`w-full ${isSubmitting ? 'bg-red-400' : 'bg-red-600 hover:bg-red-700 active:bg-red-800'} text-white rounded-lg py-3.5 font-bold text-lg flex items-center justify-center space-x-2 transition-colors mt-4 shadow-sm`}
                                         >
-                                            <Send size={20} />
-                                            <span>送出意見</span>
+                                            {isSubmitting ? (
+                                                <span>送出中...</span>
+                                            ) : (
+                                                <>
+                                                    <Send size={20} />
+                                                    <span>送出意見</span>
+                                                </>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
