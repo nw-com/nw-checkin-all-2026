@@ -2706,6 +2706,14 @@
             const [pushSettingsSaving, setPushSettingsSaving] = useState(false);
             const [pushTargetUserIds, setPushTargetUserIds] = useState([]);
 
+            const [settingsNotifications, setSettingsNotifications] = useState([]);
+            const [settingsNotificationsLoading, setSettingsNotificationsLoading] = useState(false);
+            const [showEditNotificationModal, setShowEditNotificationModal] = useState(false);
+            const [editingNotificationId, setEditingNotificationId] = useState(null);
+            const [editingNotificationSaving, setEditingNotificationSaving] = useState(false);
+            const [notificationEditForm, setNotificationEditForm] = useState({ senderName: '', content: '' });
+            const [selectedNotificationIds, setSelectedNotificationIds] = useState(new Set());
+
             useEffect(() => {
                 if (subtab === 'push') {
                     const fetchPushSettings = async () => {
@@ -2728,6 +2736,28 @@
                     fetchPushSettings();
                 }
             }, [subtab, appId]);
+
+            useEffect(() => {
+                if (subtab === 'notification') {
+                    setSettingsNotificationsLoading(true);
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), orderBy('createdAt', 'desc'));
+                    const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const list = [];
+                        snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+                        setSettingsNotifications(list);
+                        setSettingsNotificationsLoading(false);
+                    }, () => setSettingsNotificationsLoading(false));
+                    return () => unsubscribe();
+                }
+            }, [subtab, appId]);
+
+            useEffect(() => {
+                if (subtab !== 'notification') return;
+                setSelectedNotificationIds(prev => {
+                    const existing = new Set((settingsNotifications || []).map(n => n.id));
+                    return new Set([...prev].filter(id => existing.has(id)));
+                });
+            }, [subtab, settingsNotifications]);
 
             const handleSavePushSettings = async () => {
                 setPushSettingsSaving(true);
@@ -5396,11 +5426,203 @@
                             )}
                         </div>
                         )}
+                        {subtab === 'notification' && (
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                                    <h3 className="text-lg font-bold text-gray-800 flex items-center">
+                                        <Bell className="w-5 h-5 mr-2 text-red-600" /> 通知列表
+                                    </h3>
+                                    <div className="flex items-center gap-2">
+                                        <label className="flex items-center gap-2 text-xs text-gray-600 font-bold select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={settingsNotifications.length > 0 && selectedNotificationIds.size === settingsNotifications.length}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setSelectedNotificationIds(new Set(settingsNotifications.map(n => n.id)));
+                                                    else setSelectedNotificationIds(new Set());
+                                                }}
+                                            />
+                                            全選
+                                        </label>
+                                        <button
+                                            disabled={selectedNotificationIds.size === 0}
+                                            onClick={() => {
+                                                const ids = Array.from(selectedNotificationIds);
+                                                setConfirmDelete({ type:'notification_bulk', ids, label: `${ids.length} 筆通知` });
+                                            }}
+                                            className="px-3 py-2 rounded-2xl bg-red-600 text-white text-xs font-bold disabled:opacity-50 hover:bg-red-700"
+                                        >
+                                            刪除選取 ({selectedNotificationIds.size})
+                                        </button>
+                                        <button
+                                            disabled={selectedNotificationIds.size === 0}
+                                            onClick={() => setSelectedNotificationIds(new Set())}
+                                            className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700 text-xs font-bold disabled:opacity-50 hover:bg-gray-200"
+                                        >
+                                            清除
+                                        </button>
+                                    </div>
+                                </div>
+                                {(function(){
+                                    if (settingsNotificationsLoading) return <div className="text-xs text-gray-400">載入中...</div>;
+                                    if (!settingsNotifications || settingsNotifications.length === 0) return <div className="text-xs text-gray-400">尚無通知</div>;
+                                    return (
+                                        <div className="space-y-3">
+                                            {settingsNotifications.map(n => (
+                                                <div key={n.id} className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
+                                                    <div className="text-xs text-gray-400 mb-1 flex justify-between">
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedNotificationIds.has(n.id)}
+                                                                onChange={(e) => {
+                                                                    const checked = e.target.checked;
+                                                                    setSelectedNotificationIds(prev => {
+                                                                        const next = new Set(prev);
+                                                                        if (checked) next.add(n.id);
+                                                                        else next.delete(n.id);
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                            />
+                                                            <span>{n.senderName || '系統'}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span>{n.createdAt && n.createdAt.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleString() : ''}</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingNotificationId(n.id);
+                                                                    setNotificationEditForm({ senderName: String(n.senderName || ''), content: String(n.content || '') });
+                                                                    setShowEditNotificationModal(true);
+                                                                }}
+                                                                className="text-gray-400 hover:text-blue-600 p-1"
+                                                                title="編輯"
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const label = String(n.content || n.id || '').slice(0, 30) || n.id;
+                                                                    setConfirmDelete({ type:'notification', id:n.id, label });
+                                                                }}
+                                                                className="text-gray-400 hover:text-red-600 p-1"
+                                                                title="刪除"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                                        {(function(){
+                                                            const c = String(n.content || '');
+                                                            if (!c) return '';
+                                                            if (c.includes('\n')) return c;
+                                                            if (String(n.type || '') === 'feedback' || c.includes('【客服意見反應】')) {
+                                                                const s = c.replace(/\r\n/g, '\n');
+                                                                const m = s.match(/^【客服意見反應】\s*(?:(台北公司|桃園公司)\s*)?([^／：]+?)(?:／([^／：]*?))?(?:／([^：]*?))?(?:：([\s\S]*))?$/);
+                                                                if (m) {
+                                                                    let company = String(m[1] || '').trim();
+                                                                    let community = String(m[2] || '').trim();
+                                                                    if (!company) {
+                                                                        for (const cn of ['台北公司', '桃園公司']) {
+                                                                            if (community.startsWith(cn)) {
+                                                                                company = cn;
+                                                                                community = community.slice(cn.length).trim();
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    const resident = String(m[3] || '').trim();
+                                                                    const phone = String(m[4] || '').trim();
+                                                                    const content = String(m[5] || '').trim();
+                                                                    return [
+                                                                        '【客服意見反應】',
+                                                                        company ? `公司：${company}` : null,
+                                                                        community ? `社區：${community}` : '社區：未知',
+                                                                        resident ? `住戶：${resident}` : null,
+                                                                        phone ? `電話：${phone}` : null,
+                                                                        content ? `內容：${content}` : '內容：無'
+                                                                    ].filter(Boolean).join('\n');
+                                                                }
+                                                                return s.replace(/^【客服意見反應】\s*/, '【客服意見反應】\n').replace(/：\s*/, '\n內容：').replace(/／\s*/g, '\n');
+                                                            }
+                                                            return c;
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+
+                                {showEditNotificationModal && (
+                                    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+                                        <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-md p-6 max-h-[90vh] overflow-y-auto">
+                                            <h4 className="text-lg font-bold text-gray-800 mb-4">編輯通知</h4>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="block text-sm font-bold mb-1">發送者</label>
+                                                    <input
+                                                        className="w-full p-2 border rounded-xl"
+                                                        value={notificationEditForm.senderName}
+                                                        onChange={e => setNotificationEditForm(prev => ({ ...prev, senderName: e.target.value }))}
+                                                        placeholder="例如：客服系統"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-bold mb-1">內容</label>
+                                                    <textarea
+                                                        className="w-full p-2 border rounded-xl min-h-[140px]"
+                                                        value={notificationEditForm.content}
+                                                        onChange={e => setNotificationEditForm(prev => ({ ...prev, content: e.target.value }))}
+                                                        placeholder="輸入通知內容，可使用換行"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-6">
+                                                <button
+                                                    onClick={() => { setShowEditNotificationModal(false); setEditingNotificationId(null); }}
+                                                    className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-700 font-bold"
+                                                >
+                                                    取消
+                                                </button>
+                                                <button
+                                                    disabled={editingNotificationSaving || !editingNotificationId}
+                                                    onClick={async () => {
+                                                        if (!editingNotificationId) return;
+                                                        try {
+                                                            setEditingNotificationSaving(true);
+                                                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notifications', editingNotificationId), {
+                                                                senderName: notificationEditForm.senderName,
+                                                                content: notificationEditForm.content,
+                                                                updatedAt: serverTimestamp(),
+                                                                updatedByName: (currentUser && currentUser.name) || (user && user.email) || ''
+                                                            });
+                                                            setToast('已更新通知');
+                                                            setShowEditNotificationModal(false);
+                                                            setEditingNotificationId(null);
+                                                        } catch (e) {
+                                                            console.error(e);
+                                                            setToast('更新失敗');
+                                                        } finally {
+                                                            setEditingNotificationSaving(false);
+                                                        }
+                                                    }}
+                                                    className="px-4 py-2 rounded-2xl bg-red-600 text-white font-bold disabled:opacity-50 hover:bg-red-700"
+                                                >
+                                                    儲存
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     {confirmDelete && (
                         <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
                             <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
-                                <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='signature'?'簽呈':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
+                                <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='signature'?'簽呈':confirmDelete.type==='community'?'社區':confirmDelete.type==='notification'?'通知':confirmDelete.type==='notification_bulk'?'通知':'人員'}「{confirmDelete.label}」？</div>
                                 <div className="flex justify-end gap-2">
                                     <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
                                     <button onClick={async()=>{ try { 
@@ -5410,6 +5632,16 @@
                                         else if (confirmDelete.type==='signatureType') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signature_types', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='signature') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'signatures', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='notification') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notifications', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='notification_bulk') { 
+                                            const ids = Array.isArray(confirmDelete.ids) ? confirmDelete.ids : [];
+                                            if (ids.length > 0) {
+                                                const batch = writeBatch(db);
+                                                ids.forEach(id => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'notifications', id)));
+                                                await batch.commit();
+                                                setSelectedNotificationIds(new Set());
+                                            }
+                                        } 
                                         else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='schedule') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', confirmDelete.id)); } 
                                         setConfirmDelete(null); 
@@ -8105,7 +8337,8 @@
                 { key: 'account', label: '帳號' },
                 { key: 'community', label: '社區' },
                 { key: 'system', label: '系統' },
-                { key: 'push', label: '推播' }
+                { key: 'push', label: '推播' },
+                { key: 'notification', label: '通知' }
             ]
         };
 
@@ -14970,6 +15203,7 @@
                                     {hasSubPermission('settings', 'community') && <button onClick={() => setSettingsSubtab('community')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'community' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>社區</button>}
                                     {hasSubPermission('settings', 'system') && <button onClick={() => setSettingsSubtab('system')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'system' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>系統</button>}
                                     {hasSubPermission('settings', 'push') && <button onClick={() => setSettingsSubtab('push')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'push' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>推播</button>}
+                                    {hasSubPermission('settings', 'notification') && <button onClick={() => setSettingsSubtab('notification')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'notification' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>通知</button>}
                                     <button onClick={() => setSettingsSubtab('line')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'line' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>Line</button>
                                 </div>
                             )}
