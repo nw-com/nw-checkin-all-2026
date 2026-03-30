@@ -294,6 +294,7 @@
             Download,
             Plus,
             Share,
+            Share2,
             MessageCircle,
             Edit2,
             Headphones as Headset,
@@ -8590,9 +8591,13 @@
 
             // 讀取 Feedback 資料
             useEffect(() => {
-                if (activeTab === 'overview' && overviewSubtab === 'customerService') {
+                try {
+                    if (activeTab !== 'overview') return;
+                    if (!dbUser) return;
+                    if (typeof hasSubPermission === 'function' && !hasSubPermission('overview', 'customerService')) return;
+
                     setFeedbackLoading(true);
-                    const q = query(collection(db, "feedbacks")); // 移除 orderBy，避免因為缺少 createdAt 欄位而導致資料不顯示
+                    const q = query(collection(db, "feedbacks"));
                     const unsubscribe = onSnapshot(q, (snapshot) => {
                         const data = [];
                         snapshot.forEach((docSnap) => {
@@ -8601,7 +8606,6 @@
                                 ...docSnap.data()
                             });
                         });
-                        // 在前端進行排序，確保即使沒有 createdAt 的資料也能顯示
                         data.sort((a, b) => {
                             const timeA = a.createdAt?.toMillis?.() || 0;
                             const timeB = b.createdAt?.toMillis?.() || 0;
@@ -8614,8 +8618,8 @@
                         setFeedbackLoading(false);
                     });
                     return () => unsubscribe();
-                }
-            }, [activeTab, overviewSubtab, db]);
+                } catch (e) {}
+            }, [activeTab, db, dbUser]);
 
             const toggleFeedbackStatus = async (index) => {
                 const item = feedbackData[index];
@@ -8643,6 +8647,29 @@
                         alert("刪除失敗");
                     }
                 }
+            };
+            
+            const shareFeedbackToLine = (item) => {
+                try {
+                    const cid = String(item?.communityId || '');
+                    const cname = String(item?.communityName || '');
+                    const rname = String(item?.residentName || '');
+                    const rphone = String(item?.residentPhone || '');
+                    const remail = String(item?.residentEmail || '');
+                    const content = String(item?.residentFeedback || '');
+                    const parts = [
+                        '客服意見反應',
+                        cid ? `社區編號：${cid}` : '',
+                        cname ? `社區名稱：${cname}` : '',
+                        rname ? `住戶姓名：${rname}` : '',
+                        rphone ? `住戶電話：${rphone}` : '',
+                        remail ? `住戶郵件：${remail}` : '',
+                        content ? `住戶反應：${content}` : ''
+                    ].filter(Boolean);
+                    const text = parts.join('\n');
+                    const url = 'https://line.me/R/share?text=' + encodeURIComponent(text);
+                    window.open(url, '_blank');
+                } catch (_) {}
             };
 
             // Notification Popup Logic
@@ -13638,7 +13665,7 @@
                                     {hasSubPermission('overview', 'district') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('district')} 
-                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             <span>例會</span>
                                             {(function() {
@@ -13655,7 +13682,7 @@
                                     {hasSubPermission('overview', 'district_meeting') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('district_meeting')} 
-                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'district_meeting' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             <span>區大</span>
                                             {(function() {
@@ -13672,7 +13699,7 @@
                                     {hasSubPermission('overview', 'activity') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('activity')} 
-                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'activity' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             <span>活動</span>
                                             {(function() {
@@ -13689,7 +13716,7 @@
                                     {hasSubPermission('overview', 'presentation') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('presentation')} 
-                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'presentation' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             <span>簡報</span>
                                             {(function() {
@@ -13706,7 +13733,7 @@
                                     {hasSubPermission('overview', 'notification') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('notification')} 
-                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'notification' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'notification' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             <span>通知</span>
                                             {(function() {
@@ -13744,7 +13771,7 @@
                                     {hasSubPermission('overview', 'general') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('general')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             概況
                                         </button>
@@ -13753,24 +13780,24 @@
                             )}
                             {activeTab === 'clock' && (
                                 <div className="flex gap-2">
-                                    {hasSubPermission('clock', 'work') && <button onClick={() => setClockSubtab('work')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'work' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>上下班</button>}
-                                    {hasSubPermission('clock', 'out') && <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>外出</button>}
+                                    {hasSubPermission('clock', 'work') && <button onClick={() => setClockSubtab('work')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'work' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>上下班</button>}
+                                    {hasSubPermission('clock', 'out') && <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>外出</button>}
                                     {hasSubPermission('clock', 'card') && (function(){
                                         if (!dbUser) return null;
                                         // Use dedicated todaySchedule state
                                         if (todaySchedule && (todaySchedule.type === 'work' || todaySchedule.type === 'duty')) return null;
-                                        return <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>卡班</button>;
+                                        return <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>卡班</button>;
                                     })()}
-                                    {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>請假</button>}
-                                    <button onClick={() => setClockSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>班表</button>
+                                    {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>請假</button>}
+                                    <button onClick={() => setClockSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>班表</button>
                                 </div>
                             )}
 
                             {activeTab === 'function' && (
                                 <div className="flex gap-2">
-                                    {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>巡邏</button>}
-                                    {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>訓練</button>}
-                                    {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>下載</button>}
+                                    {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>巡邏</button>}
+                                    {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
+                                    {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
                                 </div>
                             )}
                             {activeTab === 'community' && (
@@ -14737,8 +14764,8 @@
                             )}
                             {activeTab === 'application' && (
                                 <div className="flex gap-2">
-                                    {hasSubPermission('application', 'signature') && <button onClick={() => setApplicationSubtab('signature')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${applicationSubtab === 'signature' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>簽呈</button>}
-                                    {hasSubPermission('application', 'equipment') && <button onClick={() => setApplicationSubtab('equipment')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${applicationSubtab === 'equipment' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>設備</button>}
+                                    {hasSubPermission('application', 'signature') && <button onClick={() => setApplicationSubtab('signature')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${applicationSubtab === 'signature' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>簽呈</button>}
+                                    {hasSubPermission('application', 'equipment') && <button onClick={() => setApplicationSubtab('equipment')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${applicationSubtab === 'equipment' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>設備</button>}
                                 </div>
                             )}
                             {activeTab === 'hr' && (
@@ -14746,12 +14773,12 @@
                             )}
                             {activeTab === 'settings' && (
                                 <div className="flex gap-2">
-                                    {hasSubPermission('settings', 'general') && <button onClick={() => setSettingsSubtab('general')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>一般</button>}
-                                    {hasSubPermission('settings', 'account') && <button onClick={() => setSettingsSubtab('account')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>帳號</button>}
-                                    {hasSubPermission('settings', 'community') && <button onClick={() => setSettingsSubtab('community')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'community' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>社區</button>}
-                                    {hasSubPermission('settings', 'system') && <button onClick={() => setSettingsSubtab('system')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'system' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>系統</button>}
-                                    {hasSubPermission('settings', 'push') && <button onClick={() => setSettingsSubtab('push')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'push' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>推播</button>}
-                                    <button onClick={() => setSettingsSubtab('line')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'line' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}>Line</button>
+                                    {hasSubPermission('settings', 'general') && <button onClick={() => setSettingsSubtab('general')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>一般</button>}
+                                    {hasSubPermission('settings', 'account') && <button onClick={() => setSettingsSubtab('account')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'account' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>帳號</button>}
+                                    {hasSubPermission('settings', 'community') && <button onClick={() => setSettingsSubtab('community')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'community' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>社區</button>}
+                                    {hasSubPermission('settings', 'system') && <button onClick={() => setSettingsSubtab('system')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'system' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>系統</button>}
+                                    {hasSubPermission('settings', 'push') && <button onClick={() => setSettingsSubtab('push')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'push' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>推播</button>}
+                                    <button onClick={() => setSettingsSubtab('line')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${settingsSubtab === 'line' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>Line</button>
                                 </div>
                             )}
                         </div>
@@ -15560,8 +15587,8 @@
                                             ) : (
                                                 (function() {
                                                     try {
-                                                        const list = (feedbackData || []).filter(item => {
-                                                            const cid = String(item.communityId || '');
+                                                        const list = (feedbackData || []).map((item, originalIndex) => ({ item, originalIndex })).filter(({ item }) => {
+                                                            const cid = String(item.communityId || '').trim().toUpperCase();
                                                             if (overviewCompany === '台北公司') {
                                                                 return cid.startsWith('A') || cid.startsWith('B');
                                                             } else if (overviewCompany === '桃園公司') {
@@ -15569,39 +15596,46 @@
                                                             }
                                                             return true;
                                                         });
-                                                        return list.map((item, index) => (
-                                                    <tr key={index} className="hover:bg-gray-50">
-                                                        <td className="px-4 py-3 whitespace-nowrap">{item.communityId}</td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">{item.communityName}</td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">{item.residentName}</td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">{item.residentPhone}</td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">{item.residentEmail}</td>
-                                                        <td className="px-4 py-3 min-w-[200px]">{item.residentFeedback}</td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">
-                                                            <button 
-                                                                onClick={() => toggleFeedbackStatus(index)}
-                                                                className="flex items-center gap-1"
-                                                            >
-                                                                {item.status ? (
-                                                                    <ToggleRight className="w-6 h-6 text-green-500" />
-                                                                ) : (
-                                                                    <ToggleLeft className="w-6 h-6 text-gray-400" />
-                                                                )}
-                                                                <span className={item.status ? "text-green-600 font-bold" : "text-gray-500"}>
-                                                                    {item.status ? '完成' : '未處理'}
-                                                                </span>
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">
-                                                            <button 
-                                                                onClick={() => deleteFeedbackItem(index)}
-                                                                className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
-                                                                title="刪除"
-                                                            >
-                                                                <Trash2 className="w-5 h-5" />
-                                                            </button>
-                                                        </td>
-                                                    </tr>
+                                                        return list.map(({ item, originalIndex }) => (
+                                                            <tr key={item.id || originalIndex} className="hover:bg-gray-50">
+                                                                <td className="px-4 py-3 whitespace-nowrap">{item.communityId}</td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">{item.communityName}</td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">{item.residentName}</td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">{item.residentPhone}</td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">{item.residentEmail}</td>
+                                                                <td className="px-4 py-3 min-w-[200px]">{item.residentFeedback}</td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                                    <button 
+                                                                        onClick={() => toggleFeedbackStatus(originalIndex)}
+                                                                        className="flex items-center gap-1"
+                                                                    >
+                                                                        {item.status ? (
+                                                                            <ToggleRight className="w-6 h-6 text-green-500" />
+                                                                        ) : (
+                                                                            <ToggleLeft className="w-6 h-6 text-gray-400" />
+                                                                        )}
+                                                                        <span className={item.status ? "text-green-600 font-bold" : "text-gray-500"}>
+                                                                            {item.status ? '完成' : '未處理'}
+                                                                        </span>
+                                                                    </button>
+                                                                </td>
+                                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                                    <button 
+                                                                        onClick={() => deleteFeedbackItem(originalIndex)}
+                                                                        className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
+                                                                        title="刪除"
+                                                                    >
+                                                                        <Trash2 className="w-5 h-5" />
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => shareFeedbackToLine(item)}
+                                                                        className="ml-1 text-green-600 hover:text-green-700 p-1 rounded hover:bg-green-50"
+                                                                        title="Line分享"
+                                                                    >
+                                                                        <Share2 className="w-5 h-5" />
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
                                                         ));
                                                     } catch (_) {
                                                         return null;
@@ -23920,17 +23954,19 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
+                                        const companyTop = String(name || '').replace('公司', '') || name;
                                         return (
                                             <button 
                                                 key={name}
                                                 onClick={() => handleOverviewCompanyChange(name)}
-                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                className={`w-[40px] h-[40px] flex flex-col items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     overviewCompany === name 
                                                         ? 'bg-red-600 text-white' 
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {name}
+                                                <span className="block">{companyTop}</span>
+                                                <span className="block">公司</span>
                                             </button>
                                         );
                                     })}
@@ -24115,19 +24151,36 @@
                         <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white border-t border-gray-100 shadow-lg transform transition-transform duration-300">
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
-                                    {['台北公司', '桃園公司'].map(name => (
-                                        <button 
-                                            key={name}
-                                            onClick={() => handleOverviewCompanyChange(name)}
-                                            className={`w-[40px] h-[40px] flex items-center justify-center text-xs font-bold rounded-2xl transition-colors shadow-md ${
-                                                overviewCompany === name 
-                                                    ? 'bg-red-600 text-white' 
-                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                        >
-                                            {name}
-                                        </button>
-                                    ))}
+                                    {['台北公司', '桃園公司'].map(name => {
+                                        const count = (feedbackData || []).filter(it => {
+                                            if (it && it.status) return false;
+                                            const cid = String(it?.communityId || '').trim().toUpperCase();
+                                            if (name === '台北公司') return cid.startsWith('A') || cid.startsWith('B');
+                                            if (name === '桃園公司') return cid.startsWith('C');
+                                            return false;
+                                        }).length;
+                                        const companyTop = String(name || '').replace('公司', '') || name;
+                                        return (
+                                            <button 
+                                                key={name}
+                                                onClick={() => handleOverviewCompanyChange(name)}
+                                                className={`relative w-[40px] h-[40px] flex flex-col items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                    overviewCompany === name 
+                                                        ? 'bg-red-600 text-white' 
+                                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                <span className="block">{companyTop}</span>
+                                                <span className="block">公司</span>
+                                                {count > 0 && (
+                                                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                        <span className="relative inline-flex h-3 w-3 rounded-full bg-blue-500"></span>
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
@@ -24139,17 +24192,19 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
+                                        const companyTop = String(name || '').replace('公司', '') || name;
                                         return (
                                             <button 
                                                 key={name}
                                                 onClick={() => handleOverviewCompanyChange(name)}
-                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                className={`w-[40px] h-[40px] flex flex-col items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     overviewCompany === name 
                                                         ? 'bg-red-600 text-white' 
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {name}
+                                                <span className="block">{companyTop}</span>
+                                                <span className="block">公司</span>
                                             </button>
                                         );
                                     })}
@@ -24164,17 +24219,19 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
+                                        const companyTop = String(name || '').replace('公司', '') || name;
                                         return (
                                             <button 
                                                 key={name}
                                                 onClick={() => handleOverviewCompanyChange(name)}
-                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                className={`w-[40px] h-[40px] flex flex-col items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     overviewCompany === name 
                                                         ? 'bg-red-600 text-white' 
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {name}
+                                                <span className="block">{companyTop}</span>
+                                                <span className="block">公司</span>
                                             </button>
                                         );
                                     })}
@@ -24189,17 +24246,19 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
+                                        const companyTop = String(name || '').replace('公司', '') || name;
                                         return (
                                             <button 
                                                 key={name}
                                                 onClick={() => handleOverviewCompanyChange(name)}
-                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                className={`w-[40px] h-[40px] flex flex-col items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     overviewCompany === name 
                                                         ? 'bg-red-600 text-white' 
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {name}
+                                                <span className="block">{companyTop}</span>
+                                                <span className="block">公司</span>
                                             </button>
                                         );
                                     })}
@@ -24223,6 +24282,8 @@
                                         return a.name.localeCompare(b.name);
                                     }).map(company => {
                                         const name = company.name || '';
+                                        const companyTop = String(name || '').replace('公司', '') || name;
+                                        const showCompanyBottom = String(name || '').includes('公司');
                                         return (
                                             <button 
                                                 key={company.id}
@@ -24230,13 +24291,14 @@
                                                     setCadreCompany(name);
                                                     setCadreMapSelectedUserId(null);
                                                 }}
-                                                className={`w-[40px] h-[40px] flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
+                                                className={`w-[40px] h-[40px] flex flex-col items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md ${
                                                     cadreCompany === name 
                                                         ? 'bg-red-600 text-white' 
                                                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {name}
+                                                <span className="block">{companyTop}</span>
+                                                {showCompanyBottom && <span className="block">公司</span>}
                                             </button>
                                         );
                                     })}
