@@ -568,13 +568,15 @@ const handlePublicSubmitFeedback = async (req, res) => {
 
   recipients = Array.from(new Set(recipients));
 
-  const header = '【客服意見反應】';
-  const partCompany = companyName ? `${companyName} ` : '';
-  const partCommunity = (communityName || communityId) ? `${communityName || communityId}` : '未知社區';
-  const partResident = residentName ? `／${residentName}` : '';
-  const partPhone = residentPhone ? `／${residentPhone}` : '';
-  const partFeedback = residentFeedback ? `：${residentFeedback}` : '';
-  const content = `${header}${partCompany}${partCommunity}${partResident}${partPhone}${partFeedback}`;
+  const content = [
+    '【客服意見反應】',
+    companyName ? `公司：${companyName}` : null,
+    (communityName || communityId) ? `社區：${communityName || communityId}` : '社區：未知',
+    residentName ? `住戶：${residentName}` : null,
+    residentPhone ? `電話：${residentPhone}` : null,
+    residentEmail ? `Email：${residentEmail}` : null,
+    residentFeedback ? `內容：${residentFeedback}` : '內容：無',
+  ].filter(Boolean).join('\n');
 
   try {
     const feedbackRef = db.collection('feedbacks').doc();

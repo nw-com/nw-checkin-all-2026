@@ -8668,13 +8668,14 @@
                         const residentPhone = String(d.residentPhone || '').trim();
                         const residentFeedback = String(d.residentFeedback || '').trim();
 
-                        const header = '【客服意見反應】';
-                        const partCompany = targetGroup ? `${targetGroup} ` : '';
-                        const partCommunity = (communityName || communityId) ? `${communityName || communityId}` : '未知社區';
-                        const partResident = residentName ? `／${residentName}` : '';
-                        const partPhone = residentPhone ? `／${residentPhone}` : '';
-                        const partFeedback = residentFeedback ? `：${residentFeedback}` : '';
-                        return `${header}${partCompany}${partCommunity}${partResident}${partPhone}${partFeedback}`;
+                        return [
+                            '【客服意見反應】',
+                            targetGroup ? `公司：${targetGroup}` : null,
+                            (communityName || communityId) ? `社區：${communityName || communityId}` : '社區：未知',
+                            residentName ? `住戶：${residentName}` : null,
+                            residentPhone ? `電話：${residentPhone}` : null,
+                            residentFeedback ? `內容：${residentFeedback}` : '內容：無'
+                        ].filter(Boolean).join('\n');
                     };
 
                     const q = query(collection(db, "feedbacks"), orderBy('createdAt', 'desc'), limit(10));
@@ -8818,6 +8819,54 @@
             const [activePopupNotification, setActivePopupNotification] = useState(null);
             const [ignoredNotificationIds, setIgnoredNotificationIds] = useState(new Set());
             const [dontShowAgain, setDontShowAgain] = useState(false);
+
+            const formatFeedbackNotificationContent = (raw) => {
+                const s0 = String(raw || '').trim();
+                const s = s0.replace(/\r\n/g, '\n');
+                if (!s) return '';
+                if (s.includes('\n')) return s;
+
+                const m = s.match(/^【客服意見反應】\s*(?:(台北公司|桃園公司)\s*)?([^／：]+?)(?:／([^／：]*?))?(?:／([^：]*?))?(?:：([\s\S]*))?$/);
+                if (m) {
+                    let company = String(m[1] || '').trim();
+                    let community = String(m[2] || '').trim();
+                    if (!company) {
+                        for (const cn of ['台北公司', '桃園公司']) {
+                            if (community.startsWith(cn)) {
+                                company = cn;
+                                community = community.slice(cn.length).trim();
+                                break;
+                            }
+                        }
+                    }
+                    const resident = String(m[3] || '').trim();
+                    const phone = String(m[4] || '').trim();
+                    const content = String(m[5] || '').trim();
+                    return [
+                        '【客服意見反應】',
+                        company ? `公司：${company}` : null,
+                        community ? `社區：${community}` : '社區：未知',
+                        resident ? `住戶：${resident}` : null,
+                        phone ? `電話：${phone}` : null,
+                        content ? `內容：${content}` : '內容：無'
+                    ].filter(Boolean).join('\n');
+                }
+
+                return s
+                    .replace(/^【客服意見反應】\s*/, '【客服意見反應】\n')
+                    .replace(/：\s*/, '\n內容：')
+                    .replace(/／\s*/g, '\n');
+            };
+
+            const formatNotificationContent = (notif) => {
+                const c = String(notif?.content || '');
+                if (!c) return '';
+                if (c.includes('\n')) return c;
+                if (String(notif?.type || '') === 'feedback' || c.includes('【客服意見反應】')) {
+                    return formatFeedbackNotificationContent(c);
+                }
+                return c;
+            };
 
             // PWA Install State
             const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -15679,7 +15728,7 @@
                                                         <td className="px-4 py-3 min-w-[200px] align-top">
                                                             <div className="flex items-start justify-between gap-2">
                                                                 <div className={`flex-1 text-sm ${expandedNotificationIds.includes(notif.id) ? 'whitespace-pre-wrap' : 'truncate'}`}>
-                                                                    {notif.content}
+                                                                    {formatNotificationContent(notif)}
                                                                 </div>
                                                                 <button 
                                                                     onClick={() => handleToggleNotificationExpand(notif.id)}
@@ -25245,7 +25294,7 @@
                                     <span>{activePopupNotification.createdAt && activePopupNotification.createdAt.seconds ? new Date(activePopupNotification.createdAt.seconds * 1000).toLocaleString() : ''}</span>
                                 </div>
                                 <div className="text-sm text-gray-800 whitespace-pre-wrap mb-4 max-h-[200px] overflow-y-auto">
-                                    {activePopupNotification.content}
+                                    {formatNotificationContent(activePopupNotification)}
                                 </div>
                                 <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                                     <label className="flex items-center cursor-pointer select-none">
