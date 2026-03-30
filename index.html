@@ -9010,6 +9010,7 @@
                                                 const showNotif = async () => {
                                                     const ICON_URL = 'logo.svg';
                                                     const BADGE_URL = 'badge.svg';
+                                                            const title = (notif.type === 'feedback' || String(notif.content || '').includes('【客服意見反應】')) ? '新的客服意見反應' : '新通知';
                                                     let sent = false;
                                                     // Try Service Worker first
                                                     if ('serviceWorker' in navigator) {
@@ -9018,10 +9019,10 @@
                                                             const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SW Timeout')), 2000));
                                                             const reg = await Promise.race([getSwReady, timeout]);
                                                             
-                                                            await reg.showNotification('新通知', {
+                                                                    await reg.showNotification(title, {
                                                                 body: notif.content,
-                                                                icon: ICON_DATA_URL,
-                                                                badge: ICON_DATA_URL,
+                                                                        icon: ICON_URL,
+                                                                        badge: BADGE_URL,
                                                                 data: { url: window.location.href }
                                                             });
                                                             sent = true;
@@ -9032,10 +9033,10 @@
                                                     
                                                     // Fallback to standard API
                                                     if (!sent && 'Notification' in window) {
-                                                        const n = new Notification('新通知', {
+                                                                const n = new Notification(title, {
                                                             body: notif.content,
-                                                            icon: ICON_DATA_URL,
-                                                            badge: ICON_DATA_URL
+                                                                    icon: ICON_URL,
+                                                                    badge: BADGE_URL
                                                         });
                                                         n.onclick = function() {
                                                             window.focus();
@@ -11597,8 +11598,8 @@
                                 
                                 await reg.showNotification(title, {
                                     body: body,
-                                    icon: ICON_DATA_URL,
-                                    badge: ICON_DATA_URL,
+                                    icon: ICON_URL,
+                                    badge: BADGE_URL,
                                     data: { url: window.location.href }
                                 });
                                 return;
@@ -11611,8 +11612,8 @@
                         try {
                             const n = new Notification(title, {
                                 body: body,
-                                icon: ICON_DATA_URL,
-                                badge: ICON_DATA_URL
+                                icon: ICON_URL,
+                                badge: BADGE_URL
                             });
                             n.onclick = () => window.focus();
                         } catch (e) {
