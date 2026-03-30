@@ -87,7 +87,7 @@
             display: none;
         }
 
-        @media (orientation: landscape) {
+        @media (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
             #orientation-guard {
                 display: flex;
             }
@@ -162,34 +162,28 @@
                 overlay.style.display = isLandscape ? 'flex' : 'none';
             }
 
-            async function lockPortraitWithFullscreen() {
+            function shouldEnforcePortrait() {
+                var uaMobile = !!(navigator.userAgentData && navigator.userAgentData.mobile);
+                var coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+                var noHover = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
+                var shortSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+                return uaMobile || ((coarse || noHover) && shortSide <= 600);
+            }
+
+            async function tryLockPortrait() {
+                if (!shouldEnforcePortrait()) return false;
                 if (!screen || !screen.orientation || !screen.orientation.lock) return false;
                 try {
                     await screen.orientation.lock('portrait');
                     return true;
                 } catch (_) {
-                    // 部分 Android 需要在全螢幕內鎖定
-                    var el = document.documentElement;
-                    if (el.requestFullscreen) {
-                        try {
-                            await el.requestFullscreen();
-                            await screen.orientation.lock('portrait');
-                            // 鎖定後不強制待在全螢幕，若支援可自動退出
-                            if (document.exitFullscreen) {
-                                try { await document.exitFullscreen(); } catch (_) {}
-                            }
-                            return true;
-                        } catch (_) {
-                            return false;
-                        }
-                    }
                     return false;
                 }
             }
 
             function sync() {
                 var isLandscape = mql ? !!mql.matches : (window.innerWidth > window.innerHeight);
-                setOverlayVisible(isLandscape);
+                setOverlayVisible(shouldEnforcePortrait() && isLandscape);
             }
 
             if (mql && mql.addEventListener) {
@@ -201,20 +195,20 @@
             window.addEventListener('resize', sync, { passive: true });
             window.addEventListener('orientationchange', function () {
                 sync();
-                lockPortraitWithFullscreen();
+                tryLockPortrait();
             });
             window.addEventListener('pageshow', function () {
-                lockPortraitWithFullscreen();
+                tryLockPortrait();
             });
             document.addEventListener('visibilitychange', function () {
-                if (!document.hidden) lockPortraitWithFullscreen();
+                if (!document.hidden) tryLockPortrait();
             });
 
-            document.addEventListener('touchstart', lockPortraitWithFullscreen, { once: true, passive: true });
-            document.addEventListener('click', lockPortraitWithFullscreen, { once: true, passive: true });
+            document.addEventListener('touchstart', tryLockPortrait, { once: true, passive: true });
+            document.addEventListener('click', tryLockPortrait, { once: true, passive: true });
 
             sync();
-            lockPortraitWithFullscreen();
+            tryLockPortrait();
         })();
     </script>
 
@@ -8069,6 +8063,7 @@
                 { key: 'activity', label: '活動' },
                 { key: 'presentation', label: '簡報' },
                 { key: 'notification', label: '通知' },
+                { key: 'customerService', label: '客服' },
                 { key: 'general', label: '概況' }
             ],
             clock: [
@@ -13727,12 +13722,14 @@
                                             })()}
                                         </button>
                                     )}
-                                    <button 
-                                        onClick={() => setOverviewSubtab('customerService')} 
-                                        className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'customerService' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
-                                    >
-                                        客服
-                                    </button>
+                                    {hasSubPermission('overview', 'customerService') && (
+                                        <button 
+                                            onClick={() => setOverviewSubtab('customerService')} 
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'customerService' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                        >
+                                            客服
+                                        </button>
+                                    )}
                                     {hasSubPermission('overview', 'general') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('general')} 
@@ -15521,7 +15518,7 @@
                             </div>
                         )}
 
-                        {activeTab === 'overview' && overviewSubtab === 'customerService' && (
+                        {activeTab === 'overview' && hasPermission('overview') && hasSubPermission('overview', 'customerService') && overviewSubtab === 'customerService' && (
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-lg font-bold text-gray-800 flex items-center">

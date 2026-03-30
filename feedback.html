@@ -57,7 +57,7 @@
             display: none;
         }
 
-        @media (orientation: landscape) {
+        @media (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
             #orientation-guard {
                 display: flex;
             }
@@ -108,7 +108,16 @@
                 overlay.style.display = isLandscape ? 'flex' : 'none';
             }
 
+            function shouldEnforcePortrait() {
+                var uaMobile = !!(navigator.userAgentData && navigator.userAgentData.mobile);
+                var coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+                var noHover = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
+                var shortSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+                return uaMobile || ((coarse || noHover) && shortSide <= 600);
+            }
+
             async function tryLockPortrait() {
+                if (!shouldEnforcePortrait()) return;
                 try {
                     if (!screen || !screen.orientation || !screen.orientation.lock) return;
                     await screen.orientation.lock('portrait');
@@ -117,7 +126,7 @@
 
             function sync() {
                 var isLandscape = mql ? !!mql.matches : (window.innerWidth > window.innerHeight);
-                setOverlayVisible(isLandscape);
+                setOverlayVisible(shouldEnforcePortrait() && isLandscape);
             }
 
             if (mql && mql.addEventListener) {
@@ -326,19 +335,19 @@
                         {activeTab === 'phone' && (
                             <div className="h-full flex flex-col items-center p-4 bg-gray-50 animate-fade-in space-y-4 overflow-y-auto">
                                 {/* 台北、新北區塊 */}
-                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center relative shrink-0">
-                                    <div className="absolute top-4 left-4 text-black font-bold text-xl">
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center relative shrink-0">
+                                    <div className="absolute top-3 left-3 text-black font-bold text-lg">
                                         台北、新北
                                     </div>
-                                    <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-5 mt-4">
-                                        <Phone size={40} />
+                                    <div className="w-14 h-14 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 mt-3">
+                                        <Phone size={32} />
                                     </div>
                                     <h2 className="text-xl font-bold text-gray-800 mb-2">客服專線</h2>
-                                    <p className="text-sm text-gray-500 mb-8">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
+                                    <p className="text-sm text-gray-500 mb-6">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
                                     
                                     <a 
                                         href="tel:02-25555389" 
-                                        className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-4 font-bold text-lg hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
+                                        className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-3 font-bold text-base hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
                                     >
                                         <Phone size={20} />
                                         <span>撥打 02-2555-5389</span>
@@ -346,19 +355,19 @@
                                 </div>
 
                                 {/* 桃園區塊 */}
-                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center relative shrink-0">
-                                    <div className="absolute top-4 left-4 text-black font-bold text-xl">
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center relative shrink-0">
+                                    <div className="absolute top-3 left-3 text-black font-bold text-lg">
                                         桃園
                                     </div>
-                                    <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-5 mt-4">
-                                        <Phone size={40} />
+                                    <div className="w-14 h-14 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 mt-3">
+                                        <Phone size={32} />
                                     </div>
                                     <h2 className="text-xl font-bold text-gray-800 mb-2">客服專線</h2>
-                                    <p className="text-sm text-gray-500 mb-8">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
+                                    <p className="text-sm text-gray-500 mb-6">如有緊急事項，歡迎於上班時間直接來電聯繫。</p>
                                     
                                     <a 
                                         href="tel:03-3026868" 
-                                        className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-4 font-bold text-lg hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
+                                        className="inline-flex w-full items-center justify-center space-x-2 bg-green-500 text-white rounded-xl py-3 font-bold text-base hover:bg-green-600 active:bg-green-700 transition-colors shadow-sm"
                                     >
                                         <Phone size={20} />
                                         <span>撥打 03-302-6868</span>
