@@ -13725,9 +13725,20 @@
                                     {hasSubPermission('overview', 'customerService') && (
                                         <button 
                                             onClick={() => setOverviewSubtab('customerService')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'customerService' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                                            className={`relative px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'customerService' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
-                                            客服
+                                            <span>客服</span>
+                                            {(function() {
+                                                try {
+                                                    const count = (feedbackData || []).filter(it => !it.status).length;
+                                                    if (!count) return null;
+                                                    return (
+                                                        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
+                                                            {count}
+                                                        </span>
+                                                    );
+                                                } catch (_) { return null; }
+                                            })()}
                                         </button>
                                     )}
                                     {hasSubPermission('overview', 'general') && (
@@ -15547,7 +15558,18 @@
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                feedbackData.map((item, index) => (
+                                                (function() {
+                                                    try {
+                                                        const list = (feedbackData || []).filter(item => {
+                                                            const cid = String(item.communityId || '');
+                                                            if (overviewCompany === '台北公司') {
+                                                                return cid.startsWith('A') || cid.startsWith('B');
+                                                            } else if (overviewCompany === '桃園公司') {
+                                                                return cid.startsWith('C');
+                                                            }
+                                                            return true;
+                                                        });
+                                                        return list.map((item, index) => (
                                                     <tr key={index} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3 whitespace-nowrap">{item.communityId}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap">{item.communityName}</td>
@@ -15580,7 +15602,11 @@
                                                             </button>
                                                         </td>
                                                     </tr>
-                                                ))
+                                                        ));
+                                                    } catch (_) {
+                                                        return null;
+                                                    }
+                                                })()
                                             )}
                                         </tbody>
                                     </table>
@@ -23894,16 +23920,6 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
-                                        const len = name.length;
-                                        let displayName = name;
-                                        if (len === 4) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 5) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 6) {
-                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
-                                        }
-
                                         return (
                                             <button 
                                                 key={name}
@@ -23914,7 +23930,7 @@
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {displayName}
+                                                {name}
                                             </button>
                                         );
                                     })}
@@ -24094,22 +24110,35 @@
                         </div>
                     )}
 
+                    {/* Overview CustomerService Company Selection Bar */}
+                    {activeTab === 'overview' && overviewSubtab === 'customerService' && (
+                        <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white border-t border-gray-100 shadow-lg transform transition-transform duration-300">
+                            <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
+                                <div className="flex gap-2">
+                                    {['台北公司', '桃園公司'].map(name => (
+                                        <button 
+                                            key={name}
+                                            onClick={() => handleOverviewCompanyChange(name)}
+                                            className={`w-[40px] h-[40px] flex items-center justify-center text-xs font-bold rounded-2xl transition-colors shadow-md ${
+                                                overviewCompany === name 
+                                                    ? 'bg-red-600 text-white' 
+                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Overview District Meeting & General Company Selection Bar */}
                     {activeTab === 'overview' && (overviewSubtab === 'district_meeting' || overviewSubtab === 'general') && (
                         <div className="fixed bottom-[8vh] left-0 right-0 z-40 bg-white border-t border-gray-100 shadow-lg transform transition-transform duration-300">
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
-                                        const len = name.length;
-                                        let displayName = name;
-                                        if (len === 4) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 5) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 6) {
-                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
-                                        }
-
                                         return (
                                             <button 
                                                 key={name}
@@ -24120,7 +24149,7 @@
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {displayName}
+                                                {name}
                                             </button>
                                         );
                                     })}
@@ -24135,16 +24164,6 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
-                                        const len = name.length;
-                                        let displayName = name;
-                                        if (len === 4) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 5) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 6) {
-                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
-                                        }
-
                                         return (
                                             <button 
                                                 key={name}
@@ -24155,7 +24174,7 @@
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {displayName}
+                                                {name}
                                             </button>
                                         );
                                     })}
@@ -24170,16 +24189,6 @@
                             <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-center gap-3">
                                 <div className="flex gap-2">
                                     {['台北公司', '桃園公司'].map(name => {
-                                        const len = name.length;
-                                        let displayName = name;
-                                        if (len === 4) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 5) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 6) {
-                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
-                                        }
-
                                         return (
                                             <button 
                                                 key={name}
@@ -24190,7 +24199,7 @@
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {displayName}
+                                                {name}
                                             </button>
                                         );
                                     })}
@@ -24214,17 +24223,6 @@
                                         return a.name.localeCompare(b.name);
                                     }).map(company => {
                                         const name = company.name || '';
-                                        const len = name.length;
-                                        let displayName = name;
-                                        
-                                        if (len === 4) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 5) {
-                                            displayName = <>{name.slice(0, 2)}<br/>{name.slice(2)}</>;
-                                        } else if (len === 6) {
-                                            displayName = <>{name.slice(0, 3)}<br/>{name.slice(3)}</>;
-                                        }
-
                                         return (
                                             <button 
                                                 key={company.id}
@@ -24238,7 +24236,7 @@
                                                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                                 }`}
                                             >
-                                                {displayName}
+                                                {name}
                                             </button>
                                         );
                                     })}
