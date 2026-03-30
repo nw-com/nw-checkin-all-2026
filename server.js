@@ -11,7 +11,6 @@ const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
 const APP_ID = process.env.APP_ID || 'default-attendance-app';
 const ENABLE_COMMUNITY_ANOMALY_NOTIFIER = process.env.ENABLE_COMMUNITY_ANOMALY_NOTIFIER !== '0';
 const COMMUNITY_ANOMALY_INTERVAL_MS = Number(process.env.COMMUNITY_ANOMALY_INTERVAL_MS || 5 * 60 * 1000);
-const ENABLE_FEEDBACK_NOTIFIER = process.env.ENABLE_FEEDBACK_NOTIFIER !== '0';
 
 // Initialize Firebase Admin
 let adminInitialized = false;
@@ -333,117 +332,6 @@ const matchCompanyName = (userCompanyName, targetCompanyName) => {
   return a === b;
 };
 
-const startFeedbackNotifier = () => {
-  const db = getArtifactsDb();
-  if (!db) return;
-
-  try {
-    let first = true;
-    const feedbacksRef = db.collection('feedbacks');
-    const notificationsRef = getPublicDataCollection(db, 'notifications');
-
-    feedbacksRef.onSnapshot(async (snap) => {
-      if (first) {
-        first = false;
-        return;
-      }
-
-      const changes = snap.docChanges().filter(c => c.type === 'added');
-      for (const change of changes) {
-        const docSnap = change.doc;
-        const data = docSnap.data() || {};
-        if (data.notifiedAt) continue;
-
-        const feedbackId = docSnap.id;
-        const companyName = deriveCompanyNameFromCommunityId(data.communityId);
-        const communityId = String(data.communityId || '').trim();
-        const communityName = String(data.communityName || '').trim();
-        const residentName = String(data.residentName || '').trim();
-        const residentPhone = String(data.residentPhone || '').trim();
-        const residentFeedback = String(data.residentFeedback || '').trim();
-
-        const header = '【客服意見反應】';
-        const partCompany = companyName ? `${companyName} ` : '';
-        const partCommunity = (communityName || communityId) ? `${communityName || communityId}` : '未知社區';
-        const partResident = residentName ? `／${residentName}` : '';
-        const partPhone = residentPhone ? `／${residentPhone}` : '';
-        const partFeedback = residentFeedback ? `：${residentFeedback}` : '';
-        const content = `${header}${partCompany}${partCommunity}${partResident}${partPhone}${partFeedback}`;
-
-        let recipients = [];
-        try {
-          const dir = await getDirectory(db);
-          const users = Array.isArray(dir.users) ? dir.users : [];
-          const roles = Array.isArray(dir.roles) ? dir.roles : [];
-          const companies = Array.isArray(dir.companies) ? dir.companies : [];
-
-          for (const u of users) {
-            if (!u || !isActiveUser(u)) continue;
-            const roleKey = String(u.role || '').trim().toLowerCase();
-            const roleName = getUserRoleName(u, roles);
-            const uCompanyName = getUserCompanyName(u, companies);
-
-            const isAdmin = roleKey === 'admin' || roleName.includes('系統管理員');
-            const isManager = roleKey === 'manager' || roleName.includes('管理');
-            const isHr = roleKey === 'hr' || roleName.includes('人事');
-            const isProperty = roleKey === 'property' || roleName.includes('物業');
-            const isCadre = roleKey === 'cadre' || roleName.includes('幹部');
-
-            if (isAdmin || isManager || isHr) {
-              const name = String(u.name || '').trim();
-              if (name) recipients.push(name);
-              continue;
-            }
-
-            if ((isProperty || isCadre) && matchCompanyName(uCompanyName, companyName)) {
-              const name = String(u.name || '').trim();
-              if (name) recipients.push(name);
-            }
-          }
-        } catch (e) {
-          console.error('Feedback notifier directory error:', e);
-          recipients = [];
-        }
-
-        recipients = Array.from(new Set(recipients));
-        if (recipients.length === 0) {
-          await feedbacksRef.doc(feedbackId).set({
-            notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
-            notifiedSkipped: true,
-          }, { merge: true });
-          continue;
-        }
-
-        try {
-          await notificationsRef.add({
-            target: recipients.join('、'),
-            content,
-            senderName: '系統',
-            senderId: 'server',
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            source: 'server',
-            type: 'feedback',
-            feedbackId,
-            companyName,
-            communityId: communityId || '',
-          });
-
-          await feedbacksRef.doc(feedbackId).set({
-            notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
-            notifiedTo: recipients,
-          }, { merge: true });
-        } catch (e) {
-          console.error('Feedback notifier write error:', e);
-        }
-      }
-    }, (err) => {
-      console.error('Feedback notifier snapshot error:', err);
-    });
-  } catch (e) {
-    console.error('Failed to start feedback notifier:', e);
-  }
-};
-
 const mimeTypes = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -608,6 +496,127 @@ const handlePublicCommunityName = async (req, res) => {
   }
 };
 
+const handlePublicSubmitFeedback = async (req, res) => {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Method Not Allowed');
+    return;
+  }
+
+  const db = getArtifactsDb();
+  if (!db) {
+    sendJson(res, 500, { ok: false, message: 'Firebase Admin not initialized' });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (e) {
+    sendJson(res, 400, { ok: false, message: e.message || 'Bad Request' });
+    return;
+  }
+
+  const payload = body || {};
+  const communityId = String(payload.communityId || '').trim();
+  const communityName = String(payload.communityName || '').trim();
+  const residentName = String(payload.residentName || '').trim();
+  const residentPhone = String(payload.residentPhone || '').trim();
+  const residentEmail = String(payload.residentEmail || '').trim();
+  const residentFeedback = String(payload.residentFeedback || '').trim();
+
+  if (!residentName || !residentPhone || !residentFeedback) {
+    sendJson(res, 400, { ok: false, message: 'Missing required fields' });
+    return;
+  }
+
+  const companyName = deriveCompanyNameFromCommunityId(communityId);
+  let recipients = [];
+  try {
+    const dir = await getDirectory(db);
+    const users = Array.isArray(dir.users) ? dir.users : [];
+    const roles = Array.isArray(dir.roles) ? dir.roles : [];
+    const companies = Array.isArray(dir.companies) ? dir.companies : [];
+
+    for (const u of users) {
+      if (!u || !isActiveUser(u)) continue;
+      const roleKey = String(u.role || '').trim().toLowerCase();
+      const roleName = getUserRoleName(u, roles);
+      const uCompanyName = getUserCompanyName(u, companies);
+
+      const isAdmin = roleKey === 'admin' || roleName.includes('系統管理員');
+      const isManager = roleKey === 'manager' || roleName.includes('管理');
+      const isHr = roleKey === 'hr' || roleName.includes('人事');
+      const isProperty = roleKey === 'property' || roleName.includes('物業');
+      const isCadre = roleKey === 'cadre' || roleName.includes('幹部');
+
+      if (isAdmin || isManager || isHr) {
+        const name = String(u.name || '').trim();
+        if (name) recipients.push(name);
+        continue;
+      }
+
+      if ((isProperty || isCadre) && matchCompanyName(uCompanyName, companyName)) {
+        const name = String(u.name || '').trim();
+        if (name) recipients.push(name);
+      }
+    }
+  } catch (e) {
+    console.error('Submit feedback directory error:', e);
+    recipients = [];
+  }
+
+  recipients = Array.from(new Set(recipients));
+
+  const header = '【客服意見反應】';
+  const partCompany = companyName ? `${companyName} ` : '';
+  const partCommunity = (communityName || communityId) ? `${communityName || communityId}` : '未知社區';
+  const partResident = residentName ? `／${residentName}` : '';
+  const partPhone = residentPhone ? `／${residentPhone}` : '';
+  const partFeedback = residentFeedback ? `：${residentFeedback}` : '';
+  const content = `${header}${partCompany}${partCommunity}${partResident}${partPhone}${partFeedback}`;
+
+  try {
+    const feedbackRef = db.collection('feedbacks').doc();
+    const notificationsRef = getPublicDataCollection(db, 'notifications');
+    const notifRef = notificationsRef.doc();
+    const batch = db.batch();
+
+    batch.set(feedbackRef, {
+      communityId,
+      communityName,
+      residentName,
+      residentPhone,
+      residentEmail,
+      residentFeedback,
+      status: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      source: 'public_api',
+    });
+
+    if (recipients.length > 0) {
+      batch.set(notifRef, {
+        target: recipients.join('、'),
+        content,
+        senderName: '客服系統',
+        senderId: 'server',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        source: 'server',
+        type: 'feedback',
+        feedbackId: feedbackRef.id,
+        companyName,
+        communityId: communityId || '',
+      });
+    }
+
+    await batch.commit();
+    sendJson(res, 200, { ok: true, id: feedbackRef.id, notifiedTo: recipients });
+  } catch (e) {
+    console.error('Submit feedback error:', e);
+    sendJson(res, 500, { ok: false, message: e.message || 'Internal server error' });
+  }
+};
+
 const server = http.createServer((req, res) => {
   // Log requests only when enabled, and skip known noisy paths
   const urlPath = req.url.split('?')[0];
@@ -618,6 +627,11 @@ const server = http.createServer((req, res) => {
   // API Routes
   if (urlPath === '/api/public/community-name') {
     handlePublicCommunityName(req, res);
+    return;
+  }
+
+  if (urlPath === '/api/public/submit-feedback') {
+    handlePublicSubmitFeedback(req, res);
     return;
   }
 
@@ -725,10 +739,4 @@ if (ENABLE_COMMUNITY_ANOMALY_NOTIFIER) {
     run().catch(() => {});
     setInterval(() => run().catch(() => {}), COMMUNITY_ANOMALY_INTERVAL_MS);
   }, 10_000);
-}
-
-if (ENABLE_FEEDBACK_NOTIFIER) {
-  setTimeout(() => {
-    startFeedbackNotifier();
-  }, 3000);
 }

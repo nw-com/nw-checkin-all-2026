@@ -8589,6 +8589,148 @@
             const [feedbackData, setFeedbackData] = useState([]);
             const [feedbackLoading, setFeedbackLoading] = useState(false);
 
+            useEffect(() => {
+                try {
+                    if (!dbUser) return;
+                    if (!appId) return;
+                    if (!usersList || usersList.length === 0) return;
+
+                    const customRole = (roles || []).find(r => r.id === dbUser.role);
+                    const roleName = String(customRole?.name || '');
+                    const roleKey = String(dbUser.role || '').toLowerCase();
+
+                    const isAdmin = roleKey === 'admin' || roleName.includes('系統管理員');
+                    const isManager = roleKey === 'manager' || roleName.includes('管理');
+                    const isHr = roleKey === 'hr' || roleName.includes('人事');
+                    const canDispatch = isAdmin || isManager || isHr;
+                    if (!canDispatch) return;
+
+                    const resolveGroupByCommunityId = (cid) => {
+                        const v = String(cid || '');
+                        if (v.startsWith('A') || v.startsWith('B')) return '台北公司';
+                        if (v.startsWith('C')) return '桃園公司';
+                        return '';
+                    };
+
+                    const resolveUserRoleName = (u) => {
+                        const r = (roles || []).find(x => x.id === u.role);
+                        return String(r?.name || '');
+                    };
+
+                    const resolveUserCompanyName = (u) => {
+                        const comp = (companies || []).find(c => String(c.id) === String(u.companyId));
+                        return String(comp?.name || '');
+                    };
+
+                    const isCompanyMatch = (userCompanyName, targetGroup) => {
+                        const n = String(userCompanyName || '');
+                        if (!targetGroup) return false;
+                        if (targetGroup.includes('台北')) return n.includes('台北');
+                        if (targetGroup.includes('桃園')) return n.includes('桃園');
+                        return false;
+                    };
+
+                    const computeRecipients = (targetGroup) => {
+                        const names = [];
+                        for (const u of (usersList || [])) {
+                            if (!u) continue;
+                            const status = String(u.status || '在職');
+                            if (status !== '在職') continue;
+
+                            const uRoleKey = String(u.role || '').toLowerCase();
+                            const uRoleName = resolveUserRoleName(u);
+                            const uCompanyName = resolveUserCompanyName(u);
+
+                            const uIsAdmin = uRoleKey === 'admin' || uRoleName.includes('系統管理員');
+                            const uIsManager = uRoleKey === 'manager' || uRoleName.includes('管理');
+                            const uIsHr = uRoleKey === 'hr' || uRoleName.includes('人事');
+                            const uIsProperty = uRoleKey === 'property' || uRoleName.includes('物業');
+                            const uIsCadre = uRoleKey === 'cadre' || uRoleName.includes('幹部') || (uRoleKey === 'staff' && (roles || []).find(r => r.id === u.role)?.permissions?.includes('cadre'));
+
+                            if (uIsAdmin || uIsManager || uIsHr) {
+                                const name = String(u.name || '').trim();
+                                if (name) names.push(name);
+                                continue;
+                            }
+
+                            if ((uIsProperty || uIsCadre) && isCompanyMatch(uCompanyName, targetGroup)) {
+                                const name = String(u.name || '').trim();
+                                if (name) names.push(name);
+                            }
+                        }
+                        return Array.from(new Set(names));
+                    };
+
+                    const makeContent = (d, targetGroup) => {
+                        const communityId = String(d.communityId || '').trim();
+                        const communityName = String(d.communityName || '').trim();
+                        const residentName = String(d.residentName || '').trim();
+                        const residentPhone = String(d.residentPhone || '').trim();
+                        const residentFeedback = String(d.residentFeedback || '').trim();
+
+                        const header = '【客服意見反應】';
+                        const partCompany = targetGroup ? `${targetGroup} ` : '';
+                        const partCommunity = (communityName || communityId) ? `${communityName || communityId}` : '未知社區';
+                        const partResident = residentName ? `／${residentName}` : '';
+                        const partPhone = residentPhone ? `／${residentPhone}` : '';
+                        const partFeedback = residentFeedback ? `：${residentFeedback}` : '';
+                        return `${header}${partCompany}${partCommunity}${partResident}${partPhone}${partFeedback}`;
+                    };
+
+                    const q = query(collection(db, "feedbacks"), orderBy('createdAt', 'desc'), limit(10));
+                    let first = true;
+                    const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const isInit = first;
+                        first = false;
+
+                        snapshot.docChanges().forEach((change) => {
+                            if (change.type !== 'added') return;
+                            const id = change.doc.id;
+                            const createdKey = `feedback_notif_created_${id}`;
+                            if (sessionStorage.getItem(createdKey)) return;
+
+                            const d = change.doc.data() || {};
+                            const createdAtMs = d.createdAt?.toMillis?.() || 0;
+                            if (isInit) {
+                                const now = Date.now();
+                                if (!createdAtMs || now - createdAtMs > 2 * 60 * 1000) return;
+                            }
+
+                            const targetGroup = resolveGroupByCommunityId(d.communityId);
+                            const recipients = computeRecipients(targetGroup);
+                            if (recipients.length === 0) return;
+
+                            const notifId = `feedback_${id}`;
+                            const notifRef = doc(db, 'artifacts', appId, 'public', 'data', 'notifications', notifId);
+                            const content = makeContent(d, targetGroup);
+
+                            const run = async () => {
+                                const existing = await getDoc(notifRef);
+                                if (existing.exists()) {
+                                    sessionStorage.setItem(createdKey, '1');
+                                    return;
+                                }
+                                await setDoc(notifRef, {
+                                    target: recipients.join('、'),
+                                    content,
+                                    senderName: '客服系統',
+                                    senderId: 'system',
+                                    createdAt: serverTimestamp(),
+                                    source: 'client_dispatch',
+                                    type: 'feedback',
+                                    feedbackId: id,
+                                    companyName: targetGroup,
+                                    communityId: String(d.communityId || '')
+                                });
+                                sessionStorage.setItem(createdKey, '1');
+                            };
+                            run().catch(() => {});
+                        });
+                    }, () => {});
+                    return () => unsubscribe();
+                } catch (_) {}
+            }, [dbUser, appId, usersList, roles, companies]);
+
             // 讀取 Feedback 資料
             useEffect(() => {
                 try {
@@ -24335,10 +24477,19 @@
                                                           (typeof getOverviewDistrictMeetingBadgeCount === 'function' ? getOverviewDistrictMeetingBadgeCount() : 0) + 
                                                           (typeof getOverviewActivityBadgeCount === 'function' ? getOverviewActivityBadgeCount() : 0) + 
                                                           (typeof getOverviewPresentationBadgeCount === 'function' ? getOverviewPresentationBadgeCount() : 0) +
-                                                          (notifications ? notifications.filter(n => isNotificationTarget(n) && !(n.readBy || []).includes(dbUser?.id)).length : 0);
+                                                          (notifications ? notifications.filter(n => isNotificationTarget(n) && !(n.readBy || []).includes(dbUser?.id)).length : 0) +
+                                                          (function() {
+                                                              try {
+                                                                  if (typeof hasSubPermission === 'function' && !hasSubPermission('overview', 'customerService')) return 0;
+                                                                  return (feedbackData || []).filter(it => !it?.status).length;
+                                                              } catch (_) { return 0; }
+                                                          })();
                                             if (count > 0) {
                                                 return (
-                                                    <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-white"></div>
+                                                    <span className="absolute top-0 right-0 flex h-2 w-2">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                        <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white"></span>
+                                                    </span>
                                                 );
                                             }
                                             return null;

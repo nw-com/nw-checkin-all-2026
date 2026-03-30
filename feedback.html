@@ -212,17 +212,38 @@
 
                 setIsSubmitting(true);
                 try {
-                    // 寫入 Firestore
-                    await addDoc(collection(db, "feedbacks"), {
-                        communityId,
-                        communityName,
-                        residentName: formData.residentName,
-                        residentPhone: formData.residentPhone,
-                        residentEmail: formData.residentEmail,
-                        residentFeedback: formData.residentFeedback,
-                        status: false, // 預設未處理
-                        createdAt: serverTimestamp()
-                    });
+                    let sent = false;
+                    try {
+                        const resp = await fetch('/api/public/submit-feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                communityId,
+                                communityName,
+                                residentName: formData.residentName,
+                                residentPhone: formData.residentPhone,
+                                residentEmail: formData.residentEmail,
+                                residentFeedback: formData.residentFeedback
+                            })
+                        });
+                        const json = await resp.json().catch(() => null);
+                        if (resp.ok && json && json.ok) {
+                            sent = true;
+                        }
+                    } catch (_) {}
+
+                    if (!sent) {
+                        await addDoc(collection(db, "feedbacks"), {
+                            communityId,
+                            communityName,
+                            residentName: formData.residentName,
+                            residentPhone: formData.residentPhone,
+                            residentEmail: formData.residentEmail,
+                            residentFeedback: formData.residentFeedback,
+                            status: false,
+                            createdAt: serverTimestamp()
+                        });
+                    }
 
                     setShowSuccess(true);
                     
