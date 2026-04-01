@@ -154,12 +154,26 @@
         let dbUser = null;
         let fbUser = null;
         let primaryTab = 'log';
+        let scheduleDocRef = null;
+        let scheduleUnsub = null;
+        let scheduleMeta = { desc: '' };
+        let isApplyingRemote = false;
 
         const monthNames = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
         const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
         function saveData() {
             localStorage.setItem(plannerStorageKey, JSON.stringify(state.plannerData));
+            if (scheduleDocRef && !isApplyingRemote) {
+                try {
+                    scheduleDocRef.set({
+                        plannerData: state.plannerData,
+                        meta: scheduleMeta,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedBy: (dbUser && (dbUser.id || dbUser.email)) || ''
+                    }, { merge: true });
+                } catch {}
+            }
         }
 
         function getDateKey(date) {
@@ -234,11 +248,17 @@
         }
 
         function renderSettingsView(container) {
-            const year = new Date().getFullYear();
-            const entries = Object.entries(state.plannerData)
-                .filter(([k]) => k.startsWith(`${year}-`))
-                .flatMap(([k, v]) => (Array.isArray(v.tasks) ? v.tasks.map(t => ({ date: k, ...t })) : []))
-                .sort((a, b) => a.date.localeCompare(b.date));
+            let annualItems = Array.isArray(scheduleMeta && scheduleMeta.annual) ? scheduleMeta.annual : null;
+            if (!annualItems) {
+                const all = Object.values(state.plannerData || {}).flatMap(v => Array.isArray(v.tasks) ? v.tasks : []);
+                const uniqMap = {};
+                for (const t of all) {
+                    const tx = String(t.text || '').trim();
+                    if (!tx) continue;
+                    if (!uniqMap[tx]) uniqMap[tx] = { id: Date.now() + Math.random(), text: tx };
+                }
+                annualItems = Object.values(uniqMap);
+            }
 
             container.innerHTML = `
                 <div class="max-w-3xl mx-auto space-y-6">
@@ -269,20 +289,19 @@
                     <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
                         <div class="flex items-center gap-2 mb-3 text-red-500">
                             <i data-lucide="list-checks" class="w-5 h-5"></i>
-                            <h3 class="font-bold text-slate-700">年度資料（${year}）</h3>
+                            <h3 class="font-bold text-slate-700">細項執行清單名稱</h3>
                         </div>
                         <div class="flex gap-2 mb-3">
-                            <input type="date" id="annual-date" class="bg-slate-50 border rounded-xl px-3 py-2 text-sm">
-                            <input type="text" id="annual-text" class="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm" placeholder="新增年度項目...">
+                            <input type="text" id="annual-text" class="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm" placeholder="新增清單名稱...">
                             <button id="annual-add" class="px-3 py-2 rounded-xl bg-red-500 text-white text-sm font-bold hover:bg-red-600">新增</button>
                         </div>
                         <div id="annual-list" class="divide-y divide-red-50">
-                            ${entries.length === 0 ? '<div class="text-slate-400 text-sm">本年度尚無資料</div>' : entries.map(e => `
+                            ${annualItems.length === 0 ? '<div class="text-slate-400 text-sm">尚無資料</div>' : annualItems.map(e => `
                                 <div class="py-2 flex items-center justify-between">
-                                    <div class="text-sm"><span class="text-slate-400 mr-2">${e.date}</span><span class="${e.completed ? 'line-through text-slate-400' : 'text-slate-700'}">${e.text}</span></div>
+                                    <div class="text-sm"><span class="text-slate-700">${e.text}</span></div>
                                     <div class="flex gap-2">
-                                        <button data-id="${e.id}" data-date="${e.date}" class="annual-edit px-2 py-1 text-xs rounded-lg bg-gray-100 text-gray-700">編輯</button>
-                                        <button data-id="${e.id}" data-date="${e.date}" class="annual-del px-2 py-1 text-xs rounded-lg bg-red-50 text-red-600">刪除</button>
+                                        <button data-id="${e.id}" class="annual-edit px-2 py-1 text-xs rounded-lg bg-gray-100 text-gray-700">編輯</button>
+                                        <button data-id="${e.id}" class="annual-del px-2 py-1 text-xs rounded-lg bg-red-50 text-red-600">刪除</button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -291,29 +310,28 @@
                 </div>
             `;
 
-            const metaKey = `planner_meta_${appId}_${selectedCommunityId}`;
             try {
-                const meta = JSON.parse(localStorage.getItem(metaKey) || '{}');
                 const descEl = document.getElementById('meta-desc');
-                if (descEl) descEl.value = meta.desc || '';
+                if (descEl) descEl.value = (scheduleMeta && scheduleMeta.desc) ? scheduleMeta.desc : '';
                 descEl.onchange = () => {
-                    const next = { ...(meta || {}), desc: descEl.value };
-                    localStorage.setItem(metaKey, JSON.stringify(next));
+                    scheduleMeta = { ...(scheduleMeta || {}), desc: descEl.value };
+                    saveData();
                 };
             } catch {}
 
             const addBtn = document.getElementById('annual-add');
             if (addBtn) {
                 addBtn.onclick = () => {
-                    const dateEl = document.getElementById('annual-date');
                     const textEl = document.getElementById('annual-text');
-                    const dateVal = (dateEl && dateEl.value) ? dateEl.value : '';
                     const textVal = (textEl && textEl.value) ? textEl.value.trim() : '';
-                    if (!dateVal || !textVal) return;
-                    const key = dateVal;
-                    const current = state.plannerData[key] || { focus: '', tasks: [] };
-                    current.tasks = [...(current.tasks || []), { id: Date.now(), text: textVal, completed: false }];
-                    state.plannerData[key] = current;
+                    if (!textVal) return;
+                    const exists = Array.isArray(scheduleMeta && scheduleMeta.annual) ? scheduleMeta.annual.some(i => String(i.text || '').trim() === textVal) : false;
+                    if (!exists) {
+                        const item = { id: Date.now(), text: textVal };
+                        if (!Array.isArray(scheduleMeta.annual)) scheduleMeta.annual = [];
+                        scheduleMeta.annual.push(item);
+                    }
+                    if (textEl) textEl.value = '';
                     saveData();
                     render();
                 };
@@ -322,11 +340,8 @@
             document.querySelectorAll('#annual-list .annual-del').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const id = Number(btn.getAttribute('data-id'));
-                    const date = String(btn.getAttribute('data-date'));
-                    const current = state.plannerData[date];
-                    if (!current) return;
-                    current.tasks = (current.tasks || []).filter(t => Number(t.id) !== id);
-                    state.plannerData[date] = current;
+                    if (!Array.isArray(scheduleMeta.annual)) scheduleMeta.annual = [];
+                    scheduleMeta.annual = scheduleMeta.annual.filter(i => Number(i.id) !== id);
                     saveData();
                     render();
                 });
@@ -335,15 +350,12 @@
             document.querySelectorAll('#annual-list .annual-edit').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const id = Number(btn.getAttribute('data-id'));
-                    const date = String(btn.getAttribute('data-date'));
-                    const current = state.plannerData[date];
-                    if (!current) return;
-                    const target = (current.tasks || []).find(t => Number(t.id) === id);
+                    if (!Array.isArray(scheduleMeta.annual)) scheduleMeta.annual = [];
+                    const target = scheduleMeta.annual.find(i => Number(i.id) === id);
                     if (!target) return;
                     const nextText = window.prompt('修改內容', target.text || '');
                     if (nextText == null) return;
                     target.text = nextText.trim();
-                    state.plannerData[date] = current;
                     saveData();
                     render();
                 });
@@ -595,7 +607,7 @@
                 }
             } catch {}
 
-            const currentYear = 2026;
+            const currentYear = new Date().getFullYear();
             const fresh = {};
             defaultCommunityTasks.forEach(item => {
                 if (item.month === null) {
@@ -725,14 +737,52 @@
                 titleEl.textContent = `${selectedCommunityName}社區工作日誌`;
             }
 
+            scheduleDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('community_schedules').doc(selectedCommunityId);
+            if (scheduleUnsub) {
+                try { scheduleUnsub(); } catch {}
+                scheduleUnsub = null;
+            }
+
             state = {
-                selectedDate: new Date(2026, 0, 1),
-                activeTab: 'yearly',
+                selectedDate: new Date(),
+                activeTab: 'daily',
                 plannerData: initPlannerDataIfEmpty()
             };
 
             showAppChrome();
             render();
+
+            scheduleUnsub = scheduleDocRef.onSnapshot((snap) => {
+                const data = snap && snap.exists ? (snap.data() || {}) : {};
+                const remotePlannerData = data.plannerData && typeof data.plannerData === 'object' ? data.plannerData : null;
+                const remoteMeta = data.meta && typeof data.meta === 'object' ? data.meta : null;
+
+                if (remoteMeta) scheduleMeta = { ...(scheduleMeta || {}), ...remoteMeta };
+
+                if (remotePlannerData && Object.keys(remotePlannerData).length > 0) {
+                    isApplyingRemote = true;
+                    state.plannerData = remotePlannerData;
+                    try { localStorage.setItem(plannerStorageKey, JSON.stringify(remotePlannerData)); } catch {}
+                    isApplyingRemote = false;
+                    render();
+                    return;
+                }
+
+                const localSeed = initPlannerDataIfEmpty();
+                isApplyingRemote = true;
+                state.plannerData = localSeed;
+                isApplyingRemote = false;
+                render();
+
+                try {
+                    scheduleDocRef.set({
+                        plannerData: localSeed,
+                        meta: scheduleMeta,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdBy: (dbUser && (dbUser.id || dbUser.email)) || ''
+                    }, { merge: true });
+                } catch {}
+            }, () => {});
         }
 
         init().catch(e => {
