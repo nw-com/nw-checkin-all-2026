@@ -9290,9 +9290,9 @@
                                         if (hasPermission && enableSystemNotification) {
                                             try {
                                                 const showNotif = async () => {
-                                                    const ICON_URL = 'logo.svg';
-                                                    const BADGE_URL = 'badge.svg';
-                                                            const title = (notif.type === 'feedback' || String(notif.content || '').includes('【客服意見反應】')) ? '新的客服意見反應' : '新通知';
+                                                            const ICON_URL = 'logo.svg';
+                                                            const BADGE_URL = 'badge.svg';
+                                                            const title = notif.title || ((notif.type === 'feedback' || String(notif.content || '').includes('【客服意見反應】')) ? '新的客服意見反應' : '新通知');
                                                     let sent = false;
                                                     // Try Service Worker first
                                                     if ('serviceWorker' in navigator) {
@@ -9370,7 +9370,6 @@
                 const presentationMeetings = Array.isArray(overviewPresentations) ? overviewPresentations : [];
                 const meetings = [...baseMeetings, ...districtMeetings, ...activityMeetings, ...presentationMeetings];
 
-                let newMeetingTarget = null;
                 let dayOfTarget = null;
 
                 for (let i = 0; i < meetings.length; i++) {
@@ -9386,16 +9385,7 @@
                     const isFuture = meet.date > todayKey;
                     const isValidTypeForDayOf = meet.type === '例會' || meet.type === '臨時會';
 
-                    // 1. Check for New Meeting Notification (Priority 1)
-                    if (isToday || isFuture) {
-                        const ackKey = `meetingCreatedAck_${dbUser.id || currentUserId}_${meet.id}`;
-                        if (!localStorage.getItem(ackKey)) {
-                            newMeetingTarget = { ...meet, _notificationType: 'new' };
-                            break; // Found high priority, stop looking
-                        }
-                    }
-
-                    // 2. Check for Day-of Reminder (Priority 2) - only for 例會/臨時會
+                    // Check for Day-of Reminder - only for 例會/臨時會
                     if (isValidTypeForDayOf && isToday && !dayOfTarget) {
                         const key = `meetingReminderClosed_${dbUser.id || currentUserId}_${meet.id}_${todayKey}`;
                         let count = 0;
@@ -9412,9 +9402,7 @@
                     }
                 }
 
-                if (newMeetingTarget) {
-                    setMeetingReminder(newMeetingTarget);
-                } else if (dayOfTarget) {
+                if (dayOfTarget) {
                     setMeetingReminder(dayOfTarget);
                 } else {
                     setMeetingReminder(null);
@@ -9434,9 +9422,7 @@
                 const d = String(today.getDate()).padStart(2, '0');
                 const todayKey = `${y}-${m}-${d}`;
 
-                const scopeKey = meetingReminder._notificationType === 'day_of'
-                    ? `meetingPushShown_${dbUser.id}_${meetingReminder.id}_${todayKey}`
-                    : `meetingPushShown_${dbUser.id}_${meetingReminder.id}`;
+                const scopeKey = `meetingPushShown_${dbUser.id}_${meetingReminder.id}_${todayKey}`;
 
                 if (sessionStorage.getItem(scopeKey)) return;
                 sessionStorage.setItem(scopeKey, '1');
@@ -9445,13 +9431,9 @@
                 const place = comm?.name || (typeof meetingReminder.communityId === 'string' ? meetingReminder.communityId : '') || '未指定';
                 const typeLabel = meetingReminder.type || '例會';
 
-                const title = meetingReminder._notificationType === 'new'
-                    ? `新增${typeLabel}通知`
-                    : `${typeLabel}提醒`;
+                const title = `${typeLabel}提醒`;
 
-                const body = meetingReminder._notificationType === 'new'
-                    ? `已新增於 ${meetingReminder.date} ${meetingReminder.time || ''} 的 ${typeLabel}\n地點：${place}`
-                    : `今天 ${meetingReminder.time || ''} 有 ${typeLabel}\n地點：${place}`;
+                const body = `今天 ${meetingReminder.time || ''} 有 ${typeLabel}\n地點：${place}`;
 
                 const show = async () => {
                     const ICON_URL = 'logo.svg';
@@ -9483,15 +9465,6 @@
                 };
 
                 show().catch(console.error);
-
-                if (meetingReminder._notificationType === 'new') {
-                    const ackKey = `meetingCreatedAck_${dbUser.id}_${meetingReminder.id}`;
-                    try {
-                        localStorage.setItem(ackKey, 'true');
-                    } catch {}
-                    setMeetingReminder(null);
-                    return;
-                }
 
                 const closedKey = `meetingReminderClosed_${dbUser.id}_${meetingReminder.id}_${todayKey}`;
                 try {
@@ -11146,12 +11119,41 @@
                     if (overviewMeetingForm.id) {
                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_meetings', overviewMeetingForm.id), payload);
                     } else {
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_meetings'), {
+                        const createdRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_meetings'), {
                             ...payload,
                             creatorId: dbUser?.id,
                             creatorName: dbUser?.name || '未記錄',
                             createdAt: serverTimestamp()
                         });
+
+                        const participantIds = Array.isArray(overviewMeetingForm.participants) ? overviewMeetingForm.participants : [];
+                        const participantNames = participantIds.map(id => (usersList || []).find(u => u.id === id)).filter(Boolean).map(u => u.name || u.email || u.phone || u.id).filter(Boolean);
+                        if (participantNames.length > 0) {
+                            const comm = (communities || []).find(c => c.id === overviewMeetingForm.communityId);
+                            const place = comm?.name || overviewMeetingForm.communityId || '未指定';
+                            const typeLabel = overviewMeetingForm.type || '例會';
+                            const content = [
+                                `【新增${typeLabel}】`,
+                                `日期：${overviewMeetingForm.date}`,
+                                overviewMeetingForm.time ? `時間：${overviewMeetingForm.time}` : null,
+                                `地點：${place}`,
+                                `參加：${participantNames.join('、')}`
+                            ].filter(Boolean).join('\n');
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                                target: participantNames.join('、'),
+                                targetUserIds: participantIds,
+                                content,
+                                title: `新增${typeLabel}通知`,
+                                senderName: '系統',
+                                senderId: 'system',
+                                createdAt: serverTimestamp(),
+                                source: 'overview',
+                                type: 'overview_meeting',
+                                meetingId: createdRef.id,
+                                companyName: overviewCompany,
+                                communityId: overviewMeetingForm.communityId || ''
+                            });
+                        }
                     }
                     setOverviewMeetingModalOpen(false);
                 } catch (e) {
@@ -11228,12 +11230,41 @@
                     if (overviewDistrictMeetingForm.id) {
                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings', overviewDistrictMeetingForm.id), payload);
                     } else {
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings'), {
+                        const createdRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_district_meetings'), {
                             ...payload,
                             creatorId: dbUser?.id,
                             creatorName: dbUser?.name || '未記錄',
                             createdAt: serverTimestamp()
                         });
+
+                        const participantIds = Array.isArray(overviewDistrictMeetingForm.participants) ? overviewDistrictMeetingForm.participants : [];
+                        const participantNames = participantIds.map(id => (usersList || []).find(u => u.id === id)).filter(Boolean).map(u => u.name || u.email || u.phone || u.id).filter(Boolean);
+                        if (participantNames.length > 0) {
+                            const comm = (communities || []).find(c => c.id === overviewDistrictMeetingForm.communityId);
+                            const place = comm?.name || overviewDistrictMeetingForm.communityId || '未指定';
+                            const typeLabel = overviewDistrictMeetingForm.type || '區大';
+                            const content = [
+                                `【新增${typeLabel}】`,
+                                `日期：${overviewDistrictMeetingForm.date}`,
+                                overviewDistrictMeetingForm.time ? `時間：${overviewDistrictMeetingForm.time}` : null,
+                                `地點：${place}`,
+                                `參加：${participantNames.join('、')}`
+                            ].filter(Boolean).join('\n');
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                                target: participantNames.join('、'),
+                                targetUserIds: participantIds,
+                                content,
+                                title: `新增${typeLabel}通知`,
+                                senderName: '系統',
+                                senderId: 'system',
+                                createdAt: serverTimestamp(),
+                                source: 'overview',
+                                type: 'overview_district_meeting',
+                                meetingId: createdRef.id,
+                                companyName: overviewCompany,
+                                communityId: overviewDistrictMeetingForm.communityId || ''
+                            });
+                        }
                     }
                     setOverviewDistrictMeetingModalOpen(false);
                 } catch(e) {
@@ -11335,12 +11366,41 @@
                     if (overviewActivityForm.id) {
                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_activities', overviewActivityForm.id), payload);
                     } else {
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_activities'), {
+                        const createdRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_activities'), {
                             ...payload,
                             creatorId: dbUser?.id,
                             creatorName: dbUser?.name || '未記錄',
                             createdAt: serverTimestamp()
                         });
+
+                        const participantIds = Array.isArray(overviewActivityForm.participants) ? overviewActivityForm.participants : [];
+                        const participantNames = participantIds.map(id => (usersList || []).find(u => u.id === id)).filter(Boolean).map(u => u.name || u.email || u.phone || u.id).filter(Boolean);
+                        if (participantNames.length > 0) {
+                            const comm = (communities || []).find(c => c.id === overviewActivityForm.communityId);
+                            const place = comm?.name || overviewActivityForm.communityId || '未指定';
+                            const typeLabel = overviewActivityForm.type || '活動';
+                            const content = [
+                                `【新增${typeLabel}】`,
+                                `日期：${overviewActivityForm.date}`,
+                                overviewActivityForm.time ? `時間：${overviewActivityForm.time}` : null,
+                                `地點：${place}`,
+                                `參加：${participantNames.join('、')}`
+                            ].filter(Boolean).join('\n');
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                                target: participantNames.join('、'),
+                                targetUserIds: participantIds,
+                                content,
+                                title: `新增${typeLabel}通知`,
+                                senderName: '系統',
+                                senderId: 'system',
+                                createdAt: serverTimestamp(),
+                                source: 'overview',
+                                type: 'overview_activity',
+                                meetingId: createdRef.id,
+                                companyName: overviewCompany,
+                                communityId: overviewActivityForm.communityId || ''
+                            });
+                        }
                     }
                     setOverviewActivityModalOpen(false);
                 } catch(e) {
@@ -11441,12 +11501,41 @@
                     if (overviewPresentationForm.id) {
                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overview_presentations', overviewPresentationForm.id), payload);
                     } else {
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_presentations'), {
+                        const createdRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'overview_presentations'), {
                             ...payload,
                             creatorId: dbUser?.id,
                             creatorName: dbUser?.name || '未記錄',
                             createdAt: serverTimestamp()
                         });
+
+                        const participantIds = Array.isArray(overviewPresentationForm.participants) ? overviewPresentationForm.participants : [];
+                        const participantNames = participantIds.map(id => (usersList || []).find(u => u.id === id)).filter(Boolean).map(u => u.name || u.email || u.phone || u.id).filter(Boolean);
+                        if (participantNames.length > 0) {
+                            const comm = (communities || []).find(c => c.id === overviewPresentationForm.communityId);
+                            const place = comm?.name || overviewPresentationForm.communityId || '未指定';
+                            const typeLabel = overviewPresentationForm.type || '簡報';
+                            const content = [
+                                `【新增${typeLabel}】`,
+                                `日期：${overviewPresentationForm.date}`,
+                                overviewPresentationForm.time ? `時間：${overviewPresentationForm.time}` : null,
+                                `地點：${place}`,
+                                `參加：${participantNames.join('、')}`
+                            ].filter(Boolean).join('\n');
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                                target: participantNames.join('、'),
+                                targetUserIds: participantIds,
+                                content,
+                                title: `新增${typeLabel}通知`,
+                                senderName: '系統',
+                                senderId: 'system',
+                                createdAt: serverTimestamp(),
+                                source: 'overview',
+                                type: 'overview_presentation',
+                                meetingId: createdRef.id,
+                                companyName: overviewCompany,
+                                communityId: overviewPresentationForm.communityId || ''
+                            });
+                        }
                     }
                     setOverviewPresentationModalOpen(false);
                 } catch(e) {
