@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>社區年度工作規劃表</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        html, body {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        body::-webkit-scrollbar {
+            display: none;
+        }
+        .custom-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-red-50/30 text-slate-900 min-h-screen pb-24">
+
+    <header id="page-header" class="hidden bg-white border-b border-red-100 sticky top-0 z-30 px-4 py-3 shadow-sm">
+        <div class="max-w-4xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-red-500 p-2 rounded-lg text-white shadow-md shadow-red-100">
+                    <i data-lucide="building-2"></i>
+                </div>
+                <div>
+                    <h1 id="community-title" class="text-xl font-bold tracking-tight text-slate-800">社區工作規劃</h1>
+                    <p class="text-[10px] text-slate-400 font-medium">COMMUNITY MANAGEMENT PLANNER</p>
+                </div>
+            </div>
+            <div id="log-switcher" class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+                <button onclick="switchTab('daily')" id="tab-daily" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700">
+                    <i data-lucide="edit-3" class="w-4 h-4"></i>當日
+                </button>
+                <button onclick="switchTab('calendar')" id="tab-calendar" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700">
+                    <i data-lucide="calendar" class="w-4 h-4"></i>月曆
+                </button>
+                <button onclick="switchTab('yearly')" id="tab-yearly" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all bg-white shadow-sm text-red-600">
+                    <i data-lucide="list" class="w-4 h-4"></i>年度列表
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main id="app-content" class="max-w-4xl mx-auto p-4"></main>
+
+    <nav id="page-nav" class="hidden fixed bottom-0 left-0 right-0 bg-white border-t border-red-100 px-2 py-2 flex justify-around items-center md:hidden shadow-[0_-4px_10px_rgba(0,0,0,0.03)] z-30">
+        <button onclick="switchPrimaryTab('log')" class="flex flex-col items-center p-2 min-w-[60px] text-red-500" id="mobile-tab-log">
+            <i data-lucide="list"></i>
+            <span class="text-[10px] mt-1 font-bold">日誌</span>
+        </button>
+        <button onclick="switchPrimaryTab('settings')" class="flex flex-col items-center p-2 min-w-[60px] text-slate-400" id="mobile-tab-settings">
+            <i data-lucide="settings"></i>
+            <span class="text-[10px] mt-1 font-bold">設定</span>
+        </button>
+    </nav>
+
+    <script>
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+        const headerEl = document.getElementById('page-header');
+        const navEl = document.getElementById('page-nav');
+        const titleEl = document.getElementById('community-title');
+
+        function hideAppChrome() {
+            if (headerEl) headerEl.classList.add('hidden');
+            if (navEl) navEl.classList.add('hidden');
+        }
+
+        function showAppChrome() {
+            if (headerEl) headerEl.classList.remove('hidden');
+            if (navEl) navEl.classList.remove('hidden');
+        }
+
+        function renderAuthScreen(msg) {
+            const content = document.getElementById('app-content');
+            if (!content) return;
+            content.innerHTML = `
+                <div class="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-sm border border-red-100 p-6">
+                    <div class="text-lg font-black text-slate-800 mb-2">需要登入</div>
+                    <div class="text-sm text-slate-500 mb-5">${msg || '請先登入後才能查看社區工作規劃表。'}</div>
+                    <a href="./" class="inline-flex items-center justify-center w-full bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl py-3 transition-colors">前往登入</a>
+                </div>
+            `;
+        }
+
+        function renderErrorScreen(msg) {
+            const content = document.getElementById('app-content');
+            if (!content) return;
+            content.innerHTML = `
+                <div class="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-sm border border-red-100 p-6">
+                    <div class="text-lg font-black text-slate-800 mb-2">無法載入</div>
+                    <div class="text-sm text-slate-500 mb-5">${msg || '發生錯誤'}</div>
+                    <a href="./" class="inline-flex items-center justify-center w-full bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl py-3 transition-colors">返回</a>
+                </div>
+            `;
+        }
+
+        hideAppChrome();
+        renderAuthScreen('驗證登入狀態中...');
+
+        const defaultCommunityTasks = [
+            { month: null, day: 1, text: "管理委員會例會 (1次/月)", focus: "月例行會議與財務審核", type: "meeting" },
+            { month: null, day: 1, text: "機械停車位保養", type: "maint" },
+            { month: null, day: 1, text: "泳池/SPA設備保養", type: "maint" },
+            { month: 0, day: 25, text: "農曆春節活動規劃", focus: "春節佈置與年貨大街協助", type: "event" },
+            { month: 1, day: 15, text: "緊急發電機測試 (無載)", focus: "季度點檢", type: "maint" },
+            { month: 1, day: 20, text: "昇降設備許可證 (電梯) 申報", type: "check" },
+            { month: 2, day: 5, text: "社區消毒 (上半年)", type: "maint" },
+            { month: 2, day: 10, text: "水塔清洗 (上半年)", type: "maint" },
+            { month: 2, day: 15, text: "東新街高壓沖洗", type: "maint" },
+            { month: 3, day: 15, text: "公設空調養護", type: "maint" },
+            { month: 3, day: 20, text: "瓦斯安全檢查", type: "check" },
+            { month: 4, day: 5, text: "泳池/SPA池清洗 (夏季開放前)", type: "maint" },
+            { month: 4, day: 10, text: "母親節活動", focus: "社區母親節獻禮活動", type: "event" },
+            { month: 4, day: 15, text: "緊急發電機測試 (無載)", type: "maint" },
+            { month: 4, day: 20, text: "消防設備安全申報/建築物公安申報", type: "check" },
+            { month: 5, day: 15, text: "防火鐵捲門測試 / 緊急照明放電", type: "maint" },
+            { month: 5, day: 20, text: "電梯保養合約續約審核", type: "contract" },
+            { month: 6, day: 10, text: "社區旅遊活動規劃", type: "event" },
+            { month: 7, day: 15, text: "中元普渡活動", focus: "中元祭祀準備", type: "event" },
+            { month: 7, day: 20, text: "社區消毒 / 水塔清洗 (下半年)", type: "maint" },
+            { month: 8, day: 15, text: "中秋節活動", type: "event" },
+            { month: 8, day: 20, text: "公共意外險 / 火災險續保", type: "contract" },
+            { month: 9, day: 10, text: "外牆玻璃清洗", type: "maint" },
+            { month: 9, day: 15, text: "瓦斯安全檢查", type: "check" },
+            { month: 10, day: 15, text: "區分所有權人大會", focus: "年度大會與委員改選", type: "meeting" },
+            { month: 10, day: 20, text: "緊急發電機測試 (無載)", type: "maint" },
+            { month: 11, day: 20, text: "耶誕節佈置", type: "event" },
+            { month: 11, day: 31, text: "跨年活動協助", type: "event" }
+        ];
+
+        let state = null;
+        let plannerStorageKey = '';
+        let selectedCommunityId = '';
+        let selectedCommunityName = '';
+        let dbUser = null;
+        let fbUser = null;
+        let primaryTab = 'log';
+
+        const monthNames = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+        const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+
+        function saveData() {
+            localStorage.setItem(plannerStorageKey, JSON.stringify(state.plannerData));
+        }
+
+        function getDateKey(date) {
+            const d = new Date(date);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function switchTab(tabId) {
+            state.activeTab = tabId;
+            if (tabId === 'daily' || tabId === 'calendar') {
+                state.selectedDate = new Date();
+            }
+            render();
+        }
+
+        function switchPrimaryTab(tab) {
+            primaryTab = tab === 'settings' ? 'settings' : 'log';
+            if (primaryTab === 'log' && (!state.activeTab || !['daily','calendar','yearly'].includes(state.activeTab))) {
+                state.activeTab = 'daily';
+            }
+            render();
+        }
+
+        function goToToday() {
+            state.selectedDate = new Date();
+            state.activeTab = 'daily';
+            render();
+        }
+
+        function changeDate(days) {
+            const nextDate = new Date(state.selectedDate);
+            nextDate.setDate(state.selectedDate.getDate() + days);
+            state.selectedDate = nextDate;
+            render();
+        }
+
+        function render() {
+            const content = document.getElementById('app-content');
+            const logSwitcher = document.getElementById('log-switcher');
+            const mobileLog = document.getElementById('mobile-tab-log');
+            const mobileSettings = document.getElementById('mobile-tab-settings');
+
+            if (primaryTab === 'log') {
+                if (logSwitcher) logSwitcher.classList.remove('hidden');
+                if (mobileLog) { mobileLog.classList.remove('text-slate-400'); mobileLog.classList.add('text-red-500'); }
+                if (mobileSettings) { mobileSettings.classList.remove('text-red-500'); mobileSettings.classList.add('text-slate-400'); }
+
+                ['daily', 'calendar', 'yearly'].forEach(tab => {
+                    const btn = document.getElementById(`tab-${tab}`);
+                    if (!btn) return;
+                    if (state.activeTab === tab) {
+                        btn.className = "flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all bg-white shadow-sm text-red-600";
+                    } else {
+                        btn.className = "flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700";
+                    }
+                });
+
+                if (state.activeTab === 'daily') renderDailyView(content);
+                else if (state.activeTab === 'calendar') renderCalendarView(content);
+                else if (state.activeTab === 'yearly') renderYearlyListView(content);
+            } else {
+                if (logSwitcher) logSwitcher.classList.add('hidden');
+                if (mobileLog) { mobileLog.classList.remove('text-red-500'); mobileLog.classList.add('text-slate-400'); }
+                if (mobileSettings) { mobileSettings.classList.remove('text-slate-400'); mobileSettings.classList.add('text-red-500'); }
+                renderSettingsView(content);
+            }
+
+            lucide.createIcons();
+        }
+
+        function renderSettingsView(container) {
+            const year = new Date().getFullYear();
+            const entries = Object.entries(state.plannerData)
+                .filter(([k]) => k.startsWith(`${year}-`))
+                .flatMap(([k, v]) => (Array.isArray(v.tasks) ? v.tasks.map(t => ({ date: k, ...t })) : []))
+                .sort((a, b) => a.date.localeCompare(b.date));
+
+            container.innerHTML = `
+                <div class="max-w-3xl mx-auto space-y-6">
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
+                        <div class="flex items-center gap-2 mb-3 text-red-500">
+                            <i data-lucide="file-badge" class="w-5 h-5"></i>
+                            <h3 class="font-bold text-slate-700">基本資料</h3>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div><div class="text-slate-400">社區編號</div><div class="font-bold text-slate-800">${selectedCommunityId}</div></div>
+                            <div><div class="text-slate-400">社區名稱</div><div class="font-bold text-slate-800">${selectedCommunityName || '—'}</div></div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
+                        <div class="flex items-center gap-2 mb-3 text-red-500">
+                            <i data-lucide="database" class="w-5 h-5"></i>
+                            <h3 class="font-bold text-slate-700">公共資料</h3>
+                        </div>
+                        <div class="grid grid-cols-1 gap-3">
+                            <label class="text-sm">
+                                <div class="text-slate-400">社區簡述</div>
+                                <textarea id="meta-desc" class="w-full bg-slate-50 border-none rounded-xl p-3 text-slate-700 focus:ring-2 focus:ring-red-400 min-h-[80px]" placeholder="輸入社區簡述..."></textarea>
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
+                        <div class="flex items-center gap-2 mb-3 text-red-500">
+                            <i data-lucide="list-checks" class="w-5 h-5"></i>
+                            <h3 class="font-bold text-slate-700">年度資料（${year}）</h3>
+                        </div>
+                        <div class="flex gap-2 mb-3">
+                            <input type="date" id="annual-date" class="bg-slate-50 border rounded-xl px-3 py-2 text-sm">
+                            <input type="text" id="annual-text" class="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm" placeholder="新增年度項目...">
+                            <button id="annual-add" class="px-3 py-2 rounded-xl bg-red-500 text-white text-sm font-bold hover:bg-red-600">新增</button>
+                        </div>
+                        <div id="annual-list" class="divide-y divide-red-50">
+                            ${entries.length === 0 ? '<div class="text-slate-400 text-sm">本年度尚無資料</div>' : entries.map(e => `
+                                <div class="py-2 flex items-center justify-between">
+                                    <div class="text-sm"><span class="text-slate-400 mr-2">${e.date}</span><span class="${e.completed ? 'line-through text-slate-400' : 'text-slate-700'}">${e.text}</span></div>
+                                    <div class="flex gap-2">
+                                        <button data-id="${e.id}" data-date="${e.date}" class="annual-edit px-2 py-1 text-xs rounded-lg bg-gray-100 text-gray-700">編輯</button>
+                                        <button data-id="${e.id}" data-date="${e.date}" class="annual-del px-2 py-1 text-xs rounded-lg bg-red-50 text-red-600">刪除</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </section>
+                </div>
+            `;
+
+            const metaKey = `planner_meta_${appId}_${selectedCommunityId}`;
+            try {
+                const meta = JSON.parse(localStorage.getItem(metaKey) || '{}');
+                const descEl = document.getElementById('meta-desc');
+                if (descEl) descEl.value = meta.desc || '';
+                descEl.onchange = () => {
+                    const next = { ...(meta || {}), desc: descEl.value };
+                    localStorage.setItem(metaKey, JSON.stringify(next));
+                };
+            } catch {}
+
+            const addBtn = document.getElementById('annual-add');
+            if (addBtn) {
+                addBtn.onclick = () => {
+                    const dateEl = document.getElementById('annual-date');
+                    const textEl = document.getElementById('annual-text');
+                    const dateVal = (dateEl && dateEl.value) ? dateEl.value : '';
+                    const textVal = (textEl && textEl.value) ? textEl.value.trim() : '';
+                    if (!dateVal || !textVal) return;
+                    const key = dateVal;
+                    const current = state.plannerData[key] || { focus: '', tasks: [] };
+                    current.tasks = [...(current.tasks || []), { id: Date.now(), text: textVal, completed: false }];
+                    state.plannerData[key] = current;
+                    saveData();
+                    render();
+                };
+            }
+
+            document.querySelectorAll('#annual-list .annual-del').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = Number(btn.getAttribute('data-id'));
+                    const date = String(btn.getAttribute('data-date'));
+                    const current = state.plannerData[date];
+                    if (!current) return;
+                    current.tasks = (current.tasks || []).filter(t => Number(t.id) !== id);
+                    state.plannerData[date] = current;
+                    saveData();
+                    render();
+                });
+            });
+
+            document.querySelectorAll('#annual-list .annual-edit').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = Number(btn.getAttribute('data-id'));
+                    const date = String(btn.getAttribute('data-date'));
+                    const current = state.plannerData[date];
+                    if (!current) return;
+                    const target = (current.tasks || []).find(t => Number(t.id) === id);
+                    if (!target) return;
+                    const nextText = window.prompt('修改內容', target.text || '');
+                    if (nextText == null) return;
+                    target.text = nextText.trim();
+                    state.plannerData[date] = current;
+                    saveData();
+                    render();
+                });
+            });
+        }
+
+        function renderDailyView(container) {
+            const key = getDateKey(state.selectedDate);
+            const data = state.plannerData[key] || { focus: "", tasks: [] };
+
+            container.innerHTML = `
+                <div class="max-w-2xl mx-auto space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                    <div class="flex items-center justify-between mb-2">
+                        <button onclick="changeDate(-1)" class="p-2 hover:bg-white rounded-full text-red-500"><i data-lucide="chevron-left"></i></button>
+                        <div class="text-center">
+                            <h2 class="text-lg font-bold text-slate-800">${state.selectedDate.toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' })}</h2>
+                            <p class="text-sm text-slate-500 font-medium">${state.selectedDate.toLocaleDateString('zh-TW', { weekday: 'long' })}</p>
+                        </div>
+                        <button onclick="changeDate(1)" class="p-2 hover:bg-white rounded-full text-red-500"><i data-lucide="chevron-right"></i></button>
+                    </div>
+
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
+                        <div class="flex items-center gap-2 mb-3 text-red-500">
+                            <i data-lucide="award" class="w-5 h-5 fill-current"></i>
+                            <h3 class="font-bold text-slate-700">當日社區工作重點</h3>
+                        </div>
+                        <textarea id="focus-input" placeholder="點擊編輯工作重點..." class="w-full bg-slate-50 border-none rounded-xl p-3 text-slate-700 focus:ring-2 focus:ring-red-400 transition-all resize-none min-h-[80px]">${data.focus || ''}</textarea>
+                    </section>
+
+                    <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
+                        <div class="flex items-center gap-2 mb-4 text-red-500">
+                            <i data-lucide="check-square" class="w-5 h-5"></i>
+                            <h3 class="font-bold text-slate-700">細項執行清單</h3>
+                        </div>
+                        <div id="tasks-container" class="space-y-3 mb-4"></div>
+                        <div class="flex gap-2">
+                            <input type="text" id="new-task-input" placeholder="新增自訂任務..." class="flex-1 bg-slate-50 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-red-400">
+                            <button onclick="addTask()" class="bg-red-500 text-white p-2 rounded-xl hover:bg-red-600 transition-colors"><i data-lucide="plus"></i></button>
+                        </div>
+                    </section>
+                </div>
+            `;
+
+            document.getElementById('focus-input').onchange = (e) => updateData({ focus: e.target.value });
+            renderTasks(data.tasks);
+            document.getElementById('new-task-input').onkeydown = (e) => { if (e.key === 'Enter') addTask(); };
+        }
+
+        function renderTasks(tasks) {
+            const container = document.getElementById('tasks-container');
+            if (!container) return;
+            container.innerHTML = (tasks || []).map(task => `
+                <div class="group flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-red-50 transition-colors">
+                    <div class="flex items-center gap-3 flex-1 cursor-pointer" onclick="toggleTask(${task.id})">
+                        ${task.completed ? '<i data-lucide="check-circle-2" class="text-emerald-500 w-5 h-5"></i>' : '<i data-lucide="circle" class="text-slate-300 w-5 h-5"></i>'}
+                        <span class="text-sm ${task.completed ? 'line-through text-slate-400 font-normal' : 'text-slate-700 font-medium'}">${task.text}</span>
+                    </div>
+                    <button onclick="deleteTask(${task.id})" class="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 transition-all">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            `).join('') || '<p class="text-slate-400 text-sm italic text-center py-4">本日尚無工作排程</p>';
+            lucide.createIcons();
+        }
+
+        function updateData(newData) {
+            const key = getDateKey(state.selectedDate);
+            state.plannerData[key] = { ...(state.plannerData[key] || { focus: "", tasks: [] }), ...newData };
+            saveData();
+        }
+
+        function addTask() {
+            const input = document.getElementById('new-task-input');
+            if (!input.value.trim()) return;
+            const key = getDateKey(state.selectedDate);
+            const current = state.plannerData[key] || { tasks: [] };
+            updateData({ tasks: [...(current.tasks || []), { id: Date.now(), text: input.value, completed: false }] });
+            input.value = "";
+            render();
+        }
+
+        function toggleTask(id) {
+            const key = getDateKey(state.selectedDate);
+            const tasks = (state.plannerData[key].tasks || []).map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+            updateData({ tasks });
+            render();
+        }
+
+        function deleteTask(id) {
+            const key = getDateKey(state.selectedDate);
+            const tasks = (state.plannerData[key].tasks || []).filter(t => t.id !== id);
+            updateData({ tasks });
+            render();
+        }
+
+        function renderCalendarView(container) {
+            const year = state.selectedDate.getFullYear();
+            const month = state.selectedDate.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            let daysHtml = "";
+            for (let i = 0; i < firstDay; i++) daysHtml += '<div class="h-10 md:h-14"></div>';
+            for (let i = 1; i <= daysInMonth; i++) {
+                const checkDate = new Date(year, month, i);
+                const isSelected = state.selectedDate.getDate() === i && state.selectedDate.getMonth() === month;
+                const hasData = (state.plannerData[getDateKey(checkDate)]?.tasks?.length || 0) > 0;
+
+                daysHtml += `
+                    <button onclick="selectDate(${year}, ${month}, ${i})"
+                        class="h-10 md:h-14 rounded-xl flex flex-col items-center justify-center transition-all ${isSelected ? 'bg-red-500 text-white shadow-md' : hasData ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'hover:bg-red-50 text-slate-700'}">
+                        <span class="text-sm md:text-base font-bold">${i}</span>
+                    </button>
+                `;
+            }
+
+            container.innerHTML = `
+                <div class="max-w-2xl mx-auto p-4 bg-white rounded-2xl shadow-sm border border-red-50">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold text-slate-800">${year}年 ${monthNames[month]}</h2>
+                        <div class="flex gap-2">
+                            <button onclick="changeMonth(-1)" class="p-2 hover:bg-red-50 rounded-full text-red-500"><i data-lucide="chevron-left"></i></button>
+                            <button onclick="changeMonth(1)" class="p-2 hover:bg-red-50 rounded-full text-red-600"><i data-lucide="chevron-right"></i></button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-7 gap-1 text-center mb-2">
+                        ${weekDays.map(d => `<div class="text-xs font-semibold text-slate-400 py-2">${d}</div>`).join('')}
+                        ${daysHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function changeMonth(delta) {
+            const d = new Date(state.selectedDate);
+            d.setMonth(d.getMonth() + delta);
+            state.selectedDate = d;
+            render();
+        }
+
+        function selectDate(y, m, d) {
+            state.selectedDate = new Date(y, m, d);
+            state.activeTab = 'daily';
+            render();
+        }
+
+        function renderYearlyListView(container) {
+            const year = state.selectedDate.getFullYear();
+            const yearData = Object.keys(state.plannerData)
+                .filter(key => key.startsWith(`${year}-`))
+                .sort()
+                .map(key => ({ key, ...state.plannerData[key] }));
+
+            let listHtml = "";
+            let currentMonth = -1;
+
+            yearData.forEach(item => {
+                const parts = String(item.key || '').split('-');
+                const y = Number(parts[0]);
+                const monthIndex = Number(parts[1]) - 1;
+                const dayNumber = Number(parts[2]);
+                const dateObj = new Date(y, monthIndex, dayNumber);
+                const month = monthIndex;
+                const day = dayNumber;
+                const weekday = dateObj.toLocaleDateString('zh-TW', { weekday: 'short' });
+                const tasks = Array.isArray(item.tasks) ? item.tasks : [];
+                const doneCount = tasks.filter(t => t.completed).length;
+
+                if (month !== currentMonth) {
+                    currentMonth = month;
+                    listHtml += `<h3 class="text-lg font-black text-red-600 mt-8 mb-4 px-2 flex items-center gap-2">
+                        <span class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center text-sm">${month + 1}</span>
+                        ${monthNames[month]}
+                    </h3>`;
+                }
+
+                listHtml += `
+                    <div onclick="selectDate(${year}, ${month}, ${day})" class="group bg-white p-4 rounded-2xl mb-3 shadow-sm border border-red-50 hover:border-red-200 hover:shadow-md transition-all cursor-pointer">
+                        <div class="flex items-start gap-4">
+                            <div class="flex flex-col items-center min-w-[50px] text-slate-400">
+                                <span class="text-xl font-black text-slate-800">${day}</span>
+                                <span class="text-xs font-bold">${weekday}</span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-bold text-slate-800 truncate">${(item.focus || '').trim() ? item.focus : '—'}</div>
+                                        <div class="text-xs text-slate-400 mt-0.5">${item.key}</div>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        <div class="text-[11px] font-bold px-2 py-1 rounded-full ${tasks.length > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-400'}">
+                                            ${doneCount}/${tasks.length}
+                                        </div>
+                                        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 group-hover:text-red-400 transition-colors"></i>
+                                    </div>
+                                </div>
+                                ${tasks.length > 0 ? `
+                                    <div class="mt-3 space-y-1 text-sm text-slate-600">
+                                        ${tasks.slice(0, 3).map(t => `<div class="flex items-center gap-2">
+                                            <span class="w-1.5 h-1.5 rounded-full ${t.completed ? 'bg-emerald-500' : 'bg-red-400'}"></span>
+                                            <span class="${t.completed ? 'line-through text-slate-400' : ''} truncate">${t.text}</span>
+                                        </div>`).join('')}
+                                        ${tasks.length > 3 ? `<div class="text-xs text-slate-400 pt-1">還有 ${tasks.length - 3} 項...</div>` : ''}
+                                    </div>
+                                ` : `
+                                    <div class="mt-3 text-xs text-slate-400">本日尚無工作排程</div>
+                                `}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = `
+                <div class="max-w-3xl mx-auto">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="text-xl font-black text-slate-800">${year} 年度列表</h2>
+                            <div class="text-xs text-slate-400 font-medium mt-1">點擊日期可直接進入當日編輯</div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="changeYear(-1)" class="p-2 bg-white border border-red-100 rounded-xl text-red-500 hover:bg-red-50 transition-colors">
+                                <i data-lucide="chevron-left"></i>
+                            </button>
+                            <button onclick="changeYear(1)" class="p-2 bg-white border border-red-100 rounded-xl text-red-500 hover:bg-red-50 transition-colors">
+                                <i data-lucide="chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="custom-scrollbar">
+                        ${listHtml || '<div class="text-center text-slate-400 py-12">尚無年度資料</div>'}
+                    </div>
+                </div>
+            `;
+        }
+
+        function changeYear(delta) {
+            const d = new Date(state.selectedDate);
+            d.setFullYear(d.getFullYear() + delta);
+            state.selectedDate = d;
+            render();
+        }
+
+        function initPlannerDataIfEmpty() {
+            try {
+                const existing = JSON.parse(localStorage.getItem(plannerStorageKey) || '{}');
+                if (existing && typeof existing === 'object' && Object.keys(existing).length > 0) {
+                    return existing;
+                }
+            } catch {}
+
+            const currentYear = 2026;
+            const fresh = {};
+            defaultCommunityTasks.forEach(item => {
+                if (item.month === null) {
+                    for (let m = 0; m < 12; m++) {
+                        const key = `${currentYear}-${String(m + 1).padStart(2, '0')}-${String(item.day).padStart(2, '0')}`;
+                        if (!fresh[key]) fresh[key] = { focus: item.focus || "", tasks: [] };
+                        fresh[key].tasks.push({ id: Date.now() + Math.random(), text: item.text, completed: false });
+                    }
+                } else {
+                    const key = `${currentYear}-${String(item.month + 1).padStart(2, '0')}-${String(item.day).padStart(2, '0')}`;
+                    if (!fresh[key]) fresh[key] = { focus: item.focus || "", tasks: [] };
+                    fresh[key].tasks.push({ id: Date.now() + Math.random(), text: item.text, completed: false });
+                }
+            });
+            localStorage.setItem(plannerStorageKey, JSON.stringify(fresh));
+            return fresh;
+        }
+
+        function initFirebaseCompat() {
+            if (!window.FIREBASE_CONFIG) throw new Error('缺少 firebase-config.js');
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps || firebase.apps.length === 0) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            return {
+                auth: firebase.auth(),
+                db: firebase.firestore()
+            };
+        }
+
+        async function loadDbUserByEmail(db, email) {
+            const snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users')
+                .where('email', '==', String(email || '').trim())
+                .limit(1)
+                .get();
+            if (snap.empty) return null;
+            const doc = snap.docs[0];
+            return { id: doc.id, ...doc.data() };
+        }
+
+        function resolveAllowedCommunityIds(u) {
+            if (!u) return [];
+            if (String(u.role || '') === 'admin') return ['*'];
+            const ids = Array.isArray(u.communityIds) ? u.communityIds : [];
+            if (u.communityId) ids.push(u.communityId);
+            return Array.from(new Set(ids.map(x => String(x).trim().toUpperCase()).filter(Boolean)));
+        }
+
+        function getRequestedCommunityId() {
+            const params = new URLSearchParams(window.location.search || '');
+            return String(params.get('communityId') || '').trim().toUpperCase();
+        }
+
+        async function init() {
+            const { auth, db } = initFirebaseCompat();
+            const current = await new Promise(resolve => auth.onAuthStateChanged(u => resolve(u)));
+            if (!current) {
+                hideAppChrome();
+                renderAuthScreen('請先登入後才能查看社區工作規劃表。');
+                return;
+            }
+            fbUser = current;
+
+            const email = current.email || '';
+            if (!email) {
+                hideAppChrome();
+                renderErrorScreen('登入帳號缺少 Email，無法取得使用者資料');
+                return;
+            }
+
+            dbUser = await loadDbUserByEmail(db, email);
+            if (!dbUser) {
+                hideAppChrome();
+                renderErrorScreen('找不到此帳號的使用者資料');
+                return;
+            }
+
+            const requested = getRequestedCommunityId();
+            const allowed = resolveAllowedCommunityIds(dbUser);
+            const isAdmin = allowed.includes('*');
+
+            let communityId = requested;
+            if (!communityId) {
+                const fallback = (Array.isArray(dbUser.communityIds) && dbUser.communityIds[0]) ? dbUser.communityIds[0] : (dbUser.communityId || '');
+                communityId = String(fallback || '').trim().toUpperCase();
+            }
+
+            if (!communityId) {
+                hideAppChrome();
+                renderErrorScreen('未指定社區，請使用 ?communityId=社區編號 開啟');
+                return;
+            }
+
+            const normalizedCommunityId = String(communityId || '').trim().toUpperCase();
+            if (!normalizedCommunityId) {
+                hideAppChrome();
+                renderErrorScreen('未指定社區，請使用 ?communityId=社區編號 開啟');
+                return;
+            }
+
+            if (!isAdmin && !allowed.includes(normalizedCommunityId)) {
+                hideAppChrome();
+                renderErrorScreen('你沒有權限查看此社區的規劃表');
+                return;
+            }
+
+            selectedCommunityId = normalizedCommunityId;
+            plannerStorageKey = `planner_data_${appId}_${selectedCommunityId}`;
+
+            try {
+                const commSnap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities')
+                    .doc(selectedCommunityId)
+                    .get();
+                if (commSnap.exists) {
+                    const comm = commSnap.data() || {};
+                    selectedCommunityName = String(comm.name || '').trim();
+                }
+            } catch {}
+
+            if (!selectedCommunityName) {
+                hideAppChrome();
+                renderErrorScreen(`找不到社區名稱：${selectedCommunityId}`);
+                return;
+            }
+
+            if (titleEl) {
+                titleEl.textContent = `${selectedCommunityName}社區工作日誌`;
+            }
+
+            state = {
+                selectedDate: new Date(2026, 0, 1),
+                activeTab: 'yearly',
+                plannerData: initPlannerDataIfEmpty()
+            };
+
+            showAppChrome();
+            render();
+        }
+
+        init().catch(e => {
+            hideAppChrome();
+            renderErrorScreen(e && e.message ? e.message : '初始化失敗');
+        });
+    </script>
+</body>
+</html>

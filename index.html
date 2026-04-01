@@ -8297,7 +8297,7 @@
                 { key: 'presentation', label: '簡報' },
                 { key: 'notification', label: '通知' },
                 { key: 'customerService', label: '客服' },
-                { key: 'general', label: '概況' }
+                { key: 'general', label: '日誌' }
             ],
             clock: [
                 { key: 'work', label: '上下班' },
@@ -8307,6 +8307,7 @@
                 { key: 'schedule', label: '班表' }
             ],
             function: [
+                { key: 'log', label: '日誌' },
                 { key: 'patrol', label: '巡邏' },
                 { key: 'training', label: '訓練' },
                 { key: 'download', label: '下載' }
@@ -9597,7 +9598,7 @@
             const [mySchedules, setMySchedules] = useState({}); // New State for My Schedules
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
-            const [functionSubtab, setFunctionSubtab] = useState('patrol');
+            const [functionSubtab, setFunctionSubtab] = useState('log');
             const [cadreSubtab, setCadreSubtab] = useState('report');
             const [cadreCompany, setCadreCompany] = useState(() => localStorage.getItem('last_cadre_company') || '台北');
             const [cadreRecordDate, setCadreRecordDate] = useState(() => {
@@ -9827,6 +9828,8 @@
             const [makeupForm, setMakeupForm] = useState({ timeType: 'in', locationId: '', reasonType: 'forgot', reasonText: '' });
             const [makeupDateStr, setMakeupDateStr] = useState('');
             const [makeupSchedule, setMakeupSchedule] = useState(null);
+            const [showOverviewScheduleModal, setShowOverviewScheduleModal] = useState(false);
+            const [overviewScheduleCommunityId, setOverviewScheduleCommunityId] = useState('');
             const [showMakeupEditModal, setShowMakeupEditModal] = useState(false);
             const [editingMakeupRequest, setEditingMakeupRequest] = useState(null);
             const [makeupEditForm, setMakeupEditForm] = useState({ startTime: '', endTime: '', locationId: '', reasonType: 'forgot', reasonRemark: '' });
@@ -9839,6 +9842,19 @@
             const [showCommunityLeaveModal, setShowCommunityLeaveModal] = useState(false);
             const [editingCommunityLeave, setEditingCommunityLeave] = useState(null);
             const [communityLeaveLoading, setCommunityLeaveLoading] = useState(false);
+
+            useEffect(() => {
+                if (showOverviewScheduleModal) {
+                    const prevOverflow = document.body.style.overflow;
+                    const prevMsOverflow = document.body.style.msOverflowStyle;
+                    document.body.style.overflow = 'hidden';
+                    document.body.style.msOverflowStyle = 'none';
+                    return () => {
+                        document.body.style.overflow = prevOverflow;
+                        document.body.style.msOverflowStyle = prevMsOverflow;
+                    };
+                }
+            }, [showOverviewScheduleModal]);
 
             useEffect(() => {
                 if (signatureTypes.length > 0 && !signatureForm.type) {
@@ -11161,7 +11177,7 @@
                                 target: participantNames.join('、'),
                                 targetUserIds: participantIds,
                                 content,
-                                title: `新增${typeLabel}通知`,
+                                title: `社區：${place} 新增${typeLabel}通知`,
                                 senderName: '系統',
                                 senderId: 'system',
                                 createdAt: serverTimestamp(),
@@ -11272,7 +11288,7 @@
                                 target: participantNames.join('、'),
                                 targetUserIds: participantIds,
                                 content,
-                                title: `新增${typeLabel}通知`,
+                                title: `社區：${place} 新增${typeLabel}通知`,
                                 senderName: '系統',
                                 senderId: 'system',
                                 createdAt: serverTimestamp(),
@@ -11408,7 +11424,7 @@
                                 target: participantNames.join('、'),
                                 targetUserIds: participantIds,
                                 content,
-                                title: `新增${typeLabel}通知`,
+                                title: `社區：${place} 新增${typeLabel}通知`,
                                 senderName: '系統',
                                 senderId: 'system',
                                 createdAt: serverTimestamp(),
@@ -11543,7 +11559,7 @@
                                 target: participantNames.join('、'),
                                 targetUserIds: participantIds,
                                 content,
-                                title: `新增${typeLabel}通知`,
+                                title: `社區：${place} 新增${typeLabel}通知`,
                                 senderName: '系統',
                                 senderId: 'system',
                                 createdAt: serverTimestamp(),
@@ -14380,7 +14396,7 @@
                                             onClick={() => setOverviewSubtab('general')} 
                                             className={`px-3 py-2 text-xs font-bold rounded-2xl ${overviewSubtab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
-                                            概況
+                                            日誌
                                         </button>
                                     )}
                                 </div>
@@ -14402,6 +14418,7 @@
 
                             {activeTab === 'function' && (
                                 <div className="flex gap-2">
+                                    {hasSubPermission('function', 'log') && <button onClick={() => setFunctionSubtab('log')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'log' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>日誌</button>}
                                     {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>巡邏</button>}
                                     {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
@@ -15466,7 +15483,7 @@
                                 {overviewSubtab === 'general' && hasSubPermission('overview', 'general') && (
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                                         <div className="flex items-center justify-between mb-4">
-                                            <h2 className="text-lg font-bold text-gray-800">社區概況</h2>
+                                            <h2 className="text-lg font-bold text-gray-800">社區日誌</h2>
                                             <div className="text-xs text-gray-500">
                                                 所屬公司社區數量：
                                                 {(() => {
@@ -15509,6 +15526,7 @@
                                                             <div key={c.id} className="w-full aspect-square flex items-center justify-center">
                                                                 <button 
                                                                     className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                    onClick={() => { setOverviewScheduleCommunityId(String(c.id || '').trim()); setShowOverviewScheduleModal(true); }}
                                                                 >
                                                                     {displayName}
                                                                 </button>
@@ -21370,6 +21388,40 @@
                         {activeTab === 'function' && hasPermission('function') && (
                             <div className="space-y-6">
                                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                    {functionSubtab === 'log' && hasSubPermission('function', 'log') && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 社區日誌
+                                            </h3>
+                                            {(function(){
+                                                if (!dbUser) return <div className="text-center py-8 text-gray-400">請先登入</div>;
+                                                const ids = Array.from(new Set((dbUser.communityIds || []).map(x => String(x).trim()).filter(Boolean)));
+                                                const myComms = ids.map(id => (communities || []).find(c => String(c.id) === String(id))).filter(Boolean);
+                                                if (myComms.length === 0) return <div className="text-center py-8 text-gray-400">無服務社區</div>;
+                                                return (
+                                                    <div className="grid grid-cols-5 gap-2">
+                                                        {myComms.map(c => {
+                                                            const name = c.name || '';
+                                                            const short = name.slice(0, 4);
+                                                            const top = short.slice(0, 2);
+                                                            const bottom = short.slice(2);
+                                                            const displayName = bottom ? <>{top}<br/>{bottom}</> : top || name;
+                                                            return (
+                                                                <div key={c.id} className="w-full aspect-square flex items-center justify-center">
+                                                                    <button
+                                                                        onClick={() => { setOverviewScheduleCommunityId(String(c.id || '').trim()); setShowOverviewScheduleModal(true); }}
+                                                                        className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                    >
+                                                                        {displayName}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
                                     {functionSubtab === 'patrol' && hasSubPermission('function', 'patrol') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -25402,15 +25454,6 @@
                                         )}
                                     </div>
                                 </div>
-                                <div className="mt-4">
-                                    <button 
-                                        onClick={handleAdminResetUserPassword}
-                                        className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 border border-red-200 text-sm flex items-center justify-center gap-2"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
-                                        重設密碼 (恢復為 123456)
-                                    </button>
-                                </div>
                                 <div className="mt-6 flex justify-end gap-2">
                                     <button
                                         onClick={() => setShowMakeupModal(false)}
@@ -25462,6 +25505,27 @@
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {showOverviewScheduleModal && overviewScheduleCommunityId && (
+                        <div className="fixed inset-0 z-[95] bg-white flex flex-col overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                                <div className="font-bold text-gray-800 text-sm">
+                                    {(communities || []).find(c => String(c.id) === String(overviewScheduleCommunityId))?.name || overviewScheduleCommunityId}社區工作日誌
+                                </div>
+                                <button
+                                    onClick={() => { setShowOverviewScheduleModal(false); setOverviewScheduleCommunityId(''); }}
+                                    className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
+                                >
+                                    關閉
+                                </button>
+                            </div>
+                            <iframe
+                                title="schedule"
+                                src={`schedule.html?communityId=${encodeURIComponent(String(overviewScheduleCommunityId || '').trim())}`}
+                                className="w-full flex-1 border-0"
+                            />
                         </div>
                     )}
 
