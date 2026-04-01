@@ -9378,13 +9378,9 @@
                     if (!meet) continue;
 
                     // Filter Logic:
-                    // Only notify if user is admin/manager OR user is a participant
-                    const isAdminOrManager = dbUser && ['admin', 'manager'].includes(dbUser.role);
+                    // Only notify participants
                     const isParticipant = dbUser && Array.isArray(meet.participants) && meet.participants.includes(dbUser.id);
-                    
-                    if (!isAdminOrManager && !isParticipant) {
-                        continue;
-                    }
+                    if (!isParticipant) continue;
                     
                     const isToday = meet.date === todayKey;
                     const isFuture = meet.date > todayKey;
@@ -9424,6 +9420,85 @@
                     setMeetingReminder(null);
                 }
             }, [dbUser, overviewMeetings, overviewDistrictMeetings, overviewActivities, overviewPresentations, usersList]);
+
+            useEffect(() => {
+                if (!dbUser || !meetingReminder) return;
+
+                const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+                if (!hasPermission) return;
+                if (!enableSystemNotification) return;
+
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                const todayKey = `${y}-${m}-${d}`;
+
+                const scopeKey = meetingReminder._notificationType === 'day_of'
+                    ? `meetingPushShown_${dbUser.id}_${meetingReminder.id}_${todayKey}`
+                    : `meetingPushShown_${dbUser.id}_${meetingReminder.id}`;
+
+                if (sessionStorage.getItem(scopeKey)) return;
+                sessionStorage.setItem(scopeKey, '1');
+
+                const comm = communities.find(c => c.id === meetingReminder.communityId);
+                const place = comm?.name || (typeof meetingReminder.communityId === 'string' ? meetingReminder.communityId : '') || '未指定';
+                const typeLabel = meetingReminder.type || '例會';
+
+                const title = meetingReminder._notificationType === 'new'
+                    ? `新增${typeLabel}通知`
+                    : `${typeLabel}提醒`;
+
+                const body = meetingReminder._notificationType === 'new'
+                    ? `已新增於 ${meetingReminder.date} ${meetingReminder.time || ''} 的 ${typeLabel}\n地點：${place}`
+                    : `今天 ${meetingReminder.time || ''} 有 ${typeLabel}\n地點：${place}`;
+
+                const show = async () => {
+                    const ICON_URL = 'logo.svg';
+                    const BADGE_URL = 'badge.svg';
+                    let sent = false;
+
+                    if ('serviceWorker' in navigator) {
+                        try {
+                            const getSwReady = navigator.serviceWorker.ready;
+                            const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SW Timeout')), 2000));
+                            const reg = await Promise.race([getSwReady, timeout]);
+                            await reg.showNotification(title, {
+                                body,
+                                icon: ICON_URL,
+                                badge: BADGE_URL,
+                                data: { url: window.location.href }
+                            });
+                            sent = true;
+                        } catch {}
+                    }
+
+                    if (!sent && 'Notification' in window) {
+                        const n = new Notification(title, { body, icon: ICON_URL, badge: BADGE_URL });
+                        n.onclick = function() {
+                            window.focus();
+                            n.close();
+                        };
+                    }
+                };
+
+                show().catch(console.error);
+
+                if (meetingReminder._notificationType === 'new') {
+                    const ackKey = `meetingCreatedAck_${dbUser.id}_${meetingReminder.id}`;
+                    try {
+                        localStorage.setItem(ackKey, 'true');
+                    } catch {}
+                    setMeetingReminder(null);
+                    return;
+                }
+
+                const closedKey = `meetingReminderClosed_${dbUser.id}_${meetingReminder.id}_${todayKey}`;
+                try {
+                    localStorage.setItem(closedKey, '2');
+                } catch {}
+                setMeetingReminder(null);
+            }, [dbUser, meetingReminder, communities, enableSystemNotification]);
             const [overviewCompany, setOverviewCompany] = useState('台北公司');
             const [expandedNotificationIds, setExpandedNotificationIds] = useState([]);
             const [overviewMeetingDatesByCompany, setOverviewMeetingDatesByCompany] = useState({});
