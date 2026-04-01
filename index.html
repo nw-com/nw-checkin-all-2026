@@ -9726,9 +9726,12 @@
             const [qrMode, setQrMode] = useState('qr');
             const [qrScanResult, setQrScanResult] = useState('');
             const [qrScanError, setQrScanError] = useState('');
+            const [qrScanCountdown, setQrScanCountdown] = useState(0);
+            const [qrScanSession, setQrScanSession] = useState(0);
             const qrVideoRef = useRef(null);
             const qrScanStreamRef = useRef(null);
             const qrScanRafRef = useRef(null);
+            const qrScanCountdownTimerRef = useRef(null);
             const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
             const [resetPasswordForm, setResetPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
             const [resetPasswordError, setResetPasswordError] = useState('');
@@ -9867,6 +9870,7 @@
 
             useEffect(() => {
                 if (!showQrModal || qrMode !== 'scan') return;
+                if (qrScanResult) return;
 
                 let stopped = false;
 
@@ -9884,6 +9888,7 @@
 
                 setQrScanError('');
                 setQrScanResult('');
+                setQrScanCountdown(0);
 
                 const start = async () => {
                     try {
@@ -9932,7 +9937,46 @@
                     stopped = true;
                     stopScan();
                 };
-            }, [showQrModal, qrMode]);
+            }, [showQrModal, qrMode, qrScanSession, qrScanResult]);
+
+            useEffect(() => {
+                if (!showQrModal || qrMode !== 'scan') {
+                    if (qrScanCountdownTimerRef.current) clearInterval(qrScanCountdownTimerRef.current);
+                    qrScanCountdownTimerRef.current = null;
+                    setQrScanCountdown(0);
+                    return;
+                }
+                if (!qrScanResult) {
+                    if (qrScanCountdownTimerRef.current) clearInterval(qrScanCountdownTimerRef.current);
+                    qrScanCountdownTimerRef.current = null;
+                    setQrScanCountdown(0);
+                    return;
+                }
+
+                if (qrScanCountdownTimerRef.current) clearInterval(qrScanCountdownTimerRef.current);
+                qrScanCountdownTimerRef.current = null;
+
+                setQrScanCountdown(5);
+                qrScanCountdownTimerRef.current = setInterval(() => {
+                    setQrScanCountdown(prev => {
+                        const next = prev - 1;
+                        if (next <= 0) {
+                            if (qrScanCountdownTimerRef.current) clearInterval(qrScanCountdownTimerRef.current);
+                            qrScanCountdownTimerRef.current = null;
+                            setQrScanResult('');
+                            setQrScanError('');
+                            setQrScanSession(s => s + 1);
+                            return 0;
+                        }
+                        return next;
+                    });
+                }, 1000);
+
+                return () => {
+                    if (qrScanCountdownTimerRef.current) clearInterval(qrScanCountdownTimerRef.current);
+                    qrScanCountdownTimerRef.current = null;
+                };
+            }, [showQrModal, qrMode, qrScanResult]);
 
             useEffect(() => {
                 if (signatureTypes.length > 0 && !signatureForm.type) {
@@ -9956,6 +10000,7 @@
                 setQrMode('qr');
                 setQrScanResult('');
                 setQrScanError('');
+                setQrScanCountdown(0);
                 setShowQrModal(true);
             };
 
@@ -25668,9 +25713,10 @@
                                         <div className="mt-3 text-center text-xs">
                                             {qrScanResult ? (
                                                 <div className="space-y-1">
-                                                    <div className="text-green-600 font-bold">掃碼成功</div>
+                                                    <div className="text-green-600 font-bold">掃碼成功{qrScanCountdown > 0 ? `（${qrScanCountdown}）` : ''}</div>
                                                     <div className="text-gray-500">掃碼條碼</div>
                                                     <div className="text-gray-900 font-bold break-all">{qrScanResult}</div>
+                                                    {qrScanCountdown > 0 && <div className="text-gray-500">倒數{qrScanCountdown}秒後可重新掃碼</div>}
                                                 </div>
                                             ) : (
                                                 <div className="text-gray-500">請將 QR code 對準取景框</div>
