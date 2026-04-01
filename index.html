@@ -9092,13 +9092,16 @@
             };
 
             const formatNotificationContent = (notif) => {
-                const c = String(notif?.content || '');
-                if (!c) return '';
-                if (c.includes('\n')) return c;
-                if (String(notif?.type || '') === 'feedback' || c.includes('【客服意見反應】')) {
-                    return formatFeedbackNotificationContent(c);
+                const title = String(notif?.title || '').trim();
+                const content = String(notif?.content || '').trim();
+                const body = String(notif?.body || '').trim();
+                const raw = content || (title && body ? `${title}\n${body}` : (body || title));
+                if (!raw) return '';
+                if (raw.includes('\n')) return raw;
+                if (String(notif?.type || '') === 'feedback' || raw.includes('【客服意見反應】')) {
+                    return formatFeedbackNotificationContent(raw);
                 }
-                return c;
+                return raw;
             };
 
             // PWA Install State
@@ -9678,20 +9681,35 @@
 
             // Helper for Notification Targeting
             const isNotificationTarget = (notification) => {
-                const target = notification.target;
-                if (!target || !dbUser) return false;
+                if (!dbUser || !notification) return false;
+                
+                const targetUserIds = Array.isArray(notification.targetUserIds) ? notification.targetUserIds : [];
+                if (targetUserIds.includes(dbUser.id)) return true;
+
+                const targetRoles = Array.isArray(notification.targetRoles) ? notification.targetRoles : [];
+                if (targetRoles.length > 0) {
+                    const customRole = (roles || []).find(r => r.id === dbUser.role);
+                    const myRole = dbUser.role;
+                    const isRoleMatch = targetRoles.includes(myRole) ||
+                        (customRole && targetRoles.some(tr => (customRole.name || '').includes(tr) || (customRole.permissions || []).includes(tr)));
+                    if (isRoleMatch) {
+                        const targetCommunityId = notification.communityId;
+                        if (!targetCommunityId) return true;
+                        if (myRole === 'admin') return true;
+                        const myComms = dbUser.communityIds || (dbUser.communityId ? [dbUser.communityId] : []);
+                        return myComms.some(cid => String(cid) === String(targetCommunityId));
+                    }
+                }
+
+                const target = String(notification.target || '');
+                if (!target) return false;
                 
                 // If "All" is selected
                 if (target.includes('全部')) return true;
 
                 // Helper to get my company name
-                // dbUser.companyId is primary company. 
-                // If user has multiple companies, we might need to check companyIds array?
-                // But for now, assuming primary company is enough for "Taipei/Taoyuan" distinction.
-                // Or check all companies?
-                // Let's stick to dbUser.companyId for simplicity as per existing logic usually.
-                const myCompany = companies.find(c => c.id === dbUser.companyId);
-                const myCompanyName = myCompany ? myCompany.name : '';
+                const companyIds = dbUser.companyIds || (dbUser.companyId ? [dbUser.companyId] : []);
+                const myCompanyName = companyIds.map(id => (companies || []).find(c => c.id === id)?.name || '').join(' ');
 
                 if (target.includes('全台北公司') && myCompanyName.includes('台北')) return true;
                 if (target.includes('全桃園公司') && myCompanyName.includes('桃園')) return true;
