@@ -2744,7 +2744,11 @@
                     const unsubscribe = onSnapshot(q, (snapshot) => {
                         const list = [];
                         snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-                        setSettingsNotifications(list);
+                        setSettingsNotifications(list.filter(n => {
+                            const title = String(n?.title || '').trim();
+                            const type = String(n?.type || '').trim();
+                            return !(title === '異常通知' || type === 'community_anomaly' || type === 'leave_pending');
+                        }));
                         setSettingsNotificationsLoading(false);
                     }, () => setSettingsNotificationsLoading(false));
                     return () => unsubscribe();
@@ -8809,6 +8813,11 @@
             const [notificationLoading, setNotificationLoading] = useState(false);
             const [notifications, setNotifications] = useState([]);
             const isFirstSnapshot = useRef(true);
+            const isAnomalyNotification = (notif) => {
+                const title = String(notif?.title || '').trim();
+                const type = String(notif?.type || '').trim();
+                return title === '異常通知' || type === 'community_anomaly' || type === 'leave_pending';
+            };
             
             // Notification Permission State
             const [notificationPermission, setNotificationPermission] = useState(() => {
@@ -9160,6 +9169,7 @@
                 // Find unread notifications targeting me
                 const unread = notifications.filter(n => 
                     isNotificationTarget(n) && 
+                    !isAnomalyNotification(n) &&
                     !(n.readBy || []).includes(dbUser.id) &&
                     !ignoredNotificationIds.has(n.id)
                 );
@@ -9288,6 +9298,7 @@
                                 if (change.type === 'added') {
                                     const data = change.doc.data();
                                     const notif = { id: change.doc.id, ...data };
+                                    if (isAnomalyNotification(notif)) return;
                                     if (isNotificationTarget(notif)) {
                                         // Check for system notification permission
                                         const hasPermission = 'Notification' in window && Notification.permission === 'granted';
@@ -9344,7 +9355,8 @@
         
                         const list = [];
                         snapshot.forEach((doc) => {
-                            list.push({ id: doc.id, ...doc.data() });
+                            const notif = { id: doc.id, ...doc.data() };
+                            if (!isAnomalyNotification(notif)) list.push(notif);
                         });
                         setNotifications(list);
                     }, (error) => {
@@ -12637,39 +12649,6 @@
                             }
 
                             if (anomalies > 0) {
-                                // Send Notification (respect push settings)
-                                let didSend = false;
-                                try {
-                                    const pushRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push');
-                                    const pushSnap = await getDoc(pushRef);
-                                    const data = pushSnap.exists() ? (pushSnap.data() || {}) : {};
-                                    const targetRoles = Array.isArray(data.targetRoles) ? data.targetRoles : [];
-                                    const targetUserIds = Array.isArray(data.targetUserIds) ? data.targetUserIds : [];
-                                    if (targetRoles.length > 0 || targetUserIds.length > 0) {
-                                        const payload = {
-                                            title: '異常通知',
-                                            body: `${comm.name} 今日共有 ${anomalies} 筆異常事項(含待審核假單與缺哨/考勤異常)，請儘速處理。`,
-                                            communityId: commId,
-                                            targetRoles,
-                                            createdAt: serverTimestamp()
-                                        };
-                                        if (targetUserIds.length > 0) payload.targetUserIds = targetUserIds;
-                                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), payload);
-                                        didSend = true;
-                                    }
-                                } catch (e) {
-                                    console.error('Push settings not found or invalid, skip sending:', e);
-                                }
-                                
-                                // Log Sent
-                                if (didSend) {
-                                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'daily_notification_logs', `${todayStr}_${commId}`), {
-                                        date: todayStr,
-                                        communityId: commId,
-                                        sentAt: serverTimestamp(),
-                                        sentBy: dbUser.id
-                                    });
-                                }
                             }
                         }
                     } catch (e) {
@@ -13111,31 +13090,6 @@
                             approvalStatus: 'pending'
                         });
                         try {
-                            const communityId = leaveData.communityId || submitUser.communityId || '';
-                            const comm = (communities || []).find(c => String(c.id) === String(communityId));
-                            const commName = comm?.name || submitUser.communityName || '社區';
-                            const title = '異常通知';
-                            const body = `${commName} 新增 1 筆請假待審核，請儘速處理。`;
-                            // Respect push settings
-                            const pushRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'push');
-                            const pushSnap = await getDoc(pushRef);
-                            const data = pushSnap.exists() ? (pushSnap.data() || {}) : {};
-                            const targetRoles = Array.isArray(data.targetRoles) ? data.targetRoles : [];
-                            const targetUserIds = Array.isArray(data.targetUserIds) ? data.targetUserIds : [];
-                            if (targetRoles.length > 0 || targetUserIds.length > 0) {
-                                const payload = {
-                                    title,
-                                    body,
-                                    communityId: communityId,
-                                    targetRoles,
-                                    createdAt: serverTimestamp(),
-                                    source: 'client',
-                                    type: 'leave_pending',
-                                    relatedId: newLeaveRef.id
-                                };
-                                if (targetUserIds.length > 0) payload.targetUserIds = targetUserIds;
-                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), payload);
-                            }
                         } catch (e) {
                             console.warn('Failed to push leave notification:', e);
                         }
@@ -17245,10 +17199,28 @@
                                                     let attendanceStatus = null;
                                                     let statusType = null;
                                                     if (schedule && (schedule.type === 'work' || schedule.type === 'duty') && !leaveInfo) {
+                                                        const parseTime = (timeStr, fallbackH, fallbackM) => {
+                                                            if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return { h: fallbackH, m: fallbackM };
+                                                            const [hStr, mStr] = timeStr.split(':');
+                                                            const h = parseInt(hStr, 10);
+                                                            const m = parseInt(mStr, 10);
+                                                            if (Number.isNaN(h) || Number.isNaN(m)) return { h: fallbackH, m: fallbackM };
+                                                            return { h, m };
+                                                        };
+                                                        const { h: sh, m: sm } = parseTime(schedule.startTime, 0, 0);
+                                                        const { h: eh, m: em } = parseTime(schedule.endTime, 23, 59);
+                                                        const crossDay = schedule.crossDay === true || (
+                                                            (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)
+                                                        );
+                                                        const st = new Date(year, month, d, sh, sm, 0, 0);
+                                                        const et = new Date(year, month, d, eh, em, 0, 0);
+                                                        if (crossDay) et.setDate(et.getDate() + 1);
+                                                        const windowStart = new Date(st.getTime() - 2 * 60 * 60 * 1000);
+                                                        const windowEnd = new Date(et.getTime() + 6 * 60 * 60 * 1000);
                                                         const dayRecords = myAttendance.filter(r => {
                                                             const t = r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
                                                             if (!t) return false;
-                                                            return t.getFullYear() === year && t.getMonth() === month && t.getDate() === d;
+                                                            return t >= windowStart && t <= windowEnd;
                                                         });
                                                         const tFrom = (r) => r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
                                                         const inRecords = dayRecords.filter(r => ['in','work_in','late_in','duty_in'].includes(r.type));
@@ -17259,32 +17231,26 @@
                                                         const outTime = outTimes.length ? outTimes[outTimes.length-1] : null;
                                                         let isLate = false, isEarly = false;
                                                         if (inTime && schedule.startTime) {
-                                                            const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
-                                                            const st = new Date(year, month, d, Number(sh) || 0, Number(sm) || 0, 0, 0);
                                                             isLate = inTime > st || inRecords.some(r => r.type === 'late_in');
                                                         }
                                                         if (outTime && schedule.endTime) {
-                                                            const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
-                                                            const et = new Date(year, month, d, Number(eh) || 0, Number(em) || 0, 0, 0);
                                                             isEarly = outTime < et || dayRecords.some(r => r.type === 'leave_early');
                                                         }
                                                         let missingType = null;
                                                         if (!isBeforeStartDate) {
-                                                            if (isPastDateGrid) {
+                                                            const now = new Date();
+                                                            const requireOut = now >= et;
+                                                            const requireIn = now >= st;
+                                                            if (isPastDateGrid && requireOut) {
                                                                 if (!inTime && !outTime) missingType = 'missing_both';
                                                                 else if (!inTime) missingType = 'missing_in';
                                                                 else if (!outTime) missingType = 'missing_out';
-                                                            } else if (isToday && schedule.startTime && schedule.endTime) {
-                                                                const now = new Date();
-                                                                const [sh, sm] = String(schedule.startTime).split(':').map(x => parseInt(x, 10));
-                                                                const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
-                                                                const st = new Date(year, month, d, Number(sh) || 0, Number(sm) || 0, 0, 0);
-                                                                const et = new Date(year, month, d, Number(eh) || 0, Number(em) || 0, 0, 0);
-                                                                if (now >= et) {
+                                                            } else if ((isToday || isPastDateGrid) && schedule.startTime && schedule.endTime) {
+                                                                if (requireOut) {
                                                                     if (!inTime && !outTime) missingType = 'missing_both';
                                                                     else if (!inTime) missingType = 'missing_in';
                                                                     else if (!outTime) missingType = 'missing_out';
-                                                                } else if (now >= st) {
+                                                                } else if (requireIn) {
                                                                     if (!inTime) missingType = 'missing_in';
                                                                 }
                                                             }
@@ -17485,10 +17451,60 @@
                                             
                                             const schedule = mySchedules[dateStr];
                                             
+                                            const parseTime = (timeStr, fallbackH, fallbackM) => {
+                                                if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return { h: fallbackH, m: fallbackM };
+                                                const [hStr, mStr] = timeStr.split(':');
+                                                const h = parseInt(hStr, 10);
+                                                const m = parseInt(mStr, 10);
+                                                if (Number.isNaN(h) || Number.isNaN(m)) return { h: fallbackH, m: fallbackM };
+                                                return { h, m };
+                                            };
+
+                                            const dayStart = new Date(year, month, date, 0, 0, 0, 0);
+                                            const dayEnd = new Date(year, month, date, 23, 59, 59, 999);
+                                            const prevDate = new Date(year, month, date, 0, 0, 0, 0);
+                                            prevDate.setDate(prevDate.getDate() - 1);
+                                            const prevDateStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
+                                            const prevSchedule = mySchedules[prevDateStr];
+
+                                            const shiftWindow = (() => {
+                                                if (!schedule || schedule.type === 'off' || schedule.type === 'comp_leave') return { start: dayStart, end: dayEnd, crossDay: false };
+                                                const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
+                                                const { h: eh, m: em } = parseTime(schedule?.endTime, 23, 59);
+                                                const start = new Date(year, month, date, sh, sm, 0, 0);
+                                                let end = new Date(year, month, date, eh, em, 0, 0);
+                                                const crossDay = schedule.crossDay === true || (
+                                                    (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)
+                                                );
+                                                if (crossDay) end.setDate(end.getDate() + 1);
+                                                return {
+                                                    start: new Date(start.getTime() - 2 * 60 * 60 * 1000),
+                                                    end: new Date(end.getTime() + 6 * 60 * 60 * 1000),
+                                                    crossDay
+                                                };
+                                            })();
+                                            const prevShiftWindow = (() => {
+                                                if (!prevSchedule || prevSchedule.type === 'off' || prevSchedule.type === 'comp_leave') return null;
+                                                const { h: sh, m: sm } = parseTime(prevSchedule?.startTime, 0, 0);
+                                                const { h: eh, m: em } = parseTime(prevSchedule?.endTime, 23, 59);
+                                                const start = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), sh, sm, 0, 0);
+                                                let end = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), eh, em, 0, 0);
+                                                const crossDay = prevSchedule.crossDay === true || (
+                                                    (typeof prevSchedule.startTime === 'string' && typeof prevSchedule.endTime === 'string' && prevSchedule.startTime > prevSchedule.endTime)
+                                                );
+                                                if (!crossDay) return null;
+                                                end.setDate(end.getDate() + 1);
+                                                return {
+                                                    start: new Date(start.getTime() - 2 * 60 * 60 * 1000),
+                                                    end: new Date(end.getTime() + 6 * 60 * 60 * 1000),
+                                                };
+                                            })();
+
                                             const attendance = myAttendance.filter(r => {
                                                 const t = r.checkInTime ? new Date(r.checkInTime) : (r.timestamp?.seconds ? new Date(r.timestamp.seconds * 1000) : null);
                                                 if (!t) return false;
-                                                return t.getFullYear() === year && t.getMonth() === month && t.getDate() === date;
+                                                if (prevShiftWindow && t >= prevShiftWindow.start && t <= prevShiftWindow.end) return false;
+                                                return t >= shiftWindow.start && t <= shiftWindow.end;
                                             }).sort((a,b) => {
                                                 const tA = a.checkInTime ? new Date(a.checkInTime) : (a.timestamp?.seconds ? new Date(a.timestamp.seconds * 1000) : new Date(0));
                                                 const tB = b.checkInTime ? new Date(b.checkInTime) : (b.timestamp?.seconds ? new Date(b.timestamp.seconds * 1000) : new Date(0));
@@ -17762,6 +17778,10 @@
                                                                                     if (t && isSched && schedule.endTime) {
                                                                                         const [eh, em] = String(schedule.endTime).split(':').map(x => parseInt(x, 10));
                                                                                         const et = new Date(year, month, date, Number(eh) || 0, Number(em) || 0, 0, 0);
+                                                                                        const crossDay = schedule.crossDay === true || (
+                                                                                            (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)
+                                                                                        );
+                                                                                        if (crossDay) et.setDate(et.getDate() + 1);
                                                                                         isEarly = t < et;
                                                                                     }
                                                                                     return (['leave_early'].includes(record.type) || isEarly) ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100';
@@ -17782,10 +17802,12 @@
 
                                                                                                 return (
                                                                                                     <>
-                                                                                                        {isCrossDay 
-                                                                                                            ? `${rM}-${rD} ${t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}`
-                                                                                                            : t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})
-                                                                                                        }
+                                                                                                        {t.toLocaleTimeString('zh-TW', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'})}
+                                                                                                        {shiftWindow.crossDay && isCrossDay && (
+                                                                                                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 ml-2">
+                                                                                                                跨日
+                                                                                                            </span>
+                                                                                                        )}
                                                                                                         {record.modification && <span className="text-xs text-blue-600 ml-1">(補)</span>}
                                                                                                     </>
                                                                                                 );
@@ -19323,8 +19345,13 @@
                                                                     : '其他'}
                                                                 </div>
                                                                 {schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
-                                                                    <div className="font-mono font-bold text-gray-700 text-lg">
-                                                                        {schedule.startTime} ~ {schedule.endTime}
+                                                                    <div className="font-mono font-bold text-gray-700 text-lg flex items-center gap-2">
+                                                                        <span>{schedule.startTime} ~ {schedule.endTime}</span>
+                                                                        {(schedule.crossDay === true || (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)) && (
+                                                                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                                                                跨日
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                                 {/* Location and Sentry Point Display (Community Tab) */}
@@ -19371,28 +19398,73 @@
                                                     {(function(){
                                                         const dayStart = new Date(year, month, date, 0, 0, 0);
                                                         const dayEnd = new Date(year, month, date, 23, 59, 59);
-                                                        const dayRecords = (attendanceList || []).filter(r => {
-                                                            if (String(r.userId) !== String(communityMapSelectedUserId)) return false;
-                                                            let seconds;
+                                                        const pad2 = (n) => String(n).padStart(2, '0');
+                                                        const prevDate = new Date(year, month, date, 0, 0, 0, 0);
+                                                        prevDate.setDate(prevDate.getDate() - 1);
+                                                        const prevDateStr = `${prevDate.getFullYear()}-${pad2(prevDate.getMonth() + 1)}-${pad2(prevDate.getDate())}`;
+                                                        const prevSchedule = userSchedules[prevDateStr];
+                                                        const getRecordSeconds = (r) => {
+                                                            if (!r) return Date.now() / 1000;
                                                             if (r.checkInTime) {
                                                                 const t = new Date(r.checkInTime);
-                                                                seconds = isNaN(t) ? (r.timestamp?.seconds || (Date.now()/1000)) : (t.getTime()/1000);
-                                                            } else if (r.timestamp?.seconds) {
-                                                                seconds = r.timestamp.seconds;
-                                                            } else if (r.timestamp instanceof Date) {
-                                                                seconds = Math.floor(r.timestamp.getTime() / 1000);
-                                                            } else if (r.createdAt?.seconds) {
-                                                                seconds = r.createdAt.seconds;
-                                                            } else {
-                                                                seconds = Date.now() / 1000;
+                                                                if (!isNaN(t)) return t.getTime() / 1000;
                                                             }
-                                                            const dt = new Date(seconds * 1000);
-                                                            return dt >= dayStart && dt <= dayEnd;
-                                                        }).filter(r => ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(r.type)).sort((a, b) => {
-                                                            const sa = (a.timestamp?.seconds) || (a.createdAt?.seconds) || (Date.now()/1000);
-                                                            const sb = (b.timestamp?.seconds) || (b.createdAt?.seconds) || (Date.now()/1000);
-                                                            return sa - sb;
-                                                        });
+                                                            if (r.timestamp?.seconds) return r.timestamp.seconds;
+                                                            if (r.timestamp instanceof Date) return Math.floor(r.timestamp.getTime() / 1000);
+                                                            if (r.createdAt?.seconds) return r.createdAt.seconds;
+                                                            if (r.createdAt instanceof Date) return Math.floor(r.createdAt.getTime() / 1000);
+                                                            return Date.now() / 1000;
+                                                        };
+                                                        const parseTime = (timeStr, fallbackH, fallbackM) => {
+                                                            if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return { h: fallbackH, m: fallbackM };
+                                                            const [hStr, mStr] = timeStr.split(':');
+                                                            const h = parseInt(hStr, 10);
+                                                            const m = parseInt(mStr, 10);
+                                                            if (Number.isNaN(h) || Number.isNaN(m)) return { h: fallbackH, m: fallbackM };
+                                                            return { h, m };
+                                                        };
+                                                        const crossDayTypes = new Set(['out', 'work_out', 'duty_out']);
+                                                        const shiftWindow = (() => {
+                                                            if (!schedule || schedule.type === 'off' || schedule.type === 'comp_leave') return { start: dayStart, end: dayEnd, crossDay: false };
+                                                            const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
+                                                            const { h: eh, m: em } = parseTime(schedule?.endTime, 23, 59);
+                                                            const start = new Date(year, month, date, sh, sm, 0, 0);
+                                                            let end = new Date(year, month, date, eh, em, 0, 0);
+                                                            const crossDay = schedule?.crossDay === true || (
+                                                                (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)
+                                                            );
+                                                            if (crossDay) end.setDate(end.getDate() + 1);
+                                                            const startBuffered = new Date(start.getTime() - 2 * 60 * 60 * 1000);
+                                                            const endBuffered = new Date(end.getTime() + 6 * 60 * 60 * 1000);
+                                                            return { start: startBuffered, end: endBuffered, crossDay };
+                                                        })();
+                                                        const prevShiftWindow = (() => {
+                                                            if (!prevSchedule || prevSchedule.type === 'off' || prevSchedule.type === 'comp_leave') return null;
+                                                            const { h: sh, m: sm } = parseTime(prevSchedule?.startTime, 0, 0);
+                                                            const { h: eh, m: em } = parseTime(prevSchedule?.endTime, 23, 59);
+                                                            const start = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), sh, sm, 0, 0);
+                                                            let end = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), eh, em, 0, 0);
+                                                            const crossDay = prevSchedule?.crossDay === true || (
+                                                                (typeof prevSchedule.startTime === 'string' && typeof prevSchedule.endTime === 'string' && prevSchedule.startTime > prevSchedule.endTime)
+                                                            );
+                                                            if (!crossDay) return null;
+                                                            end.setDate(end.getDate() + 1);
+                                                            return {
+                                                                start: new Date(start.getTime() - 2 * 60 * 60 * 1000),
+                                                                end: new Date(end.getTime() + 6 * 60 * 60 * 1000),
+                                                            };
+                                                        })();
+                                                        const isCrossDayShift = shiftWindow.crossDay;
+                                                        const dayRecords = (attendanceList || [])
+                                                            .filter(r => {
+                                                                if (String(r.userId) !== String(communityMapSelectedUserId)) return false;
+                                                                if (!['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(r.type)) return false;
+                                                                const seconds = getRecordSeconds(r);
+                                                                const dt = new Date(seconds * 1000);
+                                                                if (prevShiftWindow && dt >= prevShiftWindow.start && dt <= prevShiftWindow.end) return false;
+                                                                return dt >= shiftWindow.start && dt <= shiftWindow.end;
+                                                            })
+                                                            .sort((a, b) => getRecordSeconds(a) - getRecordSeconds(b));
                                                         return (
                                                             <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                                                                 <div className="text-xs font-bold text-gray-400 mb-2">本日打卡紀錄</div>
@@ -19401,20 +19473,13 @@
                                                                 ) : (
                                                                     <div className="space-y-2">
                                                                         {dayRecords.map(r => {
-                                                                            let seconds;
-                                                                            if (r.checkInTime) {
-                                                                                const t = new Date(r.checkInTime);
-                                                                                seconds = isNaN(t) ? (r.timestamp?.seconds || (Date.now()/1000)) : (t.getTime()/1000);
-                                                                            } else if (r.timestamp?.seconds) {
-                                                                                seconds = r.timestamp.seconds;
-                                                                            } else if (r.timestamp instanceof Date) {
-                                                                                seconds = Math.floor(r.timestamp.getTime() / 1000);
-                                                                            } else if (r.createdAt?.seconds) {
-                                                                                seconds = r.createdAt.seconds;
-                                                                            } else {
-                                                                                seconds = Date.now() / 1000;
-                                                                            }
-                                                                            const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                            const seconds = getRecordSeconds(r);
+                                                                            const dt = new Date(seconds * 1000);
+                                                                            const timeStr = dt.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                            const isCrossDayOut = isCrossDayShift && crossDayTypes.has(r.type) && (
+                                                                                dt.getFullYear() !== year || dt.getMonth() !== month || dt.getDate() !== date
+                                                                            );
+                                                                            const crossDayDateTimeStr = `${dt.getFullYear()}/${pad2(dt.getMonth() + 1)}/${pad2(dt.getDate())} ${timeStr}`;
                                                                             
                                                                             const typeInfo = {
                                                                                 'in': { label: '上班', color: 'bg-green-100 text-green-700' },
@@ -19431,8 +19496,13 @@
                                                                                     <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${info.color}`}>
                                                                                         {info.label}
                                                                                     </div>
-                                                                                    <div className="font-mono font-bold text-gray-700">
-                                                                                        {timeStr}
+                                                                                    <div className="font-mono font-bold text-gray-700 flex items-center gap-2">
+                                                                                        <span>{isCrossDayOut ? crossDayDateTimeStr : timeStr}</span>
+                                                                                        {isCrossDayOut && (
+                                                                                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                                                                                跨日
+                                                                                            </span>
+                                                                                        )}
                                                                                     </div>
                                                                                 </div>
                                                                             );
@@ -23955,8 +24025,13 @@
                                                                             : '其他'}
                                                                         </div>
                                                                         {schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
-                                                                            <div className="font-mono font-bold text-gray-700 text-lg">
-                                                                                {schedule.startTime} ~ {schedule.endTime}
+                                                                            <div className="font-mono font-bold text-gray-700 text-lg flex items-center gap-2">
+                                                                                <span>{schedule.startTime} ~ {schedule.endTime}</span>
+                                                                                {(schedule.crossDay === true || (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)) && (
+                                                                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                                                                        跨日
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
                                                                         )}
                                                                         {/* Location and Sentry Point Display */}
@@ -23991,28 +24066,73 @@
                                                             {(function(){
                                                                 const dayStart = new Date(year, month, date, 0, 0, 0);
                                                                 const dayEnd = new Date(year, month, date, 23, 59, 59);
-                                                                const dayRecords = (attendanceList || []).filter(r => {
-                                                                    if (String(r.userId) !== String(cadreMapSelectedUserId)) return false;
-                                                                    let seconds;
+                                                                const pad2 = (n) => String(n).padStart(2, '0');
+                                                                const prevDate = new Date(year, month, date, 0, 0, 0, 0);
+                                                                prevDate.setDate(prevDate.getDate() - 1);
+                                                                const prevDateStr = `${prevDate.getFullYear()}-${pad2(prevDate.getMonth() + 1)}-${pad2(prevDate.getDate())}`;
+                                                                const prevSchedule = userSchedules[prevDateStr];
+                                                                const getRecordSeconds = (r) => {
+                                                                    if (!r) return Date.now() / 1000;
                                                                     if (r.checkInTime) {
                                                                         const t = new Date(r.checkInTime);
-                                                                        seconds = isNaN(t) ? (r.timestamp?.seconds || (Date.now()/1000)) : (t.getTime()/1000);
-                                                                    } else if (r.timestamp?.seconds) {
-                                                                        seconds = r.timestamp.seconds;
-                                                                    } else if (r.timestamp instanceof Date) {
-                                                                        seconds = Math.floor(r.timestamp.getTime() / 1000);
-                                                                    } else if (r.createdAt?.seconds) {
-                                                                        seconds = r.createdAt.seconds;
-                                                                    } else {
-                                                                        seconds = Date.now() / 1000;
+                                                                        if (!isNaN(t)) return t.getTime() / 1000;
                                                                     }
-                                                                    const dt = new Date(seconds * 1000);
-                                                                    return dt >= dayStart && dt <= dayEnd;
-                                                                }).filter(r => ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(r.type)).sort((a, b) => {
-                                                                    const sa = (a.timestamp?.seconds) || (a.createdAt?.seconds) || (Date.now()/1000);
-                                                                    const sb = (b.timestamp?.seconds) || (b.createdAt?.seconds) || (Date.now()/1000);
-                                                                    return sa - sb;
-                                                                });
+                                                                    if (r.timestamp?.seconds) return r.timestamp.seconds;
+                                                                    if (r.timestamp instanceof Date) return Math.floor(r.timestamp.getTime() / 1000);
+                                                                    if (r.createdAt?.seconds) return r.createdAt.seconds;
+                                                                    if (r.createdAt instanceof Date) return Math.floor(r.createdAt.getTime() / 1000);
+                                                                    return Date.now() / 1000;
+                                                                };
+                                                                const parseTime = (timeStr, fallbackH, fallbackM) => {
+                                                                    if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) return { h: fallbackH, m: fallbackM };
+                                                                    const [hStr, mStr] = timeStr.split(':');
+                                                                    const h = parseInt(hStr, 10);
+                                                                    const m = parseInt(mStr, 10);
+                                                                    if (Number.isNaN(h) || Number.isNaN(m)) return { h: fallbackH, m: fallbackM };
+                                                                    return { h, m };
+                                                                };
+                                                                const crossDayTypes = new Set(['out', 'work_out', 'duty_out']);
+                                                                const shiftWindow = (() => {
+                                                                    if (!schedule || schedule.type === 'off' || schedule.type === 'comp_leave') return { start: dayStart, end: dayEnd, crossDay: false };
+                                                                    const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
+                                                                    const { h: eh, m: em } = parseTime(schedule?.endTime, 23, 59);
+                                                                    const start = new Date(year, month, date, sh, sm, 0, 0);
+                                                                    let end = new Date(year, month, date, eh, em, 0, 0);
+                                                                    const crossDay = schedule?.crossDay === true || (
+                                                                        (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)
+                                                                    );
+                                                                    if (crossDay) end.setDate(end.getDate() + 1);
+                                                                    const startBuffered = new Date(start.getTime() - 2 * 60 * 60 * 1000);
+                                                                    const endBuffered = new Date(end.getTime() + 6 * 60 * 60 * 1000);
+                                                                    return { start: startBuffered, end: endBuffered, crossDay };
+                                                                })();
+                                                                const prevShiftWindow = (() => {
+                                                                    if (!prevSchedule || prevSchedule.type === 'off' || prevSchedule.type === 'comp_leave') return null;
+                                                                    const { h: sh, m: sm } = parseTime(prevSchedule?.startTime, 0, 0);
+                                                                    const { h: eh, m: em } = parseTime(prevSchedule?.endTime, 23, 59);
+                                                                    const start = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), sh, sm, 0, 0);
+                                                                    let end = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), eh, em, 0, 0);
+                                                                    const crossDay = prevSchedule?.crossDay === true || (
+                                                                        (typeof prevSchedule.startTime === 'string' && typeof prevSchedule.endTime === 'string' && prevSchedule.startTime > prevSchedule.endTime)
+                                                                    );
+                                                                    if (!crossDay) return null;
+                                                                    end.setDate(end.getDate() + 1);
+                                                                    return {
+                                                                        start: new Date(start.getTime() - 2 * 60 * 60 * 1000),
+                                                                        end: new Date(end.getTime() + 6 * 60 * 60 * 1000),
+                                                                    };
+                                                                })();
+                                                                const isCrossDayShift = shiftWindow.crossDay;
+                                                                const dayRecords = (attendanceList || [])
+                                                                    .filter(r => {
+                                                                        if (String(r.userId) !== String(cadreMapSelectedUserId)) return false;
+                                                                        if (!['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(r.type)) return false;
+                                                                        const seconds = getRecordSeconds(r);
+                                                                        const dt = new Date(seconds * 1000);
+                                                                        if (prevShiftWindow && dt >= prevShiftWindow.start && dt <= prevShiftWindow.end) return false;
+                                                                        return dt >= shiftWindow.start && dt <= shiftWindow.end;
+                                                                    })
+                                                                    .sort((a, b) => getRecordSeconds(a) - getRecordSeconds(b));
                                                                 return (
                                                                     <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                                                                         <div className="text-xs font-bold text-gray-400 mb-2">本日打卡紀錄</div>
@@ -24021,20 +24141,13 @@
                                                                         ) : (
                                                                             <div className="space-y-2">
                                                                                 {dayRecords.map(r => {
-                                                                                    let seconds;
-                                                                                    if (r.checkInTime) {
-                                                                                        const t = new Date(r.checkInTime);
-                                                                                        seconds = isNaN(t) ? (r.timestamp?.seconds || (Date.now()/1000)) : (t.getTime()/1000);
-                                                                                    } else if (r.timestamp?.seconds) {
-                                                                                        seconds = r.timestamp.seconds;
-                                                                                    } else if (r.timestamp instanceof Date) {
-                                                                                        seconds = Math.floor(r.timestamp.getTime() / 1000);
-                                                                                    } else if (r.createdAt?.seconds) {
-                                                                                        seconds = r.createdAt.seconds;
-                                                                                    } else {
-                                                                                        seconds = Date.now() / 1000;
-                                                                                    }
-                                                                                    const timeStr = new Date(seconds * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                                    const seconds = getRecordSeconds(r);
+                                                                                    const dt = new Date(seconds * 1000);
+                                                                                    const timeStr = dt.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                                                    const isCrossDayOut = isCrossDayShift && crossDayTypes.has(r.type) && (
+                                                                                        dt.getFullYear() !== year || dt.getMonth() !== month || dt.getDate() !== date
+                                                                                    );
+                                                                                    const crossDayDateTimeStr = `${dt.getFullYear()}/${pad2(dt.getMonth() + 1)}/${pad2(dt.getDate())} ${timeStr}`;
                                                                                     
                                                                                     const typeInfo = {
                                                                                         'in': { label: '上班', color: 'bg-green-100 text-green-700' },
@@ -24051,8 +24164,13 @@
                                                                                             <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${info.color}`}>
                                                                                                 {info.label}
                                                                                             </div>
-                                                                                            <div className="font-mono font-bold text-gray-700">
-                                                                                                {timeStr}
+                                                                                            <div className="font-mono font-bold text-gray-700 flex items-center gap-2">
+                                                                                                <span>{isCrossDayOut ? crossDayDateTimeStr : timeStr}</span>
+                                                                                                {isCrossDayOut && (
+                                                                                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                                                                                        跨日
+                                                                                                    </span>
+                                                                                                )}
                                                                                             </div>
                                                                                         </div>
                                                                                     );

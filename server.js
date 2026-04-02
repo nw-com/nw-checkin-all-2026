@@ -9,7 +9,7 @@ const port = 8001;
 const LOG_REQUESTS = process.env.LOG_REQUESTS === '1';
 const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
 const APP_ID = process.env.APP_ID || 'default-attendance-app';
-const ENABLE_COMMUNITY_ANOMALY_NOTIFIER = process.env.ENABLE_COMMUNITY_ANOMALY_NOTIFIER !== '0';
+const ENABLE_COMMUNITY_ANOMALY_NOTIFIER = process.env.ENABLE_COMMUNITY_ANOMALY_NOTIFIER === '1';
 const COMMUNITY_ANOMALY_INTERVAL_MS = Number(process.env.COMMUNITY_ANOMALY_INTERVAL_MS || 5 * 60 * 1000);
 
 // Initialize Firebase Admin
@@ -643,6 +643,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (urlPath === '/api/system/check-community-anomalies') {
+    if (!ENABLE_COMMUNITY_ANOMALY_NOTIFIER) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not Found');
+      return;
+    }
     if (req.method !== 'POST') {
       res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Method Not Allowed');
