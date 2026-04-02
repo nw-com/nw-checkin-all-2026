@@ -11,6 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
         body {
@@ -56,7 +57,7 @@
                 </div>
                 <div>
                     <input type="text" id="guard-name" value="資深保全 A01" class="font-bold text-gray-800 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-red-500 w-full" placeholder="請輸入姓名">
-                    <p class="text-sm text-gray-500">今日已巡邏: <span id="patrol-count" class="font-semibold text-red-600">0</span> 個地點</p>
+                    <p class="text-sm text-gray-500">當日該社區已巡邏: <span id="patrol-unique-count" class="font-semibold text-red-600">0</span> 個地點 <span id="patrol-count" class="font-semibold text-red-600">0</span>次</p>
                 </div>
             </div>
         </div>
@@ -100,9 +101,20 @@
         <!-- 視圖：歷史記錄 -->
         <div id="view-logs" class="view-content hidden">
             <div class="flex justify-between items-center mb-4">
-                <h2 class="font-bold text-gray-700">巡邏歷史記錄</h2>
+                <div class="flex items-center gap-2 min-w-0">
+                    <h2 class="font-bold text-gray-700 whitespace-nowrap">巡邏歷史記錄</h2>
+                </div>
                 <button onclick="clearLogs()" class="text-xs text-red-500 flex items-center gap-1">
                     <i data-lucide="trash-2" size="14"></i> 清除
+                </button>
+            </div>
+            <div class="flex items-center justify-center gap-2 mb-4">
+                <button onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="chevron-left" size="16"></i>
+                </button>
+                <div id="logs-date-label" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap"></div>
+                <button onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="chevron-right" size="16"></i>
                 </button>
             </div>
             <div id="logs-container" class="space-y-3">
@@ -150,6 +162,47 @@
                 <!-- Mappings will appear here -->
             </div>
         </div>
+
+        <div id="view-download" class="view-content hidden">
+            <h2 class="font-bold text-gray-700 mb-4">下載巡邏打卡明細</h2>
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                <div class="text-sm text-gray-600 mb-4">可依月份或區間下載 A4 直式 PDF（四邊 10mm 邊界）。</div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                            <input type="radio" name="download-mode" value="month" checked class="text-red-600 focus:ring-red-500">
+                            <span class="text-sm text-gray-700 font-bold">月份</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                            <input type="radio" name="download-mode" value="range" class="text-red-600 focus:ring-red-500">
+                            <span class="text-sm text-gray-700 font-bold">區間</span>
+                        </label>
+                    </div>
+
+                    <div id="download-month-row">
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">月份</label>
+                        <input type="month" id="download-month" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                    </div>
+
+                    <div id="download-range-row" class="grid grid-cols-2 gap-2 hidden">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">開始日期</label>
+                            <input type="date" id="download-start" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">結束日期</label>
+                            <input type="date" id="download-end" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        </div>
+                    </div>
+
+                    <button id="download-pdf-btn" onclick="downloadPdf()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-100 flex items-center justify-center gap-2">
+                        <i data-lucide="download" size="18"></i> 下載 PDF
+                    </button>
+                    <div id="download-status" class="text-xs text-gray-500"></div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- 成功提示彈窗 -->
@@ -169,6 +222,82 @@
         </div>
     </div>
 
+    <div id="map-modal" class="fixed inset-0 bg-black/50 z-[105] hidden p-4">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div id="map-modal-title" class="font-bold text-gray-800 text-sm truncate"></div>
+                <button onclick="closeMapModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="w-full bg-gray-50">
+                <iframe id="map-iframe" class="w-full h-[360px] border-0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-mapping-modal" class="fixed inset-0 bg-black/50 z-[106] hidden p-4">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div class="font-bold text-gray-800 text-sm">編輯地點</div>
+                <button onclick="closeEditMappingModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-4">
+                <input type="hidden" id="edit-map-old-code" value="">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">地點名稱</label>
+                    <input type="text" id="edit-map-name" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">對應代碼 (Code)</label>
+                    <input type="text" id="edit-map-code" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono">
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeEditMappingModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveMappingEdit()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-log-modal" class="fixed inset-0 bg-black/50 z-[107] hidden p-4">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div class="font-bold text-gray-800 text-sm">編輯巡邏記錄</div>
+                <button onclick="closeEditLogModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-4">
+                <input type="hidden" id="edit-log-id" value="">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">地點名稱</label>
+                    <input type="text" id="edit-log-location" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">對應代碼 (Code)</label>
+                    <input type="text" id="edit-log-code" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">緯度</label>
+                        <input type="text" id="edit-log-lat" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono" placeholder="25.000000">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">經度</label>
+                        <input type="text" id="edit-log-lng" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono" placeholder="121.000000">
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeEditLogModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveLogEdit()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 底部導航 -->
     <nav id="page-nav" class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
         <button onclick="switchView('scanner')" id="nav-scanner" class="flex flex-col items-center p-2 text-red-600">
@@ -182,6 +311,10 @@
         <button onclick="switchView('settings')" id="nav-settings" class="flex flex-col items-center p-2 text-gray-400">
             <i data-lucide="settings"></i>
             <span class="text-xs mt-1">設定</span>
+        </button>
+        <button onclick="switchView('download')" id="nav-download" class="flex flex-col items-center p-2 text-gray-400">
+            <i data-lucide="download"></i>
+            <span class="text-xs mt-1">下載</span>
         </button>
     </nav>
 
@@ -204,6 +337,13 @@
         let html5QrCode;
         let logs = [];
         let locationMap = {};
+        let selectedLogsDate = new Date();
+        let canManageSettings = false;
+        let downloadUIReady = false;
+
+        function normalizeKey(v) {
+            return String(v || '').replace(/\uFEFF/g, '').trim();
+        }
         
         function hideAppChrome() {
             const header = document.getElementById('page-header');
@@ -267,6 +407,29 @@
             return { id: doc.id, ...doc.data() };
         }
 
+        async function resolveRoleName(db, user) {
+            const roleId = String(user?.role || '').trim();
+            if (!roleId) return '';
+            if (roleId === 'admin') return '系統管理員';
+            if (roleId === 'manager') return '管理層';
+            if (roleId === 'hr') return '人事';
+            if (roleId === 'property') return '物業';
+            if (roleId === 'cadre') return '幹部';
+            try {
+                const snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles').doc(roleId).get();
+                return snap.exists ? String((snap.data() || {}).name || '').trim() : '';
+            } catch {
+                return '';
+            }
+        }
+
+        function computeCanManage(roleId, roleName) {
+            const key = String(roleId || '').trim().toLowerCase();
+            const name = String(roleName || '').trim();
+            if (key === 'admin' || key === 'manager' || key === 'hr' || key === 'property' || key === 'cadre') return true;
+            return ['系統管理員', '管理層', '人事', '物業', '幹部'].includes(name);
+        }
+
         function resolveAllowedCommunityIds(u) {
             if (!u) return [];
             if (String(u.role || '') === 'admin') return ['*'];
@@ -284,6 +447,325 @@
             const el = document.getElementById('page-title');
             if (el) el.textContent = selectedCommunityName ? `${selectedCommunityName} 巡邏` : '智慧巡邏系統';
             document.title = selectedCommunityName ? `${selectedCommunityName} 巡邏` : '巡邏打卡系統';
+        }
+
+        function formatDateLabel(d) {
+            if (!d) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const w = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+            return `${y}/${m}/${day} (週${w})`;
+        }
+
+        function updateLogsDateLabel() {
+            const el = document.getElementById('logs-date-label');
+            if (!el) return;
+            el.textContent = formatDateLabel(selectedLogsDate);
+        }
+
+        function subscribeLogsForDate(d) {
+            if (!settingsDocRef) return;
+            if (logsUnsub) { try { logsUnsub(); } catch {} logsUnsub = null; }
+
+            const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+            const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0);
+            const startTs = firebase.firestore.Timestamp.fromDate(start);
+            const endTs = firebase.firestore.Timestamp.fromDate(end);
+
+            const logsQuery = settingsDocRef
+                .collection('logs')
+                .where('createdAt', '>=', startTs)
+                .where('createdAt', '<', endTs)
+                .orderBy('createdAt', 'desc')
+                .limit(200);
+
+            logsUnsub = logsQuery.onSnapshot((snapshot) => {
+                const list = [];
+                snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+                logs = list;
+                updatePatrolCount();
+                if (!document.getElementById('view-logs')?.classList.contains('hidden')) renderLogs();
+            }, () => {});
+        }
+
+        function changeLogDate(deltaDays) {
+            const next = new Date(selectedLogsDate);
+            next.setDate(next.getDate() + (Number(deltaDays) || 0));
+            selectedLogsDate = next;
+            updateLogsDateLabel();
+            subscribeLogsForDate(selectedLogsDate);
+            renderLogs();
+        }
+
+        function pad2(n) {
+            return String(n).padStart(2, '0');
+        }
+
+        function toInputMonth(d) {
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+        }
+
+        function toInputDate(d) {
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        }
+
+        function escapeHtml(s) {
+            return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getDownloadMode() {
+            const el = document.querySelector('input[name="download-mode"]:checked');
+            return el ? String(el.value) : 'month';
+        }
+
+        function syncDownloadMode() {
+            const mode = getDownloadMode();
+            const monthRow = document.getElementById('download-month-row');
+            const rangeRow = document.getElementById('download-range-row');
+            if (monthRow) monthRow.classList.toggle('hidden', mode !== 'month');
+            if (rangeRow) rangeRow.classList.toggle('hidden', mode !== 'range');
+        }
+
+        function initDownloadUI() {
+            if (downloadUIReady) return;
+            downloadUIReady = true;
+
+            const now = new Date();
+            const monthEl = document.getElementById('download-month');
+            const startEl = document.getElementById('download-start');
+            const endEl = document.getElementById('download-end');
+            if (monthEl) monthEl.value = toInputMonth(now);
+            if (startEl) {
+                const s = new Date(now);
+                s.setDate(s.getDate() - 6);
+                startEl.value = toInputDate(s);
+            }
+            if (endEl) endEl.value = toInputDate(now);
+
+            document.querySelectorAll('input[name="download-mode"]').forEach((x) => {
+                x.addEventListener('change', () => syncDownloadMode());
+            });
+            syncDownloadMode();
+            lucide.createIcons();
+        }
+
+        async function fetchLogsBetween(startDate, endExclusiveDate) {
+            if (!settingsDocRef) return [];
+            const startTs = firebase.firestore.Timestamp.fromDate(startDate);
+            const endTs = firebase.firestore.Timestamp.fromDate(endExclusiveDate);
+            const out = [];
+            let lastDoc = null;
+            for (let i = 0; i < 20; i++) {
+                let q = settingsDocRef
+                    .collection('logs')
+                    .where('createdAt', '>=', startTs)
+                    .where('createdAt', '<', endTs)
+                    .orderBy('createdAt', 'asc')
+                    .limit(500);
+                if (lastDoc) q = q.startAfter(lastDoc);
+                const snap = await q.get();
+                if (snap.empty) break;
+                snap.docs.forEach((doc) => out.push({ id: doc.id, ...doc.data() }));
+                if (snap.docs.length < 500) break;
+                lastDoc = snap.docs[snap.docs.length - 1];
+            }
+            return out.filter(x => x && x.createdAt && typeof x.createdAt.toDate === 'function');
+        }
+
+        function buildPdfHtml(rows, titleText) {
+            const printDate = `${new Date().getFullYear()}/${pad2(new Date().getMonth() + 1)}/${pad2(new Date().getDate())}`;
+            const header = `
+                <div style="font-size: 16px; font-weight: 800; text-align: center; margin: 0 0 10px 0;">
+                    ${escapeHtml(titleText)}
+                </div>
+            `;
+
+            const tableHeader = `
+                <tr>
+                    <th>日期時間</th>
+                    <th>地點名稱</th>
+                    <th>Code碼</th>
+                    <th>巡邏打卡者</th>
+                    <th>GPS座標</th>
+                    <th>當日打卡次數</th>
+                    <th>審核</th>
+                    <th>備註</th>
+                </tr>
+            `;
+
+            const tableRows = rows.map(r => `
+                <tr>
+                    <td>${escapeHtml(r.datetime)}</td>
+                    <td>${escapeHtml(r.location)}</td>
+                    <td>${escapeHtml(r.code)}</td>
+                    <td>${escapeHtml(r.guard)}</td>
+                    <td>${escapeHtml(r.gps)}</td>
+                    <td>${escapeHtml(r.nth)}</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            `).join('');
+
+            const footer = `
+                <div style="display:flex; justify-content: space-between; margin-top: 10px; font-size: 12px;">
+                    <div>列印日期：${escapeHtml(printDate)}</div>
+                    <div>簽核：</div>
+                </div>
+            `;
+
+            return `
+                <div style="font-family: 'Noto Sans TC', sans-serif; color: #111827; font-size: 12px;">
+                    <style>
+                        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                        th, td { border: 1px solid #111827; padding: 6px 6px; vertical-align: top; word-break: break-word; }
+                        th { background: #f3f4f6; font-weight: 700; text-align: center; }
+                    </style>
+                    ${header}
+                    <table>
+                        <thead>${tableHeader}</thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                    ${footer}
+                </div>
+            `;
+        }
+
+        async function downloadPdf() {
+            if (!canManageSettings) return;
+            if (!settingsDocRef) return;
+            if (typeof html2pdf === 'undefined') {
+                alert('PDF 模組載入失敗');
+                return;
+            }
+
+            initDownloadUI();
+            syncDownloadMode();
+
+            const statusEl = document.getElementById('download-status');
+            const btn = document.getElementById('download-pdf-btn');
+            if (btn) btn.disabled = true;
+            if (statusEl) statusEl.textContent = '讀取資料中...';
+
+            try {
+                const mode = getDownloadMode();
+                let start = null;
+                let endExclusive = null;
+                let rangeLabel = '';
+
+                if (mode === 'month') {
+                    const monthStr = String(document.getElementById('download-month')?.value || '');
+                    const [yStr, mStr] = monthStr.split('-');
+                    const y = Number(yStr);
+                    const m = Number(mStr);
+                    if (!y || !m) throw new Error('請選擇月份');
+                    start = new Date(y, m - 1, 1, 0, 0, 0, 0);
+                    endExclusive = new Date(y, m, 1, 0, 0, 0, 0);
+                    rangeLabel = `${y}/${pad2(m)}`;
+                } else {
+                    const s = String(document.getElementById('download-start')?.value || '');
+                    const e = String(document.getElementById('download-end')?.value || '');
+                    if (!s || !e) throw new Error('請選擇日期區間');
+                    const [sy, sm, sd] = s.split('-').map(Number);
+                    const [ey, em, ed] = e.split('-').map(Number);
+                    start = new Date(sy, (sm || 1) - 1, sd || 1, 0, 0, 0, 0);
+                    const end = new Date(ey, (em || 1) - 1, ed || 1, 0, 0, 0, 0);
+                    endExclusive = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1, 0, 0, 0, 0);
+                    rangeLabel = `${start.getFullYear()}/${pad2(start.getMonth() + 1)}/${pad2(start.getDate())}-${end.getFullYear()}/${pad2(end.getMonth() + 1)}/${pad2(end.getDate())}`;
+                }
+
+                const raw = await fetchLogsBetween(start, endExclusive);
+                if (statusEl) statusEl.textContent = `資料筆數：${raw.length}，產生 PDF 中...`;
+
+                const asc = raw
+                    .map(x => {
+                        const dt = x.createdAt.toDate();
+                        return { ...x, __dt: dt };
+                    })
+                    .sort((a, b) => a.__dt - b.__dt);
+
+                const dateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+                const totals = new Map();
+                asc.forEach(x => {
+                    const k = dateKey(x.__dt);
+                    totals.set(k, (totals.get(k) || 0) + 1);
+                });
+                const seq = new Map();
+
+                const rows = asc.map(x => {
+                    const dt = x.__dt;
+                    const k = dateKey(dt);
+                    const next = (seq.get(k) || 0) + 1;
+                    seq.set(k, next);
+                    const total = totals.get(k) || next;
+                    const code = normalizeKey(x.code || '');
+                    const mappedLocation = code ? normalizeKey(locationMap[code] || '') : '';
+                    const loc = mappedLocation || normalizeKey(x.location || '') || code;
+                    const guard = normalizeKey(x.userName || x.userId || '');
+                    const gps = (typeof x.lat === 'number' && typeof x.lng === 'number') ? `${x.lat.toFixed(6)}, ${x.lng.toFixed(6)}` : '';
+                    const datetime = dt.toLocaleString('zh-TW');
+                    return {
+                        datetime,
+                        location: loc,
+                        code,
+                        guard,
+                        gps,
+                        nth: `${next}/${total}`
+                    };
+                });
+
+                const titleText = `${selectedCommunityName}${rangeLabel}巡邏打卡明細`;
+                const overlay = document.createElement('div');
+                overlay.style.position = 'fixed';
+                overlay.style.inset = '0';
+                overlay.style.background = 'rgba(0,0,0,0.35)';
+                overlay.style.zIndex = '9999';
+                overlay.style.display = 'flex';
+                overlay.style.alignItems = 'center';
+                overlay.style.justifyContent = 'center';
+                overlay.style.pointerEvents = 'none';
+                overlay.innerHTML = '<div style="background:#111827;color:#fff;font-weight:800;padding:10px 14px;border-radius:12px;font-size:12px;">產生 PDF 中...</div>';
+
+                const wrapper = document.createElement('div');
+                wrapper.style.position = 'fixed';
+                wrapper.style.left = '0';
+                wrapper.style.top = '0';
+                wrapper.style.width = '190mm';
+                wrapper.style.pointerEvents = 'none';
+                wrapper.style.zIndex = '9998';
+                wrapper.style.background = '#ffffff';
+                wrapper.innerHTML = buildPdfHtml(rows, titleText);
+                document.body.appendChild(wrapper);
+                document.body.appendChild(overlay);
+
+                const fileSafe = `${selectedCommunityName}_${rangeLabel}_巡邏打卡明細`.replace(/[\\/:*?"<>|]/g, '_');
+                await html2pdf()
+                    .set({
+                        margin: 10 / 25.4,
+                        filename: `${fileSafe}.pdf`,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak: { mode: ['css', 'legacy'] }
+                    })
+                    .from(wrapper)
+                    .save();
+
+                overlay.remove();
+                wrapper.remove();
+                if (statusEl) statusEl.textContent = '已產生 PDF';
+            } catch (e) {
+                if (statusEl) statusEl.textContent = '';
+                alert(e && e.message ? e.message : '下載失敗');
+            } finally {
+                try { document.getElementById('download-pdf-btn')?.blur(); } catch {}
+                if (btn) btn.disabled = false;
+            }
         }
 
         async function initPage() {
@@ -308,6 +790,13 @@
                 renderErrorScreen('找不到此帳號的使用者資料');
                 return;
             }
+
+            const roleName = await resolveRoleName(db, dbUser);
+            canManageSettings = computeCanManage(dbUser.role, roleName);
+            const settingsNavBtn = document.getElementById('nav-settings');
+            if (settingsNavBtn) settingsNavBtn.classList.toggle('hidden', !canManageSettings);
+            const downloadNavBtn = document.getElementById('nav-download');
+            if (downloadNavBtn) downloadNavBtn.classList.toggle('hidden', !canManageSettings);
 
             const allowed = resolveAllowedCommunityIds(dbUser);
             const isAdmin = allowed.includes('*');
@@ -357,27 +846,30 @@
             settingsUnsub = settingsDocRef.onSnapshot((snap) => {
                 const data = snap && snap.exists ? (snap.data() || {}) : {};
                 const map = data.locationMap && typeof data.locationMap === 'object' ? data.locationMap : {};
-                locationMap = map || {};
+                const normalized = {};
+                Object.keys(map || {}).forEach((k) => {
+                    const nk = normalizeKey(k);
+                    if (!nk) return;
+                    normalized[nk] = normalizeKey(map[k]);
+                });
+                locationMap = normalized;
                 if (!document.getElementById('view-settings')?.classList.contains('hidden')) renderLocationMap();
             }, () => {});
 
-            if (logsUnsub) { try { logsUnsub(); } catch {} logsUnsub = null; }
-            const logsQuery = settingsDocRef.collection('logs').orderBy('createdAt', 'desc').limit(50);
-            logsUnsub = logsQuery.onSnapshot((snapshot) => {
-                const list = [];
-                snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-                logs = list;
-                updatePatrolCount();
-                if (!document.getElementById('view-logs')?.classList.contains('hidden')) renderLogs();
-            }, () => {});
+            selectedLogsDate = new Date();
+            updateLogsDateLabel();
+            subscribeLogsForDate(selectedLogsDate);
 
             setPageTitle();
             showAppChrome();
             updatePatrolCount();
+            if (canManageSettings) initDownloadUI();
         }
 
 
         function switchView(viewName) {
+            if (viewName === 'settings' && !canManageSettings) return;
+            if (viewName === 'download' && !canManageSettings) return;
             document.querySelectorAll('.view-content').forEach(v => v.classList.add('hidden'));
             const viewEl = document.getElementById(`view-${viewName}`);
             if (viewEl) viewEl.classList.remove('hidden');
@@ -394,8 +886,13 @@
                 toggleScanner(false);
             }
 
-            if (viewName === 'logs') renderLogs();
+            if (viewName === 'logs') {
+                updateLogsDateLabel();
+                subscribeLogsForDate(selectedLogsDate);
+                renderLogs();
+            }
             if (viewName === 'settings') renderLocationMap();
+            if (viewName === 'download') initDownloadUI();
         }
 
         // 切換掃描器狀態
@@ -437,17 +934,18 @@
 
         function onScanSuccess(decodedText, decodedResult) {
             // 掃描到的是 Code，查找對應的地點名稱
-            const locationName = locationMap[decodedText] || decodedText;
+            const code = normalizeKey(decodedText);
+            const locationName = locationMap[code] || code;
             
             toggleScanner(false);
             
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => recordCheckIn(locationName, decodedText, pos.coords),
-                    (err) => recordCheckIn(locationName, decodedText, null)
+                    (pos) => recordCheckIn(locationName, code, pos.coords),
+                    (err) => recordCheckIn(locationName, code, null)
                 );
             } else {
-                recordCheckIn(locationName, decodedText, null);
+                recordCheckIn(locationName, code, null);
             }
         }
 
@@ -487,8 +985,14 @@
         }
 
         function updatePatrolCount() {
-            const el = document.getElementById('patrol-count');
-            if (el) el.innerText = String((logs || []).length);
+            const list = Array.isArray(logs) ? logs : [];
+            const unique = new Set(list.map(x => normalizeKey(x.code) || normalizeKey(x.location)).filter(Boolean));
+
+            const totalEl = document.getElementById('patrol-count');
+            if (totalEl) totalEl.innerText = String(list.length);
+
+            const uniqueEl = document.getElementById('patrol-unique-count');
+            if (uniqueEl) uniqueEl.innerText = String(unique.size);
         }
 
         function renderLogs() {
@@ -505,17 +1009,41 @@
                 const lat = (typeof log.lat === 'number') ? log.lat.toFixed(6) : '無定位';
                 const lng = (typeof log.lng === 'number') ? log.lng.toFixed(6) : '無定位';
                 const guard = String(log.userName || log.userId || '');
-                const location = String(log.location || '');
-                const code = String(log.code || '');
+                const code = normalizeKey(log.code || '');
+                const locationFromLog = normalizeKey(log.location || '');
+                const mappedLocation = code ? normalizeKey(locationMap[code] || '') : '';
+                const location = mappedLocation || locationFromLog || code;
+                const hasCoords = (typeof log.lat === 'number') && (typeof log.lng === 'number');
+                const latNum = hasCoords ? log.lat : null;
+                const lngNum = hasCoords ? log.lng : null;
+                const mapBtn = hasCoords
+                    ? `<button onclick='openMapModal(${latNum}, ${lngNum}, ${JSON.stringify(location)})' class="text-xs text-red-600 flex items-center gap-1 hover:underline">
+                           <i data-lucide="map-pin" size="10" class="inline"></i>
+                           <span>${lat}, ${lng}</span>
+                       </button>`
+                    : `<p class="text-xs text-red-600"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>`;
+                const actionBtns = canManageSettings
+                    ? `<div class="flex flex-col items-end gap-2">
+                           <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
+                           <div class="flex gap-2">
+                               <button onclick='openEditLogModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                               <button onclick='deleteLog(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                           </div>
+                       </div>`
+                    : `<span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>`;
                 return `
-                <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500 flex justify-between items-start">
+                <div class="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500 flex justify-between items-start">
                     <div>
-                        <h4 class="font-bold text-gray-800">${location}</h4>
-                        <p class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">${code}</p>
-                        <p class="text-xs text-gray-500 mt-1">${timeStr}</p>
-                        <p class="text-xs text-red-600 mt-1"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>
+                        <div class="flex items-center justify-between gap-2">
+                            <h4 class="font-bold text-gray-800">${location}</h4>
+                            <p class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">${code}</p>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="text-xs text-gray-500">${timeStr}</p>
+                            ${mapBtn}
+                        </div>
                     </div>
-                    <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
+                    ${actionBtns}
                 </div>
             `;
             }).join('');
@@ -524,11 +1052,12 @@
 
         // 處理手動設定 QR Code
         function handleManualQR() {
+            if (!canManageSettings) return;
             const nameInput = document.getElementById('custom-location-name');
             const codeInput = document.getElementById('custom-qr-code');
             
-            const name = nameInput.value.trim();
-            const code = codeInput.value.trim();
+            const name = normalizeKey(nameInput.value);
+            const code = normalizeKey(codeInput.value);
             
             if (!name || !code) {
                 alert("請輸入地點名稱與代碼");
@@ -584,19 +1113,165 @@
                 keys.map(code => `
                 <div class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm mb-2">
                     <div>
-                        <p class="font-bold text-gray-700">${locationMap[code]}</p>
+                        <p class="font-bold text-gray-700">${normalizeKey(locationMap[code])}</p>
                         <p class="text-xs font-mono text-red-500">${code}</p>
                     </div>
-                    <div class="flex gap-2">
-                        <button onclick="generateQR('${locationMap[code]}', '${code}')" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="printer" size="16"></i></button>
-                        <button onclick="deleteMapping('${code}')" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
-                    </div>
+                    ${canManageSettings ? `
+                        <div class="flex gap-2">
+                            <button onclick='openEditMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                            <button onclick='openPrintMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="printer" size="16"></i></button>
+                            <button onclick="deleteMapping('${code}')" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                        </div>
+                    ` : ``}
                 </div>
             `).join('');
             lucide.createIcons();
         }
 
+        function openPrintMapping(code) {
+            const c = normalizeKey(code);
+            if (!c) return;
+            const name = normalizeKey(locationMap[c]);
+            if (!name) return;
+            generateQR(name, c);
+        }
+
+        function openEditMapping(code) {
+            if (!canManageSettings) return;
+            const c = normalizeKey(code);
+            if (!c) return;
+            const name = normalizeKey(locationMap[c]);
+            const modal = document.getElementById('edit-mapping-modal');
+            const oldEl = document.getElementById('edit-map-old-code');
+            const nameEl = document.getElementById('edit-map-name');
+            const codeEl = document.getElementById('edit-map-code');
+            if (oldEl) oldEl.value = c;
+            if (nameEl) nameEl.value = name;
+            if (codeEl) codeEl.value = c;
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeEditMappingModal() {
+            const modal = document.getElementById('edit-mapping-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function saveMappingEdit() {
+            if (!canManageSettings) return;
+            if (!settingsDocRef || !dbUser) return;
+            const oldCode = normalizeKey(document.getElementById('edit-map-old-code')?.value);
+            const nextName = normalizeKey(document.getElementById('edit-map-name')?.value);
+            const nextCode = normalizeKey(document.getElementById('edit-map-code')?.value);
+            if (!oldCode || !nextName || !nextCode) {
+                alert('請填寫完整資訊');
+                return;
+            }
+            const nextMap = { ...(locationMap || {}) };
+            delete nextMap[oldCode];
+            nextMap[nextCode] = nextName;
+            settingsDocRef.set({
+                locationMap: nextMap,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: dbUser.id
+            }, { merge: true }).then(() => {
+                locationMap = nextMap;
+                closeEditMappingModal();
+                renderLocationMap();
+            }).catch(() => {
+                alert('儲存失敗');
+            });
+        }
+
+        function openMapModal(lat, lng, label) {
+            const modal = document.getElementById('map-modal');
+            const iframe = document.getElementById('map-iframe');
+            const title = document.getElementById('map-modal-title');
+            const latNum = Number(lat);
+            const lngNum = Number(lng);
+            if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
+            if (title) title.textContent = String(label || '');
+            if (iframe) iframe.src = `https://www.google.com/maps?q=${encodeURIComponent(String(latNum))},${encodeURIComponent(String(lngNum))}&z=18&output=embed&hl=zh-TW&gl=TW`;
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeMapModal() {
+            const modal = document.getElementById('map-modal');
+            const iframe = document.getElementById('map-iframe');
+            if (iframe) iframe.src = '';
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function openEditLogModal(logId) {
+            if (!canManageSettings) return;
+            const id = String(logId || '');
+            const target = (logs || []).find(x => String(x.id) === id);
+            if (!target) return;
+            const modal = document.getElementById('edit-log-modal');
+            const idEl = document.getElementById('edit-log-id');
+            const nameEl = document.getElementById('edit-log-location');
+            const codeEl = document.getElementById('edit-log-code');
+            const latEl = document.getElementById('edit-log-lat');
+            const lngEl = document.getElementById('edit-log-lng');
+            if (idEl) idEl.value = id;
+            if (nameEl) nameEl.value = normalizeKey(target.location || '');
+            if (codeEl) codeEl.value = normalizeKey(target.code || '');
+            if (latEl) latEl.value = (typeof target.lat === 'number') ? String(target.lat) : '';
+            if (lngEl) lngEl.value = (typeof target.lng === 'number') ? String(target.lng) : '';
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeEditLogModal() {
+            const modal = document.getElementById('edit-log-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function saveLogEdit() {
+            if (!canManageSettings) return;
+            if (!settingsDocRef || !dbUser) return;
+            const id = String(document.getElementById('edit-log-id')?.value || '');
+            const nextLocation = normalizeKey(document.getElementById('edit-log-location')?.value);
+            const nextCode = normalizeKey(document.getElementById('edit-log-code')?.value);
+            const latStr = normalizeKey(document.getElementById('edit-log-lat')?.value);
+            const lngStr = normalizeKey(document.getElementById('edit-log-lng')?.value);
+            const lat = latStr ? Number(latStr) : null;
+            const lng = lngStr ? Number(lngStr) : null;
+            if (!id || !nextLocation || !nextCode) {
+                alert('請填寫完整資訊');
+                return;
+            }
+            const payload = {
+                location: nextLocation,
+                code: nextCode,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: dbUser.id
+            };
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                payload.lat = lat;
+                payload.lng = lng;
+            }
+            settingsDocRef.collection('logs').doc(id).set(payload, { merge: true }).then(() => {
+                closeEditLogModal();
+            }).catch(() => {
+                alert('儲存失敗');
+            });
+        }
+
+        function deleteLog(logId) {
+            if (!canManageSettings) return;
+            if (!settingsDocRef) return;
+            const id = String(logId || '');
+            if (!id) return;
+            if (!confirm('確定要刪除此筆巡邏記錄嗎？')) return;
+            settingsDocRef.collection('logs').doc(id).delete().catch(() => {
+                alert('刪除失敗');
+            });
+        }
+
         function deleteMapping(code) {
+            if (!canManageSettings) return;
             if (confirm(`確定要刪除代碼 [${code}] 的關聯嗎？`)) {
                 if (!settingsDocRef || !dbUser) return;
                 const nextMap = { ...(locationMap || {}) };
@@ -614,11 +1289,36 @@
             }
         }
 
-        function clearLogs() {
-            if (confirm('確定要清除所有巡邏記錄嗎？')) {
-                logs = [];
-                renderLogs();
-                updatePatrolCount();
+        async function clearLogs() {
+            if (!settingsDocRef) return;
+            if (!confirm('確定要清除此日期的巡邏記錄嗎？')) return;
+            try {
+                const start = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate(), 0, 0, 0, 0);
+                const end = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate() + 1, 0, 0, 0, 0);
+                const startTs = firebase.firestore.Timestamp.fromDate(start);
+                const endTs = firebase.firestore.Timestamp.fromDate(end);
+
+                const snap = await settingsDocRef
+                    .collection('logs')
+                    .where('createdAt', '>=', startTs)
+                    .where('createdAt', '<', endTs)
+                    .limit(500)
+                    .get();
+
+                if (snap.empty) {
+                    alert('此日期沒有巡邏記錄');
+                    return;
+                }
+
+                const batch = db.batch();
+                snap.docs.forEach((doc) => batch.delete(doc.ref));
+                await batch.commit();
+
+                if (snap.size >= 500) {
+                    alert('已清除最多 500 筆，如仍有資料請再按一次清除。');
+                }
+            } catch (_) {
+                alert('清除失敗');
             }
         }
 
