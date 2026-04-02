@@ -9854,6 +9854,8 @@
             const [makeupSchedule, setMakeupSchedule] = useState(null);
             const [showOverviewScheduleModal, setShowOverviewScheduleModal] = useState(false);
             const [overviewScheduleCommunityId, setOverviewScheduleCommunityId] = useState('');
+            const [showOverviewPatrolModal, setShowOverviewPatrolModal] = useState(false);
+            const [overviewPatrolCommunityId, setOverviewPatrolCommunityId] = useState('');
             const [showMakeupEditModal, setShowMakeupEditModal] = useState(false);
             const [editingMakeupRequest, setEditingMakeupRequest] = useState(null);
             const [makeupEditForm, setMakeupEditForm] = useState({ startTime: '', endTime: '', locationId: '', reasonType: 'forgot', reasonRemark: '' });
@@ -9868,7 +9870,7 @@
             const [communityLeaveLoading, setCommunityLeaveLoading] = useState(false);
 
             useEffect(() => {
-                if (showOverviewScheduleModal) {
+                if (showOverviewScheduleModal || showOverviewPatrolModal) {
                     const prevOverflow = document.body.style.overflow;
                     const prevMsOverflow = document.body.style.msOverflowStyle;
                     document.body.style.overflow = 'hidden';
@@ -9878,7 +9880,7 @@
                         document.body.style.msOverflowStyle = prevMsOverflow;
                     };
                 }
-            }, [showOverviewScheduleModal]);
+            }, [showOverviewScheduleModal, showOverviewPatrolModal]);
 
             useEffect(() => {
                 if (!showQrModal || qrMode !== 'scan') return;
@@ -21665,7 +21667,7 @@
                                                             return (
                                                                 <div key={c.id} className="w-full aspect-square flex items-center justify-center">
                                                                     <button
-                                                                        onClick={() => { window.open(`./patrol.html?communityId=${encodeURIComponent(String(c.id || '').trim())}`, '_blank'); }}
+                                                                        onClick={() => { setOverviewPatrolCommunityId(String(c.id || '').trim()); setShowOverviewPatrolModal(true); }}
                                                                         className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
                                                                     >
                                                                         {displayName}
@@ -25818,6 +25820,27 @@
                             <iframe
                                 title="schedule"
                                 src={`schedule.html?communityId=${encodeURIComponent(String(overviewScheduleCommunityId || '').trim())}`}
+                                className="w-full flex-1 border-0"
+                            />
+                        </div>
+                    )}
+
+                    {showOverviewPatrolModal && overviewPatrolCommunityId && (
+                        <div className="fixed inset-0 z-[95] bg-white flex flex-col overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                                <div className="font-bold text-gray-800 text-sm">
+                                    {(communities || []).find(c => String(c.id) === String(overviewPatrolCommunityId))?.name || overviewPatrolCommunityId}社區巡邏
+                                </div>
+                                <button
+                                    onClick={() => { setShowOverviewPatrolModal(false); setOverviewPatrolCommunityId(''); }}
+                                    className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
+                                >
+                                    關閉
+                                </button>
+                            </div>
+                            <iframe
+                                title="patrol"
+                                src={`patrol.html?communityId=${encodeURIComponent(String(overviewPatrolCommunityId || '').trim())}`}
                                 className="w-full flex-1 border-0"
                             />
                         </div>
