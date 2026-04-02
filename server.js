@@ -496,6 +496,89 @@ const handlePublicCommunityName = async (req, res) => {
   }
 };
 
+const parseYmd = (s) => {
+  const v = String(s || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const [yy, mm, dd] = v.split('-').map((x) => Number(x));
+  if (!yy || !mm || !dd) return null;
+  const dt = new Date(yy, mm - 1, dd, 0, 0, 0, 0);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+};
+
+const handlePublicPatrolLogs = async (req, res) => {
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Method Not Allowed');
+    return;
+  }
+
+  let communityId = '';
+  let dateStr = '';
+  try {
+    const base = `http://${req.headers.host || `localhost:${port}`}`;
+    const u = new URL(req.url, base);
+    communityId = String(u.searchParams.get('communityId') || '').trim();
+    dateStr = String(u.searchParams.get('date') || '').trim();
+  } catch (e) {
+    sendJson(res, 400, { ok: false, message: 'Bad Request' });
+    return;
+  }
+
+  if (!communityId) {
+    sendJson(res, 400, { ok: false, message: 'Missing communityId' });
+    return;
+  }
+
+  const start = dateStr ? parseYmd(dateStr) : new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate(), 0, 0, 0, 0);
+  if (!start) {
+    sendJson(res, 400, { ok: false, message: 'Invalid date' });
+    return;
+  }
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1, 0, 0, 0, 0);
+
+  try {
+    const db = getArtifactsDb();
+    if (!db) {
+      sendJson(res, 500, { ok: false, message: 'Firebase Admin not initialized' });
+      return;
+    }
+
+    const logsRef = db
+      .collection('artifacts').doc(APP_ID)
+      .collection('public').doc('data')
+      .collection('community_patrols').doc(String(communityId))
+      .collection('logs');
+
+    const q = logsRef
+      .where('createdAt', '>=', start)
+      .where('createdAt', '<', end)
+      .orderBy('createdAt', 'desc')
+      .limit(500);
+
+    const snap = await q.get();
+    const items = snap.docs.map((d) => {
+      const data = d.data() || {};
+      const createdAt = data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : null;
+      return {
+        id: d.id,
+        createdAt,
+        location: String(data.location || ''),
+        code: String(data.code || ''),
+        userName: String(data.userName || ''),
+        userId: String(data.userId || ''),
+        lat: typeof data.lat === 'number' ? data.lat : null,
+        lng: typeof data.lng === 'number' ? data.lng : null,
+      };
+    }).filter((x) => typeof x.createdAt === 'number');
+
+    sendJson(res, 200, { ok: true, communityId, date: formatLocalYMD(start), items });
+  } catch (e) {
+    console.error('Public patrol logs error:', e);
+    sendJson(res, 500, { ok: false, message: e.message || 'Internal server error' });
+  }
+};
+
 const handlePublicSubmitFeedback = async (req, res) => {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -629,6 +712,11 @@ const server = http.createServer((req, res) => {
   // API Routes
   if (urlPath === '/api/public/community-name') {
     handlePublicCommunityName(req, res);
+    return;
+  }
+
+  if (urlPath === '/api/public/patrol-logs') {
+    handlePublicPatrolLogs(req, res);
     return;
   }
 

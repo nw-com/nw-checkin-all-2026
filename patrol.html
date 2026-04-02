@@ -50,7 +50,7 @@
     <main id="app-main" class="flex-grow p-4 mb-20 overflow-y-auto">
         
         <!-- 人員資訊 -->
-        <div class="bg-white rounded-xl p-4 shadow-sm mb-4 border border-gray-100">
+        <div id="user-card" class="bg-white rounded-xl p-4 shadow-sm mb-4 border border-gray-100">
             <div class="flex items-center gap-3">
                 <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-700">
                     <i data-lucide="user"></i>
@@ -104,11 +104,16 @@
                 <div class="flex items-center gap-2 min-w-0">
                     <h2 class="font-bold text-gray-700 whitespace-nowrap">巡邏歷史記錄</h2>
                 </div>
-                <button onclick="clearLogs()" class="text-xs text-red-500 flex items-center gap-1">
-                    <i data-lucide="trash-2" size="14"></i> 清除
-                </button>
+                <div id="logs-actions" class="flex items-center gap-3">
+                    <button id="share-btn" onclick="openShareModal()" class="text-xs text-gray-500 flex items-center gap-1">
+                        <i data-lucide="share-2" size="14"></i> 分享
+                    </button>
+                    <button onclick="clearLogs()" id="clear-logs-btn" class="text-xs text-red-500 flex items-center gap-1">
+                        <i data-lucide="trash-2" size="14"></i> 清除
+                    </button>
+                </div>
             </div>
-            <div class="flex items-center justify-center gap-2 mb-4">
+            <div id="logs-date-nav" class="flex items-center justify-center gap-2 mb-4">
                 <button onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-left" size="16"></i>
                 </button>
@@ -298,6 +303,68 @@
         </div>
     </div>
 
+    <div id="report-preview-modal" class="fixed inset-0 bg-black/50 z-[110] hidden p-4">
+        <div class="w-full max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden h-[calc(100vh-32px)] flex flex-col">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div class="font-bold text-gray-800 text-sm">預覽巡邏打卡明細</div>
+                <div class="flex items-center gap-2">
+                    <button onclick="printReport()" class="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700">
+                        下載PDF
+                    </button>
+                    <button onclick="closeReportPreview()" class="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200">
+                        關閉
+                    </button>
+                </div>
+            </div>
+            <div class="px-4 py-2 text-xs text-gray-500 border-b border-gray-100">
+                下載PDF會開啟列印視窗，選擇「另存為 PDF」
+            </div>
+            <div class="flex-1 overflow-auto bg-gray-50 p-4">
+                <div class="mx-auto bg-white shadow-sm border border-gray-200" style="width: 210mm; padding: 10mm;">
+                    <div id="report-preview-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="fixed inset-0 bg-black/50 z-[115] hidden p-6 flex items-center justify-center">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100">
+                <div id="confirm-title" class="font-black text-gray-800 text-base"></div>
+                <div id="confirm-message" class="text-sm text-gray-600 mt-1 whitespace-pre-wrap"></div>
+            </div>
+            <div class="px-5 py-4 flex gap-2">
+                <button onclick="confirmModalCancel()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                <button onclick="confirmModalOk()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">確認</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="share-modal" class="fixed inset-0 bg-black/50 z-[114] hidden p-6 flex items-center justify-center">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">分享巡邏紀錄</div>
+                <button onclick="closeShareModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="px-5 py-4">
+                <div id="share-community-name" class="text-sm font-bold text-gray-800 mb-3"></div>
+                <button onclick="openSharedLogs()" class="w-full flex items-center justify-center">
+                    <div id="share-qr" class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm"></div>
+                </button>
+                <div class="mt-3">
+                    <div class="text-xs font-bold text-gray-400 uppercase mb-1">網址</div>
+                    <div id="share-url" class="text-xs text-gray-700 break-all bg-gray-50 rounded-lg p-2 border border-gray-100"></div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-500">點擊 QR Code 可開啟公開頁面（不需登入）。</div>
+            </div>
+            <div class="px-5 py-4 border-t border-gray-100">
+                <button onclick="closeShareModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 底部導航 -->
     <nav id="page-nav" class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
         <button onclick="switchView('scanner')" id="nav-scanner" class="flex flex-col items-center p-2 text-red-600">
@@ -308,13 +375,13 @@
             <i data-lucide="history"></i>
             <span class="text-xs mt-1">記錄</span>
         </button>
-        <button onclick="switchView('settings')" id="nav-settings" class="flex flex-col items-center p-2 text-gray-400">
-            <i data-lucide="settings"></i>
-            <span class="text-xs mt-1">設定</span>
-        </button>
-        <button onclick="switchView('download')" id="nav-download" class="flex flex-col items-center p-2 text-gray-400">
+        <button onclick="switchView('download')" id="nav-download" class="hidden flex flex-col items-center p-2 text-gray-400">
             <i data-lucide="download"></i>
             <span class="text-xs mt-1">下載</span>
+        </button>
+        <button onclick="switchView('settings')" id="nav-settings" class="hidden flex flex-col items-center p-2 text-gray-400">
+            <i data-lucide="settings"></i>
+            <span class="text-xs mt-1">設定</span>
         </button>
     </nav>
 
@@ -340,6 +407,10 @@
         let selectedLogsDate = new Date();
         let canManageSettings = false;
         let downloadUIReady = false;
+        let reportPreviewState = null;
+        let pendingConfirmAction = null;
+        let isPublicView = false;
+        let sharePublicUrl = '';
 
         function normalizeKey(v) {
             return String(v || '').replace(/\uFEFF/g, '').trim();
@@ -356,7 +427,7 @@
             const header = document.getElementById('page-header');
             const nav = document.getElementById('page-nav');
             if (header) header.classList.remove('hidden');
-            if (nav) nav.classList.remove('hidden');
+            if (nav) nav.classList.toggle('hidden', !!isPublicView);
         }
 
         function renderAuthScreen(msg) {
@@ -443,6 +514,11 @@
             return String(params.get('communityId') || '').trim().toUpperCase();
         }
 
+        function getIsPublicMode() {
+            const params = new URLSearchParams(window.location.search || '');
+            return String(params.get('public') || '') === '1';
+        }
+
         function setPageTitle() {
             const el = document.getElementById('page-title');
             if (el) el.textContent = selectedCommunityName ? `${selectedCommunityName} 巡邏` : '智慧巡邏系統';
@@ -456,6 +532,14 @@
             const day = String(d.getDate()).padStart(2, '0');
             const w = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
             return `${y}/${m}/${day} (週${w})`;
+        }
+
+        function formatYmd(d) {
+            if (!d) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
         }
 
         function updateLogsDateLabel() {
@@ -486,7 +570,15 @@
                 logs = list;
                 updatePatrolCount();
                 if (!document.getElementById('view-logs')?.classList.contains('hidden')) renderLogs();
-            }, () => {});
+            }, () => {
+                logs = [];
+                updatePatrolCount();
+                const container = document.getElementById('logs-container');
+                if (container) {
+                    container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="alert-triangle" size="48" class="mx-auto mb-2 opacity-20"></i><p>無法讀取巡邏記錄</p></div>`;
+                    lucide.createIcons();
+                }
+            });
         }
 
         function changeLogDate(deltaDays) {
@@ -636,14 +728,57 @@
             `;
         }
 
+        function openReportPreview(titleText, rows, fileSafe) {
+            const contentEl = document.getElementById('report-preview-content');
+            if (contentEl) contentEl.innerHTML = buildPdfHtml(rows, titleText);
+            reportPreviewState = { titleText, rows, fileSafe };
+            const modal = document.getElementById('report-preview-modal');
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeReportPreview() {
+            const modal = document.getElementById('report-preview-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function printReport() {
+            if (!reportPreviewState) return;
+            const { titleText, rows, fileSafe } = reportPreviewState;
+            const bodyHtml = buildPdfHtml(rows, titleText);
+            const docHtml = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(fileSafe || titleText || '巡邏打卡明細')}</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    html, body { margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  ${bodyHtml}
+</body>
+</html>`;
+
+            const w = window.open('', '_blank');
+            if (!w) {
+                alert('瀏覽器阻擋彈出視窗，請允許後再試一次');
+                return;
+            }
+            w.document.open();
+            w.document.write(docHtml);
+            w.document.close();
+            w.focus();
+            setTimeout(() => {
+                try { w.print(); } catch {}
+            }, 250);
+        }
+
         async function downloadPdf() {
             if (!canManageSettings) return;
             if (!settingsDocRef) return;
-            if (typeof html2pdf === 'undefined') {
-                alert('PDF 模組載入失敗');
-                return;
-            }
-
             initDownloadUI();
             syncDownloadMode();
 
@@ -720,45 +855,9 @@
                 });
 
                 const titleText = `${selectedCommunityName}${rangeLabel}巡邏打卡明細`;
-                const overlay = document.createElement('div');
-                overlay.style.position = 'fixed';
-                overlay.style.inset = '0';
-                overlay.style.background = 'rgba(0,0,0,0.35)';
-                overlay.style.zIndex = '9999';
-                overlay.style.display = 'flex';
-                overlay.style.alignItems = 'center';
-                overlay.style.justifyContent = 'center';
-                overlay.style.pointerEvents = 'none';
-                overlay.innerHTML = '<div style="background:#111827;color:#fff;font-weight:800;padding:10px 14px;border-radius:12px;font-size:12px;">產生 PDF 中...</div>';
-
-                const wrapper = document.createElement('div');
-                wrapper.style.position = 'fixed';
-                wrapper.style.left = '0';
-                wrapper.style.top = '0';
-                wrapper.style.width = '190mm';
-                wrapper.style.pointerEvents = 'none';
-                wrapper.style.zIndex = '9998';
-                wrapper.style.background = '#ffffff';
-                wrapper.innerHTML = buildPdfHtml(rows, titleText);
-                document.body.appendChild(wrapper);
-                document.body.appendChild(overlay);
-
                 const fileSafe = `${selectedCommunityName}_${rangeLabel}_巡邏打卡明細`.replace(/[\\/:*?"<>|]/g, '_');
-                await html2pdf()
-                    .set({
-                        margin: 10 / 25.4,
-                        filename: `${fileSafe}.pdf`,
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        pagebreak: { mode: ['css', 'legacy'] }
-                    })
-                    .from(wrapper)
-                    .save();
-
-                overlay.remove();
-                wrapper.remove();
-                if (statusEl) statusEl.textContent = '已產生 PDF';
+                openReportPreview(titleText, rows, fileSafe);
+                if (statusEl) statusEl.textContent = `資料筆數：${raw.length}`;
             } catch (e) {
                 if (statusEl) statusEl.textContent = '';
                 alert(e && e.message ? e.message : '下載失敗');
@@ -768,7 +867,69 @@
             }
         }
 
+        async function initPublicPage() {
+            isPublicView = true;
+            canManageSettings = false;
+            selectedCommunityId = getRequestedCommunityId();
+            if (!selectedCommunityId) {
+                renderErrorScreen('未指定社區，請使用 ?public=1&communityId=社區編號 開啟');
+                return;
+            }
+
+            const connectionEl = document.getElementById('connection-status');
+            if (connectionEl) connectionEl.classList.add('hidden');
+            const userCard = document.getElementById('user-card');
+            if (userCard) userCard.classList.add('hidden');
+            const nav = document.getElementById('page-nav');
+            if (nav) nav.classList.add('hidden');
+            const clearBtn = document.getElementById('clear-logs-btn');
+            if (clearBtn) clearBtn.classList.add('hidden');
+            const logsActions = document.getElementById('logs-actions');
+            if (logsActions) logsActions.classList.add('hidden');
+
+            const { db: firestore } = initFirebaseCompat();
+            db = firestore;
+            settingsDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('community_patrols').doc(selectedCommunityId);
+
+            try {
+                const commSnap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities')
+                    .doc(selectedCommunityId)
+                    .get();
+                if (commSnap.exists) {
+                    const comm = commSnap.data() || {};
+                    selectedCommunityName = String(comm.name || '').trim();
+                }
+            } catch {}
+            if (!selectedCommunityName) selectedCommunityName = selectedCommunityId;
+
+            if (settingsUnsub) { try { settingsUnsub(); } catch {} settingsUnsub = null; }
+            settingsUnsub = settingsDocRef.onSnapshot((snap) => {
+                const data = snap && snap.exists ? (snap.data() || {}) : {};
+                const map = data.locationMap && typeof data.locationMap === 'object' ? data.locationMap : {};
+                const normalized = {};
+                Object.keys(map || {}).forEach((k) => {
+                    const nk = normalizeKey(k);
+                    if (!nk) return;
+                    normalized[nk] = normalizeKey(map[k]);
+                });
+                locationMap = normalized;
+            }, () => {});
+
+            setPageTitle();
+            showAppChrome();
+
+            document.querySelectorAll('.view-content').forEach(v => v.classList.add('hidden'));
+            const logsView = document.getElementById('view-logs');
+            if (logsView) logsView.classList.remove('hidden');
+
+            selectedLogsDate = new Date();
+            updateLogsDateLabel();
+            subscribeLogsForDate(selectedLogsDate);
+            renderLogs();
+        }
+
         async function initPage() {
+            isPublicView = false;
             const { auth, db: firestore } = initFirebaseCompat();
             db = firestore;
 
@@ -1004,7 +1165,13 @@
             }
 
             container.innerHTML = logs.map(log => {
-                const t = log.createdAt && typeof log.createdAt.toDate === 'function' ? log.createdAt.toDate() : null;
+                const t = (log.createdAt && typeof log.createdAt.toDate === 'function')
+                    ? log.createdAt.toDate()
+                    : (typeof log.createdAt === 'number')
+                        ? new Date(log.createdAt)
+                        : (typeof log.createdAt === 'string')
+                            ? new Date(log.createdAt)
+                            : null;
                 const timeStr = t ? t.toLocaleString('zh-TW') : '';
                 const lat = (typeof log.lat === 'number') ? log.lat.toFixed(6) : '無定位';
                 const lng = (typeof log.lng === 'number') ? log.lng.toFixed(6) : '無定位';
@@ -1017,10 +1184,12 @@
                 const latNum = hasCoords ? log.lat : null;
                 const lngNum = hasCoords ? log.lng : null;
                 const mapBtn = hasCoords
-                    ? `<button onclick='openMapModal(${latNum}, ${lngNum}, ${JSON.stringify(location)})' class="text-xs text-red-600 flex items-center gap-1 hover:underline">
-                           <i data-lucide="map-pin" size="10" class="inline"></i>
-                           <span>${lat}, ${lng}</span>
-                       </button>`
+                    ? (isPublicView
+                        ? `<p class="text-xs text-red-600"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>`
+                        : `<button onclick='openMapModal(${latNum}, ${lngNum}, ${JSON.stringify(location)})' class="text-xs text-red-600 flex items-center gap-1 hover:underline">
+                               <i data-lucide="map-pin" size="10" class="inline"></i>
+                               <span>${lat}, ${lng}</span>
+                           </button>`)
                     : `<p class="text-xs text-red-600"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>`;
                 const actionBtns = canManageSettings
                     ? `<div class="flex flex-col items-end gap-2">
@@ -1203,6 +1372,78 @@
             if (modal) modal.classList.add('hidden');
         }
 
+        function openConfirmModal(title, message, onConfirm) {
+            pendingConfirmAction = onConfirm || null;
+            const modal = document.getElementById('confirm-modal');
+            const titleEl = document.getElementById('confirm-title');
+            const msgEl = document.getElementById('confirm-message');
+            if (titleEl) titleEl.textContent = String(title || '確認');
+            if (msgEl) msgEl.textContent = String(message || '');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            pendingConfirmAction = null;
+            const modal = document.getElementById('confirm-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function confirmModalCancel() {
+            closeConfirmModal();
+        }
+
+        async function confirmModalOk() {
+            const fn = pendingConfirmAction;
+            closeConfirmModal();
+            if (!fn) return;
+            try {
+                await Promise.resolve(fn());
+            } catch (_) {}
+        }
+
+        function buildShareUrl() {
+            const base = new URL(window.location.href);
+            base.pathname = base.pathname.endsWith('/') ? `${base.pathname}patrol.html` : base.pathname;
+            base.searchParams.set('public', '1');
+            base.searchParams.set('communityId', String(selectedCommunityId || '').trim());
+            base.searchParams.delete('date');
+            return base.toString();
+        }
+
+        function openShareModal() {
+            if (!selectedCommunityId) return;
+            sharePublicUrl = buildShareUrl();
+            const modal = document.getElementById('share-modal');
+            const nameEl = document.getElementById('share-community-name');
+            const urlEl = document.getElementById('share-url');
+            const qrEl = document.getElementById('share-qr');
+            if (nameEl) nameEl.textContent = `${selectedCommunityName || selectedCommunityId} 巡邏歷史紀錄`;
+            if (urlEl) urlEl.textContent = sharePublicUrl;
+            if (qrEl) {
+                qrEl.innerHTML = '';
+                try {
+                    new QRCode(qrEl, {
+                        text: sharePublicUrl,
+                        width: 180,
+                        height: 180,
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                } catch (_) {}
+            }
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('share-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function openSharedLogs() {
+            if (!sharePublicUrl) return;
+            window.open(sharePublicUrl, '_blank');
+        }
+
         function openEditLogModal(logId) {
             if (!canManageSettings) return;
             const id = String(logId || '');
@@ -1264,19 +1505,20 @@
             if (!settingsDocRef) return;
             const id = String(logId || '');
             if (!id) return;
-            if (!confirm('確定要刪除此筆巡邏記錄嗎？')) return;
-            settingsDocRef.collection('logs').doc(id).delete().catch(() => {
-                alert('刪除失敗');
+            openConfirmModal('確認刪除', '確定要刪除此筆巡邏記錄嗎？', () => {
+                return settingsDocRef.collection('logs').doc(id).delete().catch(() => {
+                    alert('刪除失敗');
+                });
             });
         }
 
         function deleteMapping(code) {
             if (!canManageSettings) return;
-            if (confirm(`確定要刪除代碼 [${code}] 的關聯嗎？`)) {
+            openConfirmModal('確認刪除', `確定要刪除代碼 [${code}] 的關聯嗎？`, () => {
                 if (!settingsDocRef || !dbUser) return;
                 const nextMap = { ...(locationMap || {}) };
                 delete nextMap[code];
-                settingsDocRef.set({
+                return settingsDocRef.set({
                     locationMap: nextMap,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedBy: dbUser.id
@@ -1286,44 +1528,49 @@
                 }).catch(() => {
                     alert('刪除失敗');
                 });
-            }
+            });
         }
 
         async function clearLogs() {
             if (!settingsDocRef) return;
-            if (!confirm('確定要清除此日期的巡邏記錄嗎？')) return;
-            try {
-                const start = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate(), 0, 0, 0, 0);
-                const end = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate() + 1, 0, 0, 0, 0);
-                const startTs = firebase.firestore.Timestamp.fromDate(start);
-                const endTs = firebase.firestore.Timestamp.fromDate(end);
+            openConfirmModal('確認清除', '確定要清除此日期的巡邏記錄嗎？', async () => {
+                try {
+                    const start = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate(), 0, 0, 0, 0);
+                    const end = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate() + 1, 0, 0, 0, 0);
+                    const startTs = firebase.firestore.Timestamp.fromDate(start);
+                    const endTs = firebase.firestore.Timestamp.fromDate(end);
 
-                const snap = await settingsDocRef
-                    .collection('logs')
-                    .where('createdAt', '>=', startTs)
-                    .where('createdAt', '<', endTs)
-                    .limit(500)
-                    .get();
+                    const snap = await settingsDocRef
+                        .collection('logs')
+                        .where('createdAt', '>=', startTs)
+                        .where('createdAt', '<', endTs)
+                        .limit(500)
+                        .get();
 
-                if (snap.empty) {
-                    alert('此日期沒有巡邏記錄');
-                    return;
+                    if (snap.empty) {
+                        alert('此日期沒有巡邏記錄');
+                        return;
+                    }
+
+                    const batch = db.batch();
+                    snap.docs.forEach((doc) => batch.delete(doc.ref));
+                    await batch.commit();
+
+                    if (snap.size >= 500) {
+                        alert('已清除最多 500 筆，如仍有資料請再按一次清除。');
+                    }
+                } catch (_) {
+                    alert('清除失敗');
                 }
-
-                const batch = db.batch();
-                snap.docs.forEach((doc) => batch.delete(doc.ref));
-                await batch.commit();
-
-                if (snap.size >= 500) {
-                    alert('已清除最多 500 筆，如仍有資料請再按一次清除。');
-                }
-            } catch (_) {
-                alert('清除失敗');
-            }
+            });
         }
 
         hideAppChrome();
-        initPage().catch(e => renderErrorScreen(e && e.message ? e.message : '初始化失敗'));
+        if (getIsPublicMode()) {
+            initPublicPage().catch(e => renderErrorScreen(e && e.message ? e.message : '初始化失敗'));
+        } else {
+            initPage().catch(e => renderErrorScreen(e && e.message ? e.message : '初始化失敗'));
+        }
     </script>
 </body>
 </html>
