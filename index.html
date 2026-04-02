@@ -21649,9 +21649,33 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 巡邏管理
                                             </h3>
-                                            <div className="text-center py-8 text-gray-400">
-                                                尚無巡邏資料
-                                            </div>
+                                            {(function(){
+                                                if (!dbUser) return <div className="text-center py-8 text-gray-400">請先登入</div>;
+                                                const ids = Array.from(new Set((dbUser.communityIds || []).map(x => String(x).trim()).filter(Boolean)));
+                                                const myComms = ids.map(id => (communities || []).find(c => String(c.id) === String(id))).filter(Boolean);
+                                                if (myComms.length === 0) return <div className="text-center py-8 text-gray-400">無服務社區</div>;
+                                                return (
+                                                    <div className="grid grid-cols-5 gap-2">
+                                                        {myComms.map(c => {
+                                                            const name = c.name || '';
+                                                            const short = name.slice(0, 4);
+                                                            const top = short.slice(0, 2);
+                                                            const bottom = short.slice(2);
+                                                            const displayName = bottom ? <>{top}<br/>{bottom}</> : top || name;
+                                                            return (
+                                                                <div key={c.id} className="w-full aspect-square flex items-center justify-center">
+                                                                    <button
+                                                                        onClick={() => { window.open(`./patrol.html?communityId=${encodeURIComponent(String(c.id || '').trim())}`, '_blank'); }}
+                                                                        className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                    >
+                                                                        {displayName}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                     {functionSubtab === 'training' && hasSubPermission('function', 'training') && (
