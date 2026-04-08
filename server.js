@@ -5,7 +5,7 @@ const admin = require('firebase-admin');
 
 console.log("Starting server script...");
 
-const port = 8001;
+const port = Number(process.env.PORT || 8003);
 const LOG_REQUESTS = process.env.LOG_REQUESTS === '1';
 const SILENT_PATHS = new Set(['/sw.js', '/@vite/client', '/favicon.ico']);
 const APP_ID = process.env.APP_ID || 'default-attendance-app';
@@ -376,6 +376,81 @@ const sendJson = (res, status, data) => {
   res.end(JSON.stringify(data));
 };
 
+const encodeUrlPath = (p) => {
+  return String(p || '')
+    .split(/[\\/]/g)
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+};
+
+const listDataDirectory = async (absoluteDir, relativeDir = '', depth = 6) => {
+  const entries = await fs.promises.readdir(absoluteDir, { withFileTypes: true });
+  const nodes = [];
+
+  for (const entry of entries) {
+    const name = entry.name;
+    if (!name || name.startsWith('.')) continue;
+
+    const abs = path.join(absoluteDir, name);
+    const rel = relativeDir ? `${relativeDir}/${name}` : name;
+
+    if (entry.isDirectory()) {
+      const children = depth > 0 ? await listDataDirectory(abs, rel, depth - 1) : [];
+      nodes.push({ name, path: rel, type: 'directory', children });
+      continue;
+    }
+
+    if (entry.isFile()) {
+      let stat;
+      try {
+        stat = await fs.promises.stat(abs);
+      } catch {
+        stat = null;
+      }
+      nodes.push({
+        name,
+        path: rel,
+        type: 'file',
+        size: stat ? stat.size : null,
+        mtimeMs: stat ? stat.mtimeMs : null,
+        url: `/data/${encodeUrlPath(rel)}`,
+      });
+    }
+  }
+
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+    return String(a.name).localeCompare(String(b.name), 'zh-Hant', { numeric: true, sensitivity: 'base' });
+  });
+
+  return nodes;
+};
+
+const handlePublicDataFiles = async (req, res) => {
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Method Not Allowed');
+    return;
+  }
+
+  const dataRoot = path.join(__dirname, 'data');
+  try {
+    await fs.promises.access(dataRoot, fs.constants.F_OK);
+  } catch {
+    sendJson(res, 200, { ok: true, items: [], exists: false });
+    return;
+  }
+
+  try {
+    const items = await listDataDirectory(dataRoot, '', 6);
+    sendJson(res, 200, { ok: true, items, exists: true });
+  } catch (e) {
+    console.error('List data files error:', e);
+    sendJson(res, 500, { ok: false, message: e.message || 'Internal server error' });
+  }
+};
+
 const handleAdminResetPassword = async (req, res) => {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -709,9 +784,65 @@ const server = http.createServer((req, res) => {
     console.log(`Request: ${urlPath}`);
   }
 
+  if (urlPath === '/check.html') {
+    const patrolPath = path.resolve(__dirname, './patrol.html');
+    fs.readFile(patrolPath, 'utf-8', (error, html) => {
+      if (error) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Error loading check.html');
+        return;
+      }
+
+      let out = String(html || '');
+
+      out = out.replaceAll('community_patrols', 'community_checks');
+
+      out = out.replaceAll('巡邏打卡系統', '督勤打卡系統');
+      out = out.replaceAll('智慧巡邏系統', '智慧督勤系統');
+      out = out.replaceAll('當日該社區已巡邏:', '當日該社區已督勤:');
+      out = out.replaceAll('巡邏點掃描', '督勤掃描');
+      out = out.replaceAll('按下按鈕後開始巡邏打卡', '按下按鈕後開始督勤');
+      out = out.replaceAll('請對準巡邏點 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。', '請對準督勤 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。');
+      out = out.replaceAll('巡邏歷史記錄', '督勤歷史記錄');
+      out = out.replaceAll('目前尚無打卡記錄', '目前尚無督勤記錄');
+      out = out.replaceAll('設定打卡位置', '設定督勤位置');
+      out = out.replaceAll('下載巡邏打卡明細', '下載督勤打卡明細');
+      out = out.replaceAll('打卡成功！', '督勤成功！');
+      out = out.replaceAll('編輯巡邏記錄', '編輯督勤記錄');
+      out = out.replaceAll('預覽巡邏打卡明細', '預覽督勤打卡明細');
+      out = out.replaceAll('分享巡邏紀錄', '分享督勤紀錄');
+
+      out = out.replaceAll('請先登入後才能查看巡邏頁面。', '請先登入後才能查看督勤頁面。');
+      out = out.replaceAll('你沒有權限查看此社區的巡邏頁面', '你沒有權限查看此社區的督勤頁面');
+      out = out.replaceAll('無法讀取巡邏記錄', '無法讀取督勤記錄');
+      out = out.replaceAll('寫入巡邏記錄失敗', '寫入督勤記錄失敗');
+      out = out.replaceAll('此日期沒有巡邏記錄', '此日期沒有督勤記錄');
+      out = out.replaceAll('確定要刪除此筆巡邏記錄嗎？', '確定要刪除此筆督勤記錄嗎？');
+      out = out.replaceAll('確定要清除此日期的巡邏記錄嗎？', '確定要清除此日期的督勤記錄嗎？');
+
+      out = out.replaceAll('巡邏打卡明細', '督勤打卡明細');
+      out = out.replaceAll('巡邏打卡者', '督勤人員');
+      out = out.replaceAll('當日打卡次數', '當日督勤次數');
+
+      out = out.replaceAll('>打卡<', '>督勤<');
+      out = out.replaceAll(' 巡邏歷史紀錄', ' 督勤歷史紀錄');
+      out = out.replaceAll(' 巡邏', ' 督勤');
+      out = out.replaceAll('`${base.pathname}patrol.html`', '`${base.pathname}check.html`');
+
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(out, 'utf-8');
+    });
+    return;
+  }
+
   // API Routes
   if (urlPath === '/api/public/community-name') {
     handlePublicCommunityName(req, res);
+    return;
+  }
+
+  if (urlPath === '/api/public/data-files') {
+    handlePublicDataFiles(req, res);
     return;
   }
 

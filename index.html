@@ -8313,8 +8313,10 @@
             function: [
                 { key: 'log', label: '日誌' },
                 { key: 'patrol', label: '巡邏' },
+                { key: 'supervise', label: '督勤' },
                 { key: 'training', label: '訓練' },
-                { key: 'download', label: '下載' }
+                { key: 'download', label: '下載' },
+                { key: 'tools', label: '工具' }
             ],
             cadre: [
                 { key: 'map', label: '地圖' },
@@ -8755,6 +8757,9 @@
             const [overviewMeetingSelectedDate, setOverviewMeetingSelectedDate] = useState(new Date());
             const [overviewDutyFridays, setOverviewDutyFridays] = useState([]);
             const [overviewDutyModalOpen, setOverviewDutyModalOpen] = useState(false);
+            const [overviewDutyLoading, setOverviewDutyLoading] = useState(false);
+            const [overviewDutyError, setOverviewDutyError] = useState('');
+            const [overviewDutyMeta, setOverviewDutyMeta] = useState({ companyName: '', year: 0, month: 0 });
             const [overviewMeetingModalOpen, setOverviewMeetingModalOpen] = useState(false);
             const [completeMeetingModalOpen, setCompleteMeetingModalOpen] = useState(false);
             const [completeMeetingTarget, setCompleteMeetingTarget] = useState(null);
@@ -9611,7 +9616,11 @@
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
             const [functionSubtab, setFunctionSubtab] = useState('log');
-            const [showFunctionDownloadModal, setShowFunctionDownloadModal] = useState(false);
+            const [functionDownloadItems, setFunctionDownloadItems] = useState([]);
+            const [functionDownloadLoaded, setFunctionDownloadLoaded] = useState(false);
+            const [functionDownloadLoading, setFunctionDownloadLoading] = useState(false);
+            const [functionDownloadError, setFunctionDownloadError] = useState('');
+            const [functionDownloadExpanded, setFunctionDownloadExpanded] = useState({});
             const [cadreSubtab, setCadreSubtab] = useState('report');
             const [cadreCompany, setCadreCompany] = useState(() => localStorage.getItem('last_cadre_company') || '台北');
             const [cadreRecordDate, setCadreRecordDate] = useState(() => {
@@ -9729,6 +9738,162 @@
                 if (target.includes('全桃園公司') && myCompanyName.includes('桃園')) return true;
 
                 return target.includes(dbUser.name);
+            };
+
+            const loadFunctionDownloadItems = async () => {
+                if (functionDownloadLoading) return;
+                setFunctionDownloadLoading(true);
+                setFunctionDownloadError('');
+                try {
+                    const res = await fetch('/api/public/data-files', { cache: 'no-store' });
+                    const json = await res.json().catch(() => ({}));
+                    if (!res.ok || !json.ok) throw new Error(json.message || '載入失敗');
+                    setFunctionDownloadItems(Array.isArray(json.items) ? json.items : []);
+                    setFunctionDownloadLoaded(true);
+                } catch (e) {
+                    setFunctionDownloadError(e && e.message ? e.message : '載入失敗');
+                    setFunctionDownloadItems([]);
+                    setFunctionDownloadLoaded(false);
+                } finally {
+                    setFunctionDownloadLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                if (functionSubtab !== 'download') return;
+                if (functionDownloadLoaded || functionDownloadLoading) return;
+                loadFunctionDownloadItems();
+            }, [functionSubtab]);
+
+            const toggleFunctionDownloadFolder = (p) => {
+                const key = String(p || '');
+                setFunctionDownloadExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+            };
+
+            const renderFunctionDownloadNodes = (nodes, depth = 0) => {
+                const list = Array.isArray(nodes) ? nodes : [];
+                return list.map((n) => {
+                    const nodePath = String(n.path || n.name || '');
+                    const isDir = n.type === 'directory';
+                    const expanded = !!functionDownloadExpanded[nodePath];
+                    const icon = isDir ? <Briefcase className="w-4 h-4 text-red-600 shrink-0" /> : <FileText className="w-4 h-4 text-gray-500 shrink-0" />;
+                    const caret = isDir ? (expanded ? <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />) : <span className="w-4 h-4 shrink-0" />;
+                    return (
+                        <div key={nodePath || `${n.name}_${depth}`}>
+                            <div
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-2xl border border-gray-100 ${isDir ? 'bg-white hover:bg-gray-50 cursor-pointer' : 'bg-white'}`}
+                                style={{ paddingLeft: 12 + depth * 12 }}
+                                onClick={() => { if (isDir) toggleFunctionDownloadFolder(nodePath); }}
+                            >
+                                {caret}
+                                {icon}
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-bold text-gray-800 truncate">{n.name}</div>
+                                </div>
+                                {!isDir && n.url && (
+                                    <a
+                                        href={n.url}
+                                        className="px-3 py-1.5 rounded-xl bg-red-50 text-red-600 text-xs font-bold hover:bg-red-100"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        下載
+                                    </a>
+                                )}
+                            </div>
+                            {isDir && expanded && (
+                                <div className="mt-1 space-y-1">
+                                    {renderFunctionDownloadNodes(n.children || [], depth + 1)}
+                                </div>
+                            )}
+                        </div>
+                    );
+                });
+            };
+
+            const openOverviewDutyList = async () => {
+                if (!db || !dbUser) return;
+                setOverviewDutyError('');
+                setOverviewDutyLoading(true);
+
+                const year = clockScheduleDate.getFullYear();
+                const month = clockScheduleDate.getMonth();
+
+                const myCompanyIds = (dbUser.companyIds && Array.isArray(dbUser.companyIds) && dbUser.companyIds.length > 0)
+                    ? dbUser.companyIds
+                    : (dbUser.companyId ? [dbUser.companyId] : []);
+                const myCompanyId = myCompanyIds[0] ? String(myCompanyIds[0]) : '';
+                const myCompanyName = (companies || []).find(c => String(c.id) === String(myCompanyId))?.name || '';
+
+                setOverviewDutyMeta({ companyName: myCompanyName, year, month: month + 1 });
+                setOverviewDutyModalOpen(true);
+                setOverviewDutyFridays([]);
+
+                try {
+                    const mm = String(month + 1).padStart(2, '0');
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const startOfMonthStr = `${year}-${mm}-01`;
+                    const endOfMonthStr = `${year}-${mm}-${String(daysInMonth).padStart(2, '0')}`;
+
+                    const targetCompanyUsers = (usersList || []).filter(u => {
+                        if ((u.status || '在職') === '離職') return false;
+                        const ids = u.companyIds || (u.companyId ? [u.companyId] : []);
+                        return ids.some(cid => String(cid) === String(myCompanyId));
+                    });
+                    const targetCompanyUserIds = new Set(targetCompanyUsers.map(u => String(u.id)));
+                    const userById = new Map(targetCompanyUsers.map(u => [String(u.id), u]));
+
+                    const schedulesCol = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
+
+                    let snap;
+                    try {
+                        const q = query(
+                            schedulesCol,
+                            where('date', '>=', startOfMonthStr),
+                            where('date', '<=', endOfMonthStr),
+                            where('type', '==', 'duty')
+                        );
+                        snap = await getDocs(q);
+                    } catch (e) {
+                        const q = query(
+                            schedulesCol,
+                            where('date', '>=', startOfMonthStr),
+                            where('date', '<=', endOfMonthStr)
+                        );
+                        snap = await getDocs(q);
+                    }
+
+                    const dutyUserIdsByDate = new Map();
+                    snap.forEach(docSnap => {
+                        const s = docSnap.data() || {};
+                        if (String(s.type || '') !== 'duty') return;
+                        const uid = String(s.userId || '');
+                        const dStr = String(s.date || '');
+                        if (!uid || !dStr) return;
+                        if (!targetCompanyUserIds.has(uid)) return;
+                        const set = dutyUserIdsByDate.get(dStr) || new Set();
+                        set.add(uid);
+                        dutyUserIdsByDate.set(dStr, set);
+                    });
+
+                    const fridays = [];
+                    for (let d = 1; d <= daysInMonth; d++) {
+                        const date = new Date(year, month, d);
+                        if (date.getDay() !== 5) continue;
+                        const dateStr = `${year}-${mm}-${String(d).padStart(2, '0')}`;
+                        const ids = Array.from(dutyUserIdsByDate.get(dateStr) || []);
+                        const users = ids.map(id => userById.get(id)).filter(Boolean).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant', { numeric: true, sensitivity: 'base' }));
+                        fridays.push({ date: dateStr, users });
+                    }
+
+                    setOverviewDutyFridays(fridays);
+                } catch (e) {
+                    setOverviewDutyError(e && e.message ? e.message : '載入失敗');
+                    setOverviewDutyFridays([]);
+                } finally {
+                    setOverviewDutyLoading(false);
+                }
             };
 
             const [areas, setAreas] = useState([]);
@@ -9857,6 +10022,7 @@
             const [overviewScheduleCommunityId, setOverviewScheduleCommunityId] = useState('');
             const [showOverviewPatrolModal, setShowOverviewPatrolModal] = useState(false);
             const [overviewPatrolCommunityId, setOverviewPatrolCommunityId] = useState('');
+            const [overviewPatrolPage, setOverviewPatrolPage] = useState('patrol');
             const [showMakeupEditModal, setShowMakeupEditModal] = useState(false);
             const [editingMakeupRequest, setEditingMakeupRequest] = useState(null);
             const [makeupEditForm, setMakeupEditForm] = useState({ startTime: '', endTime: '', locationId: '', reasonType: 'forgot', reasonRemark: '' });
@@ -12321,16 +12487,19 @@
             useEffect(() => {
                 if (!dbUser) return;
 
-                // Determine target date/month based on active subtab
-                // If in 'schedule' subtab, use cadreScheduleDate (Calendar view)
-                // Otherwise use cadreRecordDate (Record view default)
                 let targetDate;
-                if (cadreSubtab === 'schedule' && cadreScheduleDate) {
-                    targetDate = cadreScheduleDate;
-                } else if (cadreRecordDate) {
-                    targetDate = new Date(cadreRecordDate);
+                if (activeTab === 'clock' && clockSubtab === 'schedule' && clockScheduleDate) {
+                    targetDate = clockScheduleDate;
+                } else if (activeTab === 'cadre') {
+                    if (cadreSubtab === 'schedule' && cadreScheduleDate) {
+                        targetDate = cadreScheduleDate;
+                    } else if (cadreRecordDate) {
+                        targetDate = new Date(cadreRecordDate);
+                    } else {
+                        targetDate = new Date();
+                    }
                 } else {
-                    return;
+                    targetDate = new Date();
                 }
                 
                 const hasCadrePermission = (roles || []).find(r => r.id === dbUser.role)?.permissions?.includes('cadre');
@@ -12365,7 +12534,7 @@
                 }, (e) => console.error('Error fetching schedules list:', e));
 
                 return () => unsubscribe();
-            }, [dbUser, cadreRecordDate, roles, cadreSubtab, cadreScheduleDate]);
+            }, [dbUser, roles, activeTab, clockSubtab, clockScheduleDate, cadreRecordDate, cadreSubtab, cadreScheduleDate]);
 
             // Fetch Today's Schedule for Clock Tab Logic (ensures correct button visibility)
             useEffect(() => {
@@ -14529,8 +14698,10 @@
                                 <div className="flex gap-2">
                                     {hasSubPermission('function', 'log') && <button onClick={() => setFunctionSubtab('log')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'log' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>日誌</button>}
                                     {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>巡邏</button>}
+                                    {hasSubPermission('function', 'supervise') && <button onClick={() => setFunctionSubtab('supervise')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'supervise' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>督勤</button>}
                                     {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
+                                    {(hasSubPermission('function', 'tools') || hasSubPermission('function', 'download')) && <button onClick={() => setFunctionSubtab('tools')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'tools' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>工具</button>}
                                 </div>
                             )}
                             {activeTab === 'community' && (
@@ -14602,7 +14773,7 @@
                                                         statusText = outTime < end ? '早退' : '已下班';
                                                     } else if (firstIn?._secs) {
                                                         const inTime = new Date(firstIn._secs*1000);
-                                                        statusText = inTime > start ? '遲到' : '未打下班打卡';
+                                                        statusText = inTime > start ? '遲到' : (now > end ? '未打下班打卡' : '上班中');
                                                     } else {
                                                         statusText = now < start ? '未打上班打卡' : '遲到';
                                                     }
@@ -17340,35 +17511,7 @@
                                                 </div>
                                                 {!(['總幹事', '秘書', '清潔', '機電', '保全'].includes((roles || []).find(r => r.id === dbUser?.role)?.name)) && (
                                                 <button 
-                                                    onClick={() => {
-                                                        const year = clockScheduleDate.getFullYear();
-                                                        const month = clockScheduleDate.getMonth();
-                                                        const daysInMonth = new Date(year, month + 1, 0).getDate();
-                                                        const fridays = [];
-                                                        const userCompanyId = dbUser?.companyId;
-
-                                                        for (let d = 1; d <= daysInMonth; d++) {
-                                                            const date = new Date(year, month, d);
-                                                            if (date.getDay() === 5) { // Friday
-                                                                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                                                                
-                                                                const targetCompanyUsers = usersList.filter(u => String(u.companyId) === String(userCompanyId) && (u.status || '在職') !== '離職');
-                                                                const targetCompanyUserIds = new Set(targetCompanyUsers.map(u => u.id));
-
-                                                                const usersOnDuty = [];
-                                                                (schedulesList || []).forEach(s => {
-                                                                    if (s.date === dateStr && s.type === 'duty' && targetCompanyUserIds.has(s.userId)) {
-                                                                        const user = targetCompanyUsers.find(u => u.id === s.userId);
-                                                                        if (user) usersOnDuty.push(user);
-                                                                    }
-                                                                });
-                                                                
-                                                                fridays.push({ date: dateStr, users: usersOnDuty });
-                                                            }
-                                                        }
-                                                        setOverviewDutyFridays(fridays);
-                                                        setOverviewDutyModalOpen(true);
-                                                    }}
+                                                    onClick={openOverviewDutyList}
                                                     className="px-3 py-1 rounded-full border border-purple-200 bg-purple-50 text-purple-700 text-xs font-bold hover:bg-purple-100 transition-colors flex items-center gap-1"
                                                 >
                                                     <i className="fas fa-user-clock"></i> 值班名單
@@ -19692,7 +19835,7 @@
                                         statusText = outTime < scheduleEnd ? '早退' : '已下班';
                                     } else if (firstIn?._secs) {
                                         const inTime = new Date(firstIn._secs * 1000);
-                                        statusText = inTime > scheduleStart ? '遲到' : '未打下班打卡';
+                                        statusText = inTime > scheduleStart ? '遲到' : (now > scheduleEnd ? '未打下班打卡' : '上班中');
                                     } else {
                                         statusText = now < scheduleStart ? '未打上班打卡' : '遲到';
                                     }
@@ -19749,6 +19892,7 @@
 
                                 const statusClass = (s) => {
                                     if (s === '已下班') return 'bg-gray-800 text-white border border-gray-700';
+                                    if (s === '上班中') return 'bg-green-50 text-green-700 border border-green-200';
                                     if (s === '未打下班打卡') return 'bg-red-50 text-red-600 border border-red-200';
                                     if (s === '遲到') return 'bg-red-50 text-red-600 border border-red-200';
                                     if (s === '早退') return 'bg-red-50 text-red-600 border border-red-200';
@@ -19757,7 +19901,7 @@
                                 };
 
                                 const rowBgClass = (s) => {
-                                    if (s === '未打上班打卡' || s === '已下班') return 'bg-green-50';
+                                    if (s === '未打上班打卡' || s === '已下班' || s === '上班中') return 'bg-green-50';
                                     if (s === '遲到' || s === '早退' || s === '未打下班打卡') return 'bg-red-50';
                                     return 'bg-white';
                                 };
@@ -21647,10 +21791,10 @@
                                             })()}
                                         </div>
                                     )}
-                                    {functionSubtab === 'patrol' && hasSubPermission('function', 'patrol') && (
+                                    {((functionSubtab === 'patrol' && hasSubPermission('function', 'patrol')) || (functionSubtab === 'supervise' && hasSubPermission('function', 'supervise'))) && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 巡邏管理
+                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> {functionSubtab === 'supervise' ? '督勤紀錄' : '巡邏管理'}
                                             </h3>
                                             {(function(){
                                                 if (!dbUser) return <div className="text-center py-8 text-gray-400">請先登入</div>;
@@ -21668,7 +21812,7 @@
                                                             return (
                                                                 <div key={c.id} className="w-full aspect-square flex items-center justify-center">
                                                                     <button
-                                                                        onClick={() => { setOverviewPatrolCommunityId(String(c.id || '').trim()); setShowOverviewPatrolModal(true); }}
+                                                                        onClick={() => { setOverviewPatrolPage(functionSubtab === 'supervise' ? 'check' : 'patrol'); setOverviewPatrolCommunityId(String(c.id || '').trim()); setShowOverviewPatrolModal(true); }}
                                                                         className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
                                                                     >
                                                                         {displayName}
@@ -21696,13 +21840,41 @@
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
                                                 <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 文件下載
                                             </h3>
-                                            <div className="py-2">
-                                                <button
-                                                    onClick={() => setShowFunctionDownloadModal(true)}
-                                                    className="w-full bg-red-600 text-white py-3 rounded-2xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-100"
-                                                >
-                                                    表格下載
-                                                </button>
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={loadFunctionDownloadItems}
+                                                        className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
+                                                        disabled={functionDownloadLoading}
+                                                    >
+                                                        重新整理
+                                                    </button>
+                                                </div>
+
+                                                {functionDownloadLoading && (
+                                                    <div className="text-center py-8 text-gray-400 font-bold">載入中...</div>
+                                                )}
+                                                {!functionDownloadLoading && !!functionDownloadError && (
+                                                    <div className="text-center py-8 text-red-500 font-bold">{functionDownloadError}</div>
+                                                )}
+                                                {!functionDownloadLoading && !functionDownloadError && (functionDownloadItems || []).length === 0 && (
+                                                    <div className="text-center py-8 text-gray-400 font-bold">尚無可下載文件</div>
+                                                )}
+                                                {!functionDownloadLoading && !functionDownloadError && (functionDownloadItems || []).length > 0 && (
+                                                    <div className="space-y-1">
+                                                        {renderFunctionDownloadNodes(functionDownloadItems, 0)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {functionSubtab === 'tools' && (hasSubPermission('function', 'tools') || hasSubPermission('function', 'download')) && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 實用小工具
+                                            </h3>
+                                            <div className="text-center py-8 text-gray-400 font-bold">
+                                                尚無工具
                                             </div>
                                         </div>
                                     )}
@@ -25039,7 +25211,7 @@
                                                             statusText = outTime < end ? '早退' : '已下班';
                                                         } else if (firstIn?._secs) {
                                                             const inTime = new Date(firstIn._secs*1000);
-                                                            statusText = inTime > start ? '遲到' : '未打下班打卡';
+                                                            statusText = inTime > start ? '遲到' : (now > end ? '未打下班打卡' : '上班中');
                                                         } else {
                                                             statusText = now < start ? '未打上班打卡' : '遲到';
                                                         }
@@ -25404,7 +25576,7 @@
                                                             statusText = outTime < end ? '早退' : '已下班';
                                                         } else if (firstIn?._secs) {
                                                             const inTime = new Date(firstIn._secs*1000);
-                                                            statusText = inTime > start ? '遲到' : '未打下班打卡';
+                                                            statusText = inTime > start ? '遲到' : (now > end ? '未打下班打卡' : '上班中');
                                                         } else {
                                                             statusText = now < start ? '未打上班打卡' : '遲到';
                                                         }
@@ -25835,47 +26007,18 @@
                         <div className="fixed inset-0 z-[95] bg-white flex flex-col overflow-hidden">
                             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                                 <div className="font-bold text-gray-800 text-sm">
-                                    {(communities || []).find(c => String(c.id) === String(overviewPatrolCommunityId))?.name || overviewPatrolCommunityId}社區巡邏
+                                    {(communities || []).find(c => String(c.id) === String(overviewPatrolCommunityId))?.name || overviewPatrolCommunityId}社區{overviewPatrolPage === 'check' ? '督勤' : '巡邏'}
                                 </div>
                                 <button
-                                    onClick={() => { setShowOverviewPatrolModal(false); setOverviewPatrolCommunityId(''); }}
+                                    onClick={() => { setShowOverviewPatrolModal(false); setOverviewPatrolCommunityId(''); setOverviewPatrolPage('patrol'); }}
                                     className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
                                 >
                                     關閉
                                 </button>
                             </div>
                             <iframe
-                                title="patrol"
-                                src={`patrol.html?communityId=${encodeURIComponent(String(overviewPatrolCommunityId || '').trim())}`}
-                                className="w-full flex-1 border-0"
-                            />
-                        </div>
-                    )}
-
-                    {showFunctionDownloadModal && (
-                        <div className="fixed inset-0 z-[95] bg-white flex flex-col overflow-hidden">
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                                <div className="font-bold text-gray-800 text-sm">表格下載</div>
-                                <div className="flex items-center gap-2">
-                                    <a
-                                        href="https://drive.google.com/drive/folders/14pNiokBNDJ0T7mtFRxPX-WRGcjmWnnVN?usp=sharing"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
-                                    >
-                                        在新分頁開啟
-                                    </a>
-                                    <button
-                                        onClick={() => setShowFunctionDownloadModal(false)}
-                                        className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
-                                    >
-                                        關閉
-                                    </button>
-                                </div>
-                            </div>
-                            <iframe
-                                title="download"
-                                src="https://drive.google.com/drive/folders/14pNiokBNDJ0T7mtFRxPX-WRGcjmWnnVN?usp=sharing"
+                                title={overviewPatrolPage}
+                                src={`${overviewPatrolPage}.html?communityId=${encodeURIComponent(String(overviewPatrolCommunityId || '').trim())}`}
                                 className="w-full flex-1 border-0"
                             />
                         </div>
@@ -28148,10 +28291,14 @@
                                 <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                                     <div className="flex items-center gap-1 whitespace-nowrap">
                                         <span className="text-gray-500 text-sm font-bold">
-                                            {companies.find(c => String(c.id) === String(dbUser?.companyId))?.name}
+                                            {overviewDutyMeta.companyName || (function() {
+                                                const ids = (dbUser?.companyIds && Array.isArray(dbUser.companyIds) && dbUser.companyIds.length > 0) ? dbUser.companyIds : (dbUser?.companyId ? [dbUser.companyId] : []);
+                                                const id = ids[0] ? String(ids[0]) : '';
+                                                return companies.find(c => String(c.id) === String(id))?.name || '';
+                                            })()}
                                         </span>
                                         <span className="text-gray-500 text-sm font-bold">
-                                            {(overviewDutyFridays[0]?.date || '').split('-').slice(0,2).join('年')}月
+                                            {(overviewDutyMeta.year && overviewDutyMeta.month) ? `${overviewDutyMeta.year}年${overviewDutyMeta.month}月` : ''}
                                         </span>
                                         <h3 className="font-bold text-gray-800 flex items-center gap-1 text-sm">
                                             <i className="fas fa-user-clock text-purple-600"></i>
@@ -28165,7 +28312,11 @@
                                     </button>
                                 </div>
                                 <div className="overflow-y-auto p-4 space-y-3">
-                                    {overviewDutyFridays.length > 0 ? (
+                                    {overviewDutyLoading ? (
+                                        <div className="text-center text-gray-500 py-10 font-bold">載入中...</div>
+                                    ) : overviewDutyError ? (
+                                        <div className="text-center text-red-500 py-10 font-bold">{overviewDutyError}</div>
+                                    ) : overviewDutyFridays.length > 0 ? (
                                         overviewDutyFridays.map((item, idx) => (
                                             <div key={idx} className="bg-purple-50 rounded-xl p-3 border border-purple-100">
                                                 <div className="text-purple-800 font-bold text-sm mb-2 border-b border-purple-200 pb-1 flex justify-between items-center">
@@ -28635,15 +28786,40 @@
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1">社區名稱</label>
                                             <select
-                                                value={overviewActivityForm.communityId}
-                                                onChange={e => handleOverviewActivityFormChange('communityId', e.target.value)}
-                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                value={
+                                                    availableCommunities.some(comm => String(comm.id) === String(overviewActivityForm.communityId))
+                                                        ? overviewActivityForm.communityId
+                                                        : (overviewActivityForm.communityId ? '其他' : '')
+                                                }
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (val === '其他') {
+                                                        const current = overviewActivityForm.communityId;
+                                                        const isExisting = availableCommunities.some(comm => String(comm.id) === String(current));
+                                                        const placeholder = (!current || isExisting) ? '自訂社區' : current;
+                                                        handleOverviewActivityFormChange('communityId', placeholder);
+                                                    } else {
+                                                        handleOverviewActivityFormChange('communityId', val);
+                                                    }
+                                                }}
+                                                className="w-full bg-gray-50 border-0 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100 mb-2"
                                             >
                                                 <option value="">請選擇社區</option>
+                                                <option value="其他">其他 (自定義)</option>
                                                 {availableCommunities.map(comm => (
                                                     <option key={comm.id} value={comm.id}>{comm.name}</option>
                                                 ))}
                                             </select>
+                                            {overviewActivityForm.communityId &&
+                                                !availableCommunities.some(comm => String(comm.id) === String(overviewActivityForm.communityId)) && (
+                                                <input
+                                                    type="text"
+                                                    value={overviewActivityForm.communityId}
+                                                    onChange={e => handleOverviewActivityFormChange('communityId', e.target.value)}
+                                                    placeholder="請輸入社區名稱"
+                                                    className="w-full bg-white border border-gray-200 p-3 rounded-xl text-gray-800 focus:ring-2 focus:ring-red-100"
+                                                />
+                                            )}
                                         </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1">項目</label>
