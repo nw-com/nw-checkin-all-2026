@@ -9837,6 +9837,34 @@
                 setFunctionDownloadExpanded(prev => ({ ...prev, [key]: !prev[key] }));
             };
 
+            const downloadFunctionFile = async (url, filename) => {
+                const u = String(url || '').trim();
+                if (!u) return;
+                const name = String(filename || 'download').trim() || 'download';
+                try {
+                    const res = await fetch(u, { cache: 'no-store', mode: 'cors' });
+                    if (!res.ok) throw new Error('下載失敗');
+                    const blob = await res.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = objectUrl;
+                    a.download = name;
+                    a.rel = 'noopener';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(objectUrl);
+                } catch (_) {
+                    const a = document.createElement('a');
+                    a.href = u;
+                    a.download = name;
+                    a.rel = 'noopener';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                }
+            };
+
             const renderFunctionDownloadNodes = (nodes, depth = 0) => {
                 const list = Array.isArray(nodes) ? nodes : [];
                 return list.map((n) => {
@@ -9858,15 +9886,13 @@
                                     <div className="text-sm font-bold text-gray-800 truncate">{n.name}</div>
                                 </div>
                                 {!isDir && n.url && (
-                                    <a
-                                        href={n.url}
+                                    <button
+                                        type="button"
                                         className="px-3 py-1.5 rounded-xl bg-red-50 text-red-600 text-xs font-bold hover:bg-red-100"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
+                                        onClick={(e) => { e.stopPropagation(); downloadFunctionFile(n.url, n.name); }}
                                     >
                                         下載
-                                    </a>
+                                    </button>
                                 )}
                             </div>
                             {isDir && expanded && (

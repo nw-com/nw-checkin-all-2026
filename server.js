@@ -882,7 +882,18 @@ const server = http.createServer((req, res) => {
   }
 
   // Handle URL parameters (ignore them for file serving)
-  let filePath = '.' + urlPath;
+  const decodedUrlPath = String(urlPath || '')
+    .split('/')
+    .map((seg) => {
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        return seg;
+      }
+    })
+    .join('/');
+
+  let filePath = '.' + decodedUrlPath;
   if (filePath === './') {
     filePath = './index.html';
   }
@@ -936,8 +947,13 @@ const server = http.createServer((req, res) => {
             res.end('Sorry, check with the site admin for error: '+error.code+' ..\n');
           }
         } else {
-          res.writeHead(200, { 'Content-Type': contentType });
-          res.end(content, 'utf-8');
+          const headers = { 'Content-Type': contentType };
+          if (urlPath.startsWith('/data/')) {
+            const filename = path.basename(absolutePath);
+            headers['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`;
+          }
+          res.writeHead(200, headers);
+          res.end(content);
         }
       });
   });
