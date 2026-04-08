@@ -784,57 +784,6 @@ const server = http.createServer((req, res) => {
     console.log(`Request: ${urlPath}`);
   }
 
-  if (urlPath === '/check.html') {
-    const patrolPath = path.resolve(__dirname, './patrol.html');
-    fs.readFile(patrolPath, 'utf-8', (error, html) => {
-      if (error) {
-        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Error loading check.html');
-        return;
-      }
-
-      let out = String(html || '');
-
-      out = out.replaceAll('community_patrols', 'community_checks');
-
-      out = out.replaceAll('巡邏打卡系統', '督勤打卡系統');
-      out = out.replaceAll('智慧巡邏系統', '智慧督勤系統');
-      out = out.replaceAll('當日該社區已巡邏:', '當日該社區已督勤:');
-      out = out.replaceAll('巡邏點掃描', '督勤掃描');
-      out = out.replaceAll('按下按鈕後開始巡邏打卡', '按下按鈕後開始督勤');
-      out = out.replaceAll('請對準巡邏點 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。', '請對準督勤 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。');
-      out = out.replaceAll('巡邏歷史記錄', '督勤歷史記錄');
-      out = out.replaceAll('目前尚無打卡記錄', '目前尚無督勤記錄');
-      out = out.replaceAll('設定打卡位置', '設定督勤位置');
-      out = out.replaceAll('下載巡邏打卡明細', '下載督勤打卡明細');
-      out = out.replaceAll('打卡成功！', '督勤成功！');
-      out = out.replaceAll('編輯巡邏記錄', '編輯督勤記錄');
-      out = out.replaceAll('預覽巡邏打卡明細', '預覽督勤打卡明細');
-      out = out.replaceAll('分享巡邏紀錄', '分享督勤紀錄');
-
-      out = out.replaceAll('請先登入後才能查看巡邏頁面。', '請先登入後才能查看督勤頁面。');
-      out = out.replaceAll('你沒有權限查看此社區的巡邏頁面', '你沒有權限查看此社區的督勤頁面');
-      out = out.replaceAll('無法讀取巡邏記錄', '無法讀取督勤記錄');
-      out = out.replaceAll('寫入巡邏記錄失敗', '寫入督勤記錄失敗');
-      out = out.replaceAll('此日期沒有巡邏記錄', '此日期沒有督勤記錄');
-      out = out.replaceAll('確定要刪除此筆巡邏記錄嗎？', '確定要刪除此筆督勤記錄嗎？');
-      out = out.replaceAll('確定要清除此日期的巡邏記錄嗎？', '確定要清除此日期的督勤記錄嗎？');
-
-      out = out.replaceAll('巡邏打卡明細', '督勤打卡明細');
-      out = out.replaceAll('巡邏打卡者', '督勤人員');
-      out = out.replaceAll('當日打卡次數', '當日督勤次數');
-
-      out = out.replaceAll('>打卡<', '>督勤<');
-      out = out.replaceAll(' 巡邏歷史紀錄', ' 督勤歷史紀錄');
-      out = out.replaceAll(' 巡邏', ' 督勤');
-      out = out.replaceAll('`${base.pathname}patrol.html`', '`${base.pathname}check.html`');
-
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(out, 'utf-8');
-    });
-    return;
-  }
-
   // API Routes
   if (urlPath === '/api/public/community-name') {
     handlePublicCommunityName(req, res);
