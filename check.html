@@ -96,6 +96,8 @@
                 </h3>
                 <p class="text-sm text-red-700">請對準督勤 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。</p>
             </div>
+
+            <div id="scan-error" class="hidden mt-3 bg-gray-900 text-white text-sm font-bold px-4 py-3 rounded-xl shadow-lg"></div>
         </div>
 
         <!-- 視圖：歷史記錄 -->
@@ -1093,12 +1095,28 @@
             }
         }
 
+        function showScanError(msg) {
+            const el = document.getElementById('scan-error');
+            if (!el) return;
+            el.textContent = String(msg || '無法辨識');
+            el.classList.remove('hidden');
+            setTimeout(() => {
+                try { el.classList.add('hidden'); } catch {}
+            }, 2500);
+        }
+
         function onScanSuccess(decodedText, decodedResult) {
             // 掃描到的是 Code，查找對應的地點名稱
             const code = normalizeKey(decodedText);
-            const locationName = locationMap[code] || code;
+            const locationName = locationMap[code];
             
             toggleScanner(false);
+
+            if (!locationName) {
+                showScanError('無法辨識');
+                if (window.navigator.vibrate) window.navigator.vibrate([80, 60, 80]);
+                return;
+            }
             
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
