@@ -1365,18 +1365,34 @@
                 return;
             }
             const nextMap = { ...(locationMap || {}) };
-            delete nextMap[oldCode];
+            if (oldCode !== nextCode) delete nextMap[oldCode];
             nextMap[nextCode] = nextName;
-            settingsDocRef.set({
-                locationMap: nextMap,
+            const updates = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedBy: dbUser.id
-            }, { merge: true }).then(() => {
+            };
+            if (oldCode === nextCode) {
+                updates[`locationMap.${nextCode}`] = nextName;
+            } else {
+                updates[`locationMap.${oldCode}`] = firebase.firestore.FieldValue.delete();
+                updates[`locationMap.${nextCode}`] = nextName;
+            }
+            settingsDocRef.update(updates).then(() => {
                 locationMap = nextMap;
                 closeEditMappingModal();
                 renderLocationMap();
             }).catch(() => {
-                alert('儲存失敗');
+                settingsDocRef.set({
+                    locationMap: nextMap,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedBy: dbUser.id
+                }, { merge: false }).then(() => {
+                    locationMap = nextMap;
+                    closeEditMappingModal();
+                    renderLocationMap();
+                }).catch(() => {
+                    alert('儲存失敗');
+                });
             });
         }
 
@@ -1542,19 +1558,31 @@
 
         function deleteMapping(code) {
             if (!canManageSettings) return;
-            openConfirmModal('確認刪除', `確定要刪除代碼 [${code}] 的關聯嗎？`, () => {
+            const c = normalizeKey(code);
+            if (!c) return;
+            openConfirmModal('確認刪除', `確定要刪除代碼 [${c}] 的關聯嗎？`, () => {
                 if (!settingsDocRef || !dbUser) return;
                 const nextMap = { ...(locationMap || {}) };
-                delete nextMap[code];
-                return settingsDocRef.set({
-                    locationMap: nextMap,
+                delete nextMap[c];
+                const updates = {
+                    [`locationMap.${c}`]: firebase.firestore.FieldValue.delete(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedBy: dbUser.id
-                }, { merge: true }).then(() => {
+                };
+                return settingsDocRef.update(updates).then(() => {
                     locationMap = nextMap;
                     renderLocationMap();
                 }).catch(() => {
-                    alert('刪除失敗');
+                    return settingsDocRef.set({
+                        locationMap: nextMap,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedBy: dbUser.id
+                    }, { merge: false }).then(() => {
+                        locationMap = nextMap;
+                        renderLocationMap();
+                    }).catch(() => {
+                        alert('刪除失敗');
+                    });
                 });
             });
         }

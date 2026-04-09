@@ -10325,8 +10325,8 @@
                 const el = document.getElementById('attendance-report');
                 if (!el) return;
 
-                let csvContent = '';
-                let filename = '報表.csv';
+                let sheetData = [];
+                let filename = '報表.xlsx';
                 const reportDateStr = (reportContext === 'community' ? communityReportDate : cadreRecordDate) || '';
                 const ym = reportDateStr.split('-').slice(0,2).join('-');
                 const selectedUserId = reportContext === 'community' ? communityMapSelectedUserId : cadreMapSelectedUserId;
@@ -10360,11 +10360,11 @@
                         });
                         rows.push(rowData);
                     }
-                    
-                    csvContent = rows.map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+
+                    sheetData = rows;
                     filename = reportContext === 'community'
-                        ? `${ym}_${communityName || '社區'}_出勤月報表.csv`
-                        : `${ym}_${cadreCompany || '公司'}_出勤月報表.csv`;
+                        ? `${ym}_${communityName || '社區'}_出勤月報表.xlsx`
+                        : `${ym}_${cadreCompany || '公司'}_出勤月報表.xlsx`;
                     
                 } else {
                     // Vertical List Reports (Card, Outing, Leave)
@@ -10382,19 +10382,30 @@
                         return Array.from(row.children).map(c => (c.textContent || '').replace(/\s+/g, ' ').trim());
                     });
 
-                    csvContent = [header, ...data].map(r => r.map(v => `"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+                    sheetData = [header, ...data];
                     
                     const u = usersList.find(x => x.id === selectedUserId);
                     const typeMap = { 'duty': '卡班', 'card': '卡班', 'outing': '外出', 'leave': '請假' };
                     const typeName = typeMap[reportModalType] || '報表';
-                    filename = `${ym}_${u?.name || ''}_${typeName}月報表.csv`;
+                    filename = `${ym}_${u?.name || ''}_${typeName}月報表.xlsx`;
                 }
 
+                try {
+                    if (window.XLSX && window.XLSX.utils && window.XLSX.writeFile) {
+                        const ws = window.XLSX.utils.aoa_to_sheet(sheetData || [[]]);
+                        const wb = window.XLSX.utils.book_new();
+                        window.XLSX.utils.book_append_sheet(wb, ws, '報表');
+                        window.XLSX.writeFile(wb, filename);
+                        return;
+                    }
+                } catch {}
+
+                const csvContent = (sheetData || []).map(r => (r || []).map(v => `"${String(v || '').replace(/"/g,'""')}"`).join(',')).join('\r\n');
                 const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = filename;
+                a.download = filename.replace(/\.xlsx$/i, '.csv');
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -27186,12 +27197,43 @@
                                                 <div className="min-w-[1200px]">
                                                     <div className="mb-4 print:hidden">
                                                         {(function(){
+                                                            const monthStart = new Date(targetYear, targetMonth, 1, 0, 0, 0);
+                                                            const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+                                                            const monthAttendanceUserIds = new Set(attendanceList.filter(r => {
+                                                                const ts = r.timestamp?.seconds;
+                                                                if (!ts) return false;
+                                                                const d = new Date(ts * 1000);
+                                                                return d >= monthStart && d <= monthEnd;
+                                                            }).map(r => r.userId).filter(Boolean));
+
+                                                            const resolveRoleName = (u) => {
+                                                                const fromUser = String(u?.roleName || '').trim();
+                                                                if (fromUser) return fromUser;
+                                                                const fromRoles = String((roles || []).find(r => String(r.id) === String(u?.role))?.name || '').trim();
+                                                                if (fromRoles) return fromRoles;
+                                                                const key = String(u?.role || '').trim().toLowerCase();
+                                                                const map = {
+                                                                    admin: '系統管理員',
+                                                                    hr: '人事',
+                                                                    property: '物業',
+                                                                    cadre: '幹部',
+                                                                    staff: '員工',
+                                                                    employee: '員工'
+                                                                };
+                                                                return map[key] || '';
+                                                            };
+
+                                                            const allowedRoleNames = new Set(['系統管理員', '人事', '物業', '幹部', '員工']);
+
                                                             const filteredUsers = usersList.filter(u => {
                                                                 if (u.name === '蔡總') return false;
+                                                                if (!monthAttendanceUserIds.has(u.id)) return false;
+                                                                if (!allowedRoleNames.has(resolveRoleName(u))) return false;
                                                                 
-                                                                if (cadreCompany) {
-                                                                    // 1. Resolve Cadre Company to ID
-                                                                    const targetComp = companies.find(c => c.name === cadreCompany);
+                                                                const targetCompanyName = cadreCompany || dbUser.companyName || dbUser.company || '';
+                                                                if (targetCompanyName) {
+                                                                    // 1. Resolve Company Name to ID
+                                                                    const targetComp = companies.find(c => c.name === targetCompanyName);
                                                                     
                                                                     // 2. Check for ID Match (Primary)
                                                                     if (targetComp) {
@@ -27203,7 +27245,7 @@
                                                                     // 3. Check for Name Match (Legacy/Fallback)
                                                                     const normalize = (s) => (s || '').replace('公司', '').trim();
                                                                     const uComp = normalize(u.company);
-                                                                    const cComp = normalize(cadreCompany);
+                                                                    const cComp = normalize(targetCompanyName);
                                                                     
                                                                     if (uComp === cComp && uComp !== '') return true;
                                                                     
@@ -27211,18 +27253,20 @@
                                                                 }
                                                                 return true;
                                                             });
+
+                                                            const selectedVisibleCount = reportSelectedUserIds.filter(id => filteredUsers.some(u => u.id === id)).length;
                                                             
                                                             return (
                                                                 <>
                                                                     <label className="flex items-center gap-2 mb-2 font-bold cursor-pointer text-sm">
                                                                         <input type="checkbox" 
-                                                                            checked={reportSelectedUserIds.length > 0 && reportSelectedUserIds.length === filteredUsers.length}
+                                                                            checked={filteredUsers.length > 0 && selectedVisibleCount === filteredUsers.length}
                                                                             onChange={(e) => {
                                                                                 if (e.target.checked) setReportSelectedUserIds(filteredUsers.map(u=>u.id));
                                                                                 else setReportSelectedUserIds([]);
                                                                             }}
                                                                         />
-                                                                        全選 (已選 {reportSelectedUserIds.length} 人)
+                                                                        全選 (已選 {selectedVisibleCount} 人)
                                                                     </label>
                                                                     <div className="flex flex-nowrap overflow-x-auto gap-2 border border-gray-200 p-2 rounded-xl bg-gray-50 items-center">
                                                                         {filteredUsers.map(u => (
