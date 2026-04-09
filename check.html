@@ -508,8 +508,7 @@
         function computeCanManage(roleId, roleName) {
             const key = String(roleId || '').trim().toLowerCase();
             const name = String(roleName || '').trim();
-            if (key === 'admin' || key === 'manager' || key === 'hr' || key === 'property' || key === 'cadre') return true;
-            return ['系統管理員', '管理層', '人事', '物業', '幹部'].includes(name);
+            return key === 'admin' || name === '系統管理員';
         }
 
         function resolveAllowedCommunityIds(u) {
@@ -969,6 +968,10 @@
             if (settingsNavBtn) settingsNavBtn.classList.toggle('hidden', !canManageSettings);
             const downloadNavBtn = document.getElementById('nav-download');
             if (downloadNavBtn) downloadNavBtn.classList.toggle('hidden', !canManageSettings);
+            const shareBtn = document.getElementById('share-btn');
+            if (shareBtn) shareBtn.classList.toggle('hidden', !canManageSettings);
+            const clearLogsBtn = document.getElementById('clear-logs-btn');
+            if (clearLogsBtn) clearLogsBtn.classList.toggle('hidden', !canManageSettings);
 
             const allowed = resolveAllowedCommunityIds(dbUser);
             const isAdmin = allowed.includes('*');
@@ -1440,6 +1443,7 @@
         }
 
         function openShareModal() {
+            if (!canManageSettings) return;
             if (!selectedCommunityId) return;
             sharePublicUrl = buildShareUrl();
             const modal = document.getElementById('share-modal');
@@ -1561,6 +1565,7 @@
         }
 
         async function clearLogs() {
+            if (!canManageSettings) return;
             if (!settingsDocRef) return;
             openConfirmModal('確認清除', '確定要清除此日期的督勤記錄嗎？', async () => {
                 try {

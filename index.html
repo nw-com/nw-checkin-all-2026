@@ -9616,6 +9616,14 @@
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
             const [functionSubtab, setFunctionSubtab] = useState('log');
+            const [functionRegionFilter, setFunctionRegionFilter] = useState(() => {
+                try {
+                    const v = localStorage.getItem('function_region_filter') || '';
+                    return ['台北', '新北', '桃園'].includes(v) ? v : '全部';
+                } catch {
+                    return '全部';
+                }
+            });
             const [functionDownloadItems, setFunctionDownloadItems] = useState([]);
             const [functionDownloadLoaded, setFunctionDownloadLoaded] = useState(false);
             const [functionDownloadLoading, setFunctionDownloadLoading] = useState(false);
@@ -9837,12 +9845,32 @@
                 setFunctionDownloadExpanded(prev => ({ ...prev, [key]: !prev[key] }));
             };
 
+            const getRegionByCommunityId = (cid) => {
+                const v = String(cid || '').trim().toUpperCase();
+                if (v.startsWith('A')) return '台北';
+                if (v.startsWith('B')) return '新北';
+                if (v.startsWith('C')) return '桃園';
+                return '';
+            };
+
             const downloadFunctionFile = async (url, filename) => {
                 const u = String(url || '').trim();
                 if (!u) return;
                 const name = String(filename || 'download').trim() || 'download';
+                const isSameOrigin = u.startsWith('/') || u.startsWith(location.origin);
+                const ua = String(navigator.userAgent || '');
+                const isIOS = /iP(hone|od|ad)/i.test(ua);
+                const supportsDownload = 'download' in document.createElement('a');
+                if (isIOS || !supportsDownload) {
+                    if (isSameOrigin) {
+                        window.location.href = u;
+                    } else {
+                        window.open(u, '_blank', 'noopener');
+                    }
+                    return;
+                }
                 try {
-                    const res = await fetch(u, { cache: 'no-store', mode: 'cors' });
+                    const res = await fetch(u, { cache: 'no-store' });
                     if (!res.ok) throw new Error('下載失敗');
                     const blob = await res.blob();
                     const objectUrl = URL.createObjectURL(blob);
@@ -9859,6 +9887,7 @@
                     a.href = u;
                     a.download = name;
                     a.rel = 'noopener';
+                    a.target = '_blank';
                     document.body.appendChild(a);
                     a.click();
                     a.remove();
@@ -21860,9 +21889,33 @@
                                                 const ids = Array.from(new Set((dbUser.communityIds || []).map(x => String(x).trim()).filter(Boolean)));
                                                 const myComms = ids.map(id => (communities || []).find(c => String(c.id) === String(id))).filter(Boolean);
                                                 if (myComms.length === 0) return <div className="text-center py-8 text-gray-400">無服務社區</div>;
+                                                const filteredComms = functionRegionFilter === '全部'
+                                                    ? myComms
+                                                    : myComms.filter(c => getRegionByCommunityId(c.id) === functionRegionFilter);
                                                 return (
-                                                    <div className="grid grid-cols-5 gap-2">
-                                                        {myComms.map(c => {
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2">
+                                                            {['台北', '新北', '桃園'].map(r => (
+                                                                <button
+                                                                    key={r}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const next = functionRegionFilter === r ? '全部' : r;
+                                                                        setFunctionRegionFilter(next);
+                                                                        try { localStorage.setItem('function_region_filter', next); } catch {}
+                                                                    }}
+                                                                    className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionRegionFilter === r ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                                >
+                                                                    {r}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+
+                                                        {filteredComms.length === 0 ? (
+                                                            <div className="text-center py-8 text-gray-400 font-bold">無符合社區</div>
+                                                        ) : (
+                                                            <div className="grid grid-cols-5 gap-2">
+                                                                {filteredComms.map(c => {
                                                             const name = c.name || '';
                                                             const short = name.slice(0, 4);
                                                             const top = short.slice(0, 2);
@@ -21878,7 +21931,9 @@
                                                                     </button>
                                                                 </div>
                                                             );
-                                                        })}
+                                                                })}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })()}
@@ -21894,9 +21949,35 @@
                                                 const ids = Array.from(new Set((dbUser.communityIds || []).map(x => String(x).trim()).filter(Boolean)));
                                                 const myComms = ids.map(id => (communities || []).find(c => String(c.id) === String(id))).filter(Boolean);
                                                 if (myComms.length === 0) return <div className="text-center py-8 text-gray-400">無服務社區</div>;
+
+                                                const filteredComms = functionRegionFilter === '全部'
+                                                    ? myComms
+                                                    : myComms.filter(c => getRegionByCommunityId(c.id) === functionRegionFilter);
+
                                                 return (
-                                                    <div className="grid grid-cols-5 gap-2">
-                                                        {myComms.map(c => {
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2">
+                                                            {['台北', '新北', '桃園'].map(r => (
+                                                                <button
+                                                                    key={r}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const next = functionRegionFilter === r ? '全部' : r;
+                                                                        setFunctionRegionFilter(next);
+                                                                        try { localStorage.setItem('function_region_filter', next); } catch {}
+                                                                    }}
+                                                                    className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionRegionFilter === r ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                                >
+                                                                    {r}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+
+                                                        {filteredComms.length === 0 ? (
+                                                            <div className="text-center py-8 text-gray-400 font-bold">無符合社區</div>
+                                                        ) : (
+                                                            <div className="grid grid-cols-5 gap-2">
+                                                                {filteredComms.map(c => {
                                                             const name = c.name || '';
                                                             const short = name.slice(0, 4);
                                                             const top = short.slice(0, 2);
@@ -21912,7 +21993,9 @@
                                                                     </button>
                                                                 </div>
                                                             );
-                                                        })}
+                                                                })}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })()}
