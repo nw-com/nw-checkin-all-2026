@@ -5595,6 +5595,7 @@
                                                     onClick={async () => {
                                                         if (!editingNotificationId) return;
                                                         try {
+                                                            if (!requireOnline('目前離線，無法更新通知')) return;
                                                             setEditingNotificationSaving(true);
                                                             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notifications', editingNotificationId), {
                                                                 senderName: notificationEditForm.senderName,
@@ -5630,6 +5631,7 @@
                                 <div className="flex justify-end gap-2">
                                     <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
                                     <button onClick={async()=>{ try { 
+                                        if (!requireOnline('目前離線，無法刪除')) return;
                                         if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } 
@@ -10140,6 +10142,12 @@
             const [makeupForm, setMakeupForm] = useState({ timeType: 'in', locationId: '', reasonType: 'forgot', reasonText: '' });
             const [makeupDateStr, setMakeupDateStr] = useState('');
             const [makeupSchedule, setMakeupSchedule] = useState(null);
+
+            const requireOnline = (message) => {
+                if (isOnline) return true;
+                setToast(message || '目前離線，僅可瀏覽');
+                return false;
+            };
             const [showOverviewScheduleModal, setShowOverviewScheduleModal] = useState(false);
             const [overviewScheduleCommunityId, setOverviewScheduleCommunityId] = useState('');
             const [showOverviewPatrolModal, setShowOverviewPatrolModal] = useState(false);
@@ -10967,6 +10975,7 @@
             }, [communityMapSelectedUserId, activeTab, communitySubtab, communityTabSelectedId, usersList, roles, communities]);
 
             const handleSaveSchedule = async () => {
+                if (!requireOnline('目前離線，無法儲存排班')) return;
                 const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') ? communityMapSelectedUserId : cadreMapSelectedUserId;
                 if (!targetUserId) {
                     alert('請先選擇帳號');
@@ -11032,6 +11041,7 @@
             };
 
             const handleClearSchedule = async () => {
+                if (!requireOnline('目前離線，無法清除排班')) return;
                 const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') 
                     ? (communityMapSelectedUserId ? String(communityMapSelectedUserId).trim() : null)
                     : (cadreMapSelectedUserId ? String(cadreMapSelectedUserId).trim() : null);
@@ -11085,6 +11095,7 @@
             };
 
             const handleAutoSchedule = async () => {
+                if (!requireOnline('目前離線，無法自動排班')) return;
                 const targetUserId = (activeTab === 'community' && communitySubtab === 'schedule') 
                     ? (communityMapSelectedUserId ? String(communityMapSelectedUserId).trim() : null)
                     : (cadreMapSelectedUserId ? String(cadreMapSelectedUserId).trim() : null);
@@ -11194,6 +11205,7 @@
 
             const confirmAdminDelete = async () => {
                 if (!adminDeleteTarget) return;
+                if (!requireOnline('目前離線，無法刪除')) return;
                 try {
                     // Check if it's a leave record from 'leaves' collection
                     const collectionName = (adminDeleteTarget.approvalStatus || adminDeleteTarget.leaveStartDate) ? 'leaves' : 'attendance';
@@ -13176,6 +13188,7 @@
             };
 
             const handleSaveNewPassword = async () => {
+                if (!requireOnline('目前離線，無法重設密碼')) return;
                 if (!resetPasswordForm.newPassword || !resetPasswordForm.confirmPassword) {
                     setResetPasswordError('請輸入新密碼及確認密碼');
                     return;
@@ -13223,6 +13236,7 @@
             };
 
             const handleClockIn = (type, locations = [], extra = {}) => {
+                if (!requireOnline('目前離線，無法打卡')) return;
                 setClockType(type);
                 if (locations.length > 0) {
                     setAvailableClockInLocations(locations);
@@ -13240,6 +13254,7 @@
                     alert('使用者狀態異常，請重新登入');
                     return;
                 }
+                if (!requireOnline('目前離線，無法打卡')) return;
                 
                 const withTimeout = (promise, ms, msg) => {
                     return Promise.race([
@@ -13329,6 +13344,7 @@
 
                 const notif = notifications.find(n => n.id === id);
                 if (notif && dbUser) {
+                    if (!isOnline) return;
                     const readBy = notif.readBy || [];
                     if (!readBy.includes(dbUser.id)) {
                         try {
@@ -13344,6 +13360,10 @@
 
             const handleLeaveSubmit = async (leaveData) => {
                 if (!dbUser) return;
+                if (!isOnline) {
+                    setToast('目前離線，無法送出/更新請假');
+                    throw new Error('offline');
+                }
                 
                 try {
                     let photoUrl = '';
@@ -14190,6 +14210,11 @@
                             </div>
                         )}
                     </header>
+                    {!isOnline && (
+                        <div className="fixed top-[8vh] left-0 right-0 z-40 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-xs px-4 py-2 text-center font-bold">
+                            離線模式：僅可瀏覽，打卡/設定/編輯/新增/刪除功能已停用
+                        </div>
+                    )}
 
                     {shareModalOpen && (
                         <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4 animate-fade-in">
@@ -26021,6 +26046,7 @@
                                 <div className="flex justify-end gap-2">
                                     <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
                                     <button onClick={async()=>{ try { 
+                                        if (!requireOnline('目前離線，無法刪除')) return;
                                         if (confirmDelete.type==='role') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'roles', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='company') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'companies', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='area') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'areas', confirmDelete.id)); } 
@@ -29956,7 +29982,7 @@
                                         上班
                                     </button>
                                     <button
-                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'duty', startTime: '08:30', endTime: '17:30', leaveLabel: '' }))}
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'duty', startTime: '09:00', endTime: '17:30', leaveLabel: '' }))}
                                         className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'duty' ? 'bg-yellow-400 text-white shadow-lg shadow-yellow-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                                     >
                                         值班
