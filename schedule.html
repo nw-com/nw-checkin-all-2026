@@ -10,6 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         body {
@@ -46,15 +47,20 @@
                     <p class="text-[10px] text-slate-400 font-medium">COMMUNITY MANAGEMENT PLANNER</p>
                 </div>
             </div>
-            <div id="log-switcher" class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
-                <button onclick="switchTab('daily')" id="tab-daily" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700">
-                    <i data-lucide="edit-3" class="w-4 h-4"></i>當日
-                </button>
-                <button onclick="switchTab('calendar')" id="tab-calendar" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700">
-                    <i data-lucide="calendar" class="w-4 h-4"></i>月曆
-                </button>
-                <button onclick="switchTab('yearly')" id="tab-yearly" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all bg-white shadow-sm text-red-600">
-                    <i data-lucide="list" class="w-4 h-4"></i>年度列表
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+                <div id="log-switcher" class="flex bg-slate-100 p-1 rounded-xl flex-1 sm:flex-none">
+                    <button onclick="switchTab('daily')" id="tab-daily" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700">
+                        <i data-lucide="edit-3" class="w-4 h-4"></i>當日
+                    </button>
+                    <button onclick="switchTab('calendar')" id="tab-calendar" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-slate-500 hover:text-slate-700">
+                        <i data-lucide="calendar" class="w-4 h-4"></i>月曆
+                    </button>
+                    <button onclick="switchTab('yearly')" id="tab-yearly" class="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all bg-white shadow-sm text-red-600">
+                        <i data-lucide="list" class="w-4 h-4"></i>年度列表
+                    </button>
+                </div>
+                <button id="public-share-btn" onclick="openShareModal()" class="shrink-0 bg-white border border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-600 hover:text-red-600 w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-sm" title="分享公開日誌">
+                    <i data-lucide="share-2" class="w-5 h-5"></i>
                 </button>
             </div>
         </div>
@@ -73,8 +79,34 @@
         </button>
     </nav>
 
+    <div id="share-modal" class="hidden fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onclick="closeShareModal()">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div class="font-black text-slate-800">分享公開日誌</div>
+                <button class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center" onclick="closeShareModal()">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div class="text-sm text-slate-600 font-bold" id="share-community-label"></div>
+                <div class="flex justify-center">
+                    <div id="share-qr" class="bg-white p-3 rounded-2xl border border-slate-200"></div>
+                </div>
+                <div class="text-[11px] text-slate-500 break-all bg-slate-50 border border-slate-100 rounded-xl p-3" id="share-url"></div>
+                <button onclick="shareToLine()" class="w-full py-3 rounded-2xl bg-[#06C755] hover:bg-[#05b64d] text-white font-black transition-colors flex items-center justify-center gap-2">
+                    <span class="w-5 h-5 rounded bg-white/20 flex items-center justify-center">
+                        <i data-lucide="message-circle" class="w-4 h-4"></i>
+                    </span>
+                    分享到 Line
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+        const urlParams = new URLSearchParams(window.location.search || '');
+        const isPublicView = String(urlParams.get('public') || '').trim() === '1';
         const headerEl = document.getElementById('page-header');
         const navEl = document.getElementById('page-nav');
         const titleEl = document.getElementById('community-title');
@@ -101,6 +133,17 @@
             `;
         }
 
+        function renderLoadingScreen(msg) {
+            const content = document.getElementById('app-content');
+            if (!content) return;
+            content.innerHTML = `
+                <div class="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-sm border border-red-100 p-6">
+                    <div class="text-lg font-black text-slate-800 mb-2">載入中</div>
+                    <div class="text-sm text-slate-500">${msg || '讀取資料中...'}</div>
+                </div>
+            `;
+        }
+
         function renderErrorScreen(msg) {
             const content = document.getElementById('app-content');
             if (!content) return;
@@ -114,7 +157,8 @@
         }
 
         hideAppChrome();
-        renderAuthScreen('驗證登入狀態中...');
+        if (isPublicView) renderLoadingScreen('讀取公開日誌中...');
+        else renderAuthScreen('驗證登入狀態中...');
 
         const defaultCommunityTasks = [
             { month: null, day: 1, text: "管理委員會例會 (1次/月)", focus: "月例行會議與財務審核", type: "meeting" },
@@ -158,11 +202,13 @@
         let scheduleUnsub = null;
         let scheduleMeta = { desc: '' };
         let isApplyingRemote = false;
+        let sharePublicUrl = '';
 
         const monthNames = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
         const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
         function saveData() {
+            if (isPublicView) return;
             localStorage.setItem(plannerStorageKey, JSON.stringify(state.plannerData));
             if (scheduleDocRef && !isApplyingRemote) {
                 try {
@@ -193,11 +239,49 @@
         }
 
         function switchPrimaryTab(tab) {
+            if (isPublicView && tab === 'settings') return;
             primaryTab = tab === 'settings' ? 'settings' : 'log';
             if (primaryTab === 'log' && (!state.activeTab || !['daily','calendar','yearly'].includes(state.activeTab))) {
                 state.activeTab = 'daily';
             }
             render();
+        }
+
+        function buildPublicUrl() {
+            if (!selectedCommunityId) return '';
+            const u = new URL('./schedule.html', window.location.href);
+            u.searchParams.set('public', '1');
+            u.searchParams.set('communityId', selectedCommunityId);
+            return u.toString();
+        }
+
+        function openShareModal() {
+            sharePublicUrl = buildPublicUrl();
+            if (!sharePublicUrl) return;
+            const modal = document.getElementById('share-modal');
+            const qrEl = document.getElementById('share-qr');
+            const urlEl = document.getElementById('share-url');
+            const labelEl = document.getElementById('share-community-label');
+            if (labelEl) labelEl.textContent = selectedCommunityName ? `${selectedCommunityName} 公開日誌 (免登入)` : '公開日誌 (免登入)';
+            if (urlEl) urlEl.textContent = sharePublicUrl;
+            if (qrEl) {
+                qrEl.innerHTML = '';
+                new QRCode(qrEl, { text: sharePublicUrl, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+            }
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('share-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function shareToLine() {
+            if (!sharePublicUrl) sharePublicUrl = buildPublicUrl();
+            if (!sharePublicUrl) return;
+            const lineUrl = `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(sharePublicUrl)}`;
+            window.open(lineUrl, '_blank', 'noopener,noreferrer');
         }
 
         function goToToday() {
@@ -244,10 +328,23 @@
                 renderSettingsView(content);
             }
 
+            if (isPublicView) {
+                if (mobileSettings) mobileSettings.classList.add('hidden');
+            }
+
             lucide.createIcons();
         }
 
         function renderSettingsView(container) {
+            if (isPublicView) {
+                container.innerHTML = `
+                    <div class="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-sm border border-red-100 p-6">
+                        <div class="text-lg font-black text-slate-800 mb-2">公開瀏覽模式</div>
+                        <div class="text-sm text-slate-500">此頁面僅供瀏覽，無法編輯或設定。</div>
+                    </div>
+                `;
+                return;
+            }
             let annualItems = Array.isArray(scheduleMeta && scheduleMeta.annual) ? scheduleMeta.annual : null;
             if (!annualItems) {
                 const all = Object.values(state.plannerData || {}).flatMap(v => Array.isArray(v.tasks) ? v.tasks : []);
@@ -382,7 +479,7 @@
                             <i data-lucide="award" class="w-5 h-5 fill-current"></i>
                             <h3 class="font-bold text-slate-700">當日社區工作重點</h3>
                         </div>
-                        <textarea id="focus-input" placeholder="點擊編輯工作重點..." class="w-full bg-slate-50 border-none rounded-xl p-3 text-slate-700 focus:ring-2 focus:ring-red-400 transition-all resize-none min-h-[80px]">${data.focus || ''}</textarea>
+                        <textarea id="focus-input" ${isPublicView ? 'readonly' : ''} placeholder="${isPublicView ? '' : '點擊編輯工作重點...'}" class="w-full bg-slate-50 border-none rounded-xl p-3 text-slate-700 focus:ring-2 focus:ring-red-400 transition-all resize-none min-h-[80px]">${data.focus || ''}</textarea>
                     </section>
 
                     <section class="bg-white p-5 rounded-2xl shadow-sm border border-red-50">
@@ -391,17 +488,21 @@
                             <h3 class="font-bold text-slate-700">細項執行清單</h3>
                         </div>
                         <div id="tasks-container" class="space-y-3 mb-4"></div>
-                        <div class="flex gap-2">
-                            <input type="text" id="new-task-input" placeholder="新增自訂任務..." class="flex-1 bg-slate-50 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-red-400">
-                            <button onclick="addTask()" class="bg-red-500 text-white p-2 rounded-xl hover:bg-red-600 transition-colors"><i data-lucide="plus"></i></button>
-                        </div>
+                        ${isPublicView ? '' : `
+                            <div class="flex gap-2">
+                                <input type="text" id="new-task-input" placeholder="新增自訂任務..." class="flex-1 bg-slate-50 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-red-400">
+                                <button onclick="addTask()" class="bg-red-500 text-white p-2 rounded-xl hover:bg-red-600 transition-colors"><i data-lucide="plus"></i></button>
+                            </div>
+                        `}
                     </section>
                 </div>
             `;
 
-            document.getElementById('focus-input').onchange = (e) => updateData({ focus: e.target.value });
+            const focusEl = document.getElementById('focus-input');
+            if (focusEl && !isPublicView) focusEl.onchange = (e) => updateData({ focus: e.target.value });
             renderTasks(data.tasks);
-            document.getElementById('new-task-input').onkeydown = (e) => { if (e.key === 'Enter') addTask(); };
+            const newTaskInput = document.getElementById('new-task-input');
+            if (newTaskInput && !isPublicView) newTaskInput.onkeydown = (e) => { if (e.key === 'Enter') addTask(); };
         }
 
         function renderTasks(tasks) {
@@ -409,25 +510,29 @@
             if (!container) return;
             container.innerHTML = (tasks || []).map(task => `
                 <div class="group flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-red-50 transition-colors">
-                    <div class="flex items-center gap-3 flex-1 cursor-pointer" onclick="toggleTask(${task.id})">
+                    <div class="flex items-center gap-3 flex-1 ${isPublicView ? '' : 'cursor-pointer'}" ${isPublicView ? '' : `onclick="toggleTask(${task.id})"`}>
                         ${task.completed ? '<i data-lucide="check-circle-2" class="text-emerald-500 w-5 h-5"></i>' : '<i data-lucide="circle" class="text-slate-300 w-5 h-5"></i>'}
                         <span class="text-sm ${task.completed ? 'line-through text-slate-400 font-normal' : 'text-slate-700 font-medium'}">${task.text}</span>
                     </div>
-                    <button onclick="deleteTask(${task.id})" class="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 transition-all">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
+                    ${isPublicView ? '' : `
+                        <button onclick="deleteTask(${task.id})" class="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 transition-all">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    `}
                 </div>
             `).join('') || '<p class="text-slate-400 text-sm italic text-center py-4">本日尚無工作排程</p>';
             lucide.createIcons();
         }
 
         function updateData(newData) {
+            if (isPublicView) return;
             const key = getDateKey(state.selectedDate);
             state.plannerData[key] = { ...(state.plannerData[key] || { focus: "", tasks: [] }), ...newData };
             saveData();
         }
 
         function addTask() {
+            if (isPublicView) return;
             const input = document.getElementById('new-task-input');
             if (!input.value.trim()) return;
             const key = getDateKey(state.selectedDate);
@@ -438,6 +543,7 @@
         }
 
         function toggleTask(id) {
+            if (isPublicView) return;
             const key = getDateKey(state.selectedDate);
             const tasks = (state.plannerData[key].tasks || []).map(t => t.id === id ? { ...t, completed: !t.completed } : t);
             updateData({ tasks });
@@ -445,6 +551,7 @@
         }
 
         function deleteTask(id) {
+            if (isPublicView) return;
             const key = getDateKey(state.selectedDate);
             const tasks = (state.plannerData[key].tasks || []).filter(t => t.id !== id);
             updateData({ tasks });
@@ -663,6 +770,66 @@
 
         async function init() {
             const { auth, db } = initFirebaseCompat();
+            if (isPublicView) {
+                const requested = getRequestedCommunityId();
+                const normalizedCommunityId = String(requested || '').trim().toUpperCase();
+                if (!normalizedCommunityId) {
+                    hideAppChrome();
+                    renderErrorScreen('未指定社區，請使用 ?communityId=社區編號&public=1 開啟');
+                    return;
+                }
+
+                selectedCommunityId = normalizedCommunityId;
+                plannerStorageKey = `planner_public_${appId}_${selectedCommunityId}`;
+
+                try {
+                    const commSnap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities')
+                        .doc(selectedCommunityId)
+                        .get();
+                    if (commSnap.exists) {
+                        const comm = commSnap.data() || {};
+                        selectedCommunityName = String(comm.name || '').trim();
+                    }
+                } catch {}
+
+                if (!selectedCommunityName) {
+                    hideAppChrome();
+                    renderErrorScreen(`找不到社區名稱：${selectedCommunityId}`);
+                    return;
+                }
+
+                if (titleEl) {
+                    titleEl.textContent = `${selectedCommunityName}社區工作日誌`;
+                }
+
+                scheduleDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('community_schedules').doc(selectedCommunityId);
+                if (scheduleUnsub) {
+                    try { scheduleUnsub(); } catch {}
+                    scheduleUnsub = null;
+                }
+
+                state = {
+                    selectedDate: new Date(),
+                    activeTab: 'daily',
+                    plannerData: {}
+                };
+
+                showAppChrome();
+                render();
+
+                scheduleUnsub = scheduleDocRef.onSnapshot((snap) => {
+                    const data = snap && snap.exists ? (snap.data() || {}) : {};
+                    const remotePlannerData = data.plannerData && typeof data.plannerData === 'object' ? data.plannerData : null;
+                    const remoteMeta = data.meta && typeof data.meta === 'object' ? data.meta : null;
+
+                    if (remoteMeta) scheduleMeta = { ...(scheduleMeta || {}), ...remoteMeta };
+
+                    state.plannerData = remotePlannerData && Object.keys(remotePlannerData).length > 0 ? remotePlannerData : {};
+                    render();
+                }, () => {});
+
+                return;
+            }
             const current = await new Promise(resolve => auth.onAuthStateChanged(u => resolve(u)));
             if (!current) {
                 hideAppChrome();

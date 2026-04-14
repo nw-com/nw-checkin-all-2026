@@ -245,7 +245,8 @@
             limit,
             writeBatch,
             arrayUnion,
-            enableMultiTabIndexedDbPersistence
+            enableMultiTabIndexedDbPersistence,
+            clearIndexedDbPersistence
         } from 'firebase/firestore';
         import {
             getStorage,
@@ -346,6 +347,11 @@
                 console.warn('Persistence failed: Multiple tabs open');
             } else if (err.code == 'unimplemented') {
                 console.warn('Persistence not supported');
+            } else {
+                console.warn('Persistence error, attempting to clear local db...', err);
+                try {
+                    clearIndexedDbPersistence(db);
+                } catch(e) {}
             }
         });
         const storage = getStorage(app);
