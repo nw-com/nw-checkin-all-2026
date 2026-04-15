@@ -8808,6 +8808,7 @@
             const [leaveDocPdfBusy, setLeaveDocPdfBusy] = useState(false);
             const [leaveDocPdfError, setLeaveDocPdfError] = useState('');
             const leaveDocPdfRef = useRef(null);
+            const [leaveDocPdfPreviewScale, setLeaveDocPdfPreviewScale] = useState(1);
             const [leaveDocSignatureMap, setLeaveDocSignatureMap] = useState({});
             const [showLeaveDocSignatureModal, setShowLeaveDocSignatureModal] = useState(false);
             const [leaveDocSignatureLeaveId, setLeaveDocSignatureLeaveId] = useState('');
@@ -13500,6 +13501,25 @@
                 setLeaveDocPdfError('');
             };
 
+            useEffect(() => {
+                if (!showLeaveDocPdfModal) return;
+                const A4_W = 794;
+                const A4_H = 1123;
+                const calc = () => {
+                    const vw = window.innerWidth || 0;
+                    const vh = window.innerHeight || 0;
+                    const pad = 24;
+                    const header = 64;
+                    const availW = Math.max(0, vw - pad * 2);
+                    const availH = Math.max(0, vh - header - pad * 2);
+                    const s = Math.min(availW / A4_W, availH / A4_H, 1);
+                    setLeaveDocPdfPreviewScale(s > 0 ? s : 1);
+                };
+                calc();
+                window.addEventListener('resize', calc);
+                return () => window.removeEventListener('resize', calc);
+            }, [showLeaveDocPdfModal]);
+
             const formatLeaveDocDateTime = (v) => {
                 if (!v) return '';
                 const raw = String(v);
@@ -13522,25 +13542,41 @@
                 const jsPDF = window.jspdf && window.jspdf.jsPDF;
                 if (!html2canvas || !jsPDF) throw new Error('missing_pdf_libs');
 
-                const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+                const A4_W = 794;
+                const A4_H = 1123;
+                const offscreen = document.createElement('div');
+                offscreen.style.position = 'fixed';
+                offscreen.style.left = '-10000px';
+                offscreen.style.top = '0';
+                offscreen.style.width = `${A4_W}px`;
+                offscreen.style.height = `${A4_H}px`;
+                offscreen.style.background = '#ffffff';
+                offscreen.style.zIndex = '-1';
+                const clone = el.cloneNode(true);
+                clone.style.width = `${A4_W}px`;
+                clone.style.height = `${A4_H}px`;
+                clone.style.maxWidth = `${A4_W}px`;
+                clone.style.maxHeight = `${A4_H}px`;
+                clone.style.boxShadow = 'none';
+                clone.style.transform = 'none';
+                clone.style.overflow = 'hidden';
+                offscreen.appendChild(clone);
+                document.body.appendChild(offscreen);
+
+                const canvas = await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff', useCORS: true, width: A4_W, height: A4_H });
+                try { document.body.removeChild(offscreen); } catch {}
                 const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
                 const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
                 const pageW = pdf.internal.pageSize.getWidth();
                 const pageH = pdf.internal.pageSize.getHeight();
 
-                const imgW = pageW;
-                const imgH = canvas.height * (imgW / canvas.width);
-
-                let position = 0;
-                pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-                let remaining = imgH - pageH;
-                while (remaining > 0) {
-                    position -= pageH;
-                    pdf.addPage();
-                    pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-                    remaining -= pageH;
-                }
+                const scale = Math.min(pageW / canvas.width, pageH / canvas.height);
+                const imgW = canvas.width * scale;
+                const imgH = canvas.height * scale;
+                const x = (pageW - imgW) / 2;
+                const y = (pageH - imgH) / 2;
+                pdf.addImage(imgData, 'JPEG', x, y, imgW, imgH);
                 return pdf.output('blob');
             };
 
@@ -13617,9 +13653,9 @@
                 canvas.style.height = `${h}px`;
                 const ctx = canvas.getContext('2d');
                 if (!ctx) return;
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, w, h);
                 ctx.lineWidth = 2;
                 ctx.lineCap = 'round';
                 ctx.strokeStyle = '#111827';
@@ -13680,7 +13716,49 @@
                 const canvas = leaveDocSignatureCanvasRef.current;
                 const leaveId = String(leaveDocSignatureLeaveId || '');
                 if (!canvas || !leaveId) { closeLeaveDocSignature(); return; }
-                const dataUrl = canvas.toDataURL('image/png');
+                let dataUrl = '';
+                try {
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error('no_ctx');
+                    const w = canvas.width;
+                    const h = canvas.height;
+                    const img = ctx.getImageData(0, 0, w, h);
+                    const d = img.data;
+                    let minX = w, minY = h, maxX = -1, maxY = -1;
+                    for (let y = 0; y < h; y++) {
+                        for (let x = 0; x < w; x++) {
+                            const i = (y * w + x) * 4;
+                            const a = d[i + 3];
+                            if (a > 16) {
+                                if (x < minX) minX = x;
+                                if (y < minY) minY = y;
+                                if (x > maxX) maxX = x;
+                                if (y > maxY) maxY = y;
+                            }
+                        }
+                    }
+                    if (maxX < 0 || maxY < 0) {
+                        closeLeaveDocSignature();
+                        return;
+                    }
+                    const pad = 16;
+                    const sx = Math.max(0, minX - pad);
+                    const sy = Math.max(0, minY - pad);
+                    const ex = Math.min(w - 1, maxX + pad);
+                    const ey = Math.min(h - 1, maxY + pad);
+                    const sw = ex - sx + 1;
+                    const sh = ey - sy + 1;
+                    const out = document.createElement('canvas');
+                    out.width = sw;
+                    out.height = sh;
+                    const octx = out.getContext('2d');
+                    if (!octx) throw new Error('no_out_ctx');
+                    octx.clearRect(0, 0, sw, sh);
+                    octx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+                    dataUrl = out.toDataURL('image/png');
+                } catch (_) {
+                    dataUrl = canvas.toDataURL('image/png');
+                }
                 setLeaveDocSignatureMap(prev => {
                     const current = prev && prev[leaveId] ? prev[leaveId] : {};
                     return { ...(prev || {}), [leaveId]: { ...current, applicant: dataUrl } };
@@ -17668,11 +17746,12 @@
                                             )}
 
                                             <div className="flex-1 overflow-auto bg-gray-200 p-4">
-                                                <div className="mx-auto w-full max-w-[820px]">
+                                                <div className="mx-auto w-fit">
+                                                    <div style={{ transform: `scale(${leaveDocPdfPreviewScale})`, transformOrigin: 'top left' }}>
                                                     <div
                                                         ref={leaveDocPdfRef}
-                                                        className="relative overflow-hidden bg-white shadow-xl mx-auto w-full aspect-[210/297] border border-gray-300"
-                                                        style={{ maxWidth: 820 }}
+                                                        className="relative overflow-hidden bg-white shadow-xl border border-gray-300"
+                                                        style={{ width: 794, height: 1123 }}
                                                     >
                                                         {(function(){
                                                             const l = leaveDocPdfTarget || {};
@@ -17706,33 +17785,28 @@
 
                                                             return (
                                                                 <div className="w-full h-full">
-                                                                    <div className="absolute inset-0 z-0 pointer-events-none select-none flex items-center justify-center">
-                                                                        <div className="text-gray-300 font-black opacity-30 tracking-widest text-6xl transform -rotate-45">
-                                                                            西北保全／西北公寓
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="relative z-10 w-full h-full p-6">
+                                                                    <div className="relative z-10 w-full h-full p-5">
                                                                         <div className="text-center space-y-1">
-                                                                            <div className="text-lg font-black text-gray-900">西北保全股份有限公司</div>
-                                                                            <div className="text-lg font-black text-gray-900">西北公寓大廈管理維護股份有限公司</div>
-                                                                            <div className="text-2xl font-black tracking-wide text-gray-900">員工請假單</div>
+                                                                            <div className="text-xl font-black text-gray-900 text-center">西北保全股份有限公司</div>
+                                                                            <div className="text-xl font-black text-gray-900 text-center">西北公寓大廈管理維護股份有限公司</div>
+                                                                            <div className="text-3xl font-black tracking-wide text-gray-900 text-center">員工請假單</div>
                                                                         </div>
 
                                                                         <div className="mt-5 border border-gray-700">
                                                                             <div className="grid grid-cols-12 border-b border-gray-700">
-                                                                                <div className="col-span-6 border-r border-gray-700 p-2 text-sm">
+                                                                                <div className="col-span-6 border-r border-gray-700 p-2 text-base">
                                                                                     <div className="flex gap-2">
                                                                                         <div className="font-bold w-16">案場：</div>
                                                                                         <div className="flex-1">{site || '—'}</div>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="col-span-3 border-r border-gray-700 p-2 text-sm">
+                                                                                <div className="col-span-3 border-r border-gray-700 p-2 text-base">
                                                                                     <div className="flex gap-2">
                                                                                         <div className="font-bold w-12">姓名：</div>
                                                                                         <div className="flex-1">{name || '—'}</div>
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="col-span-3 p-2 text-sm">
+                                                                                <div className="col-span-3 p-2 text-base">
                                                                                     <div className="flex gap-2">
                                                                                         <div className="font-bold w-[86px]">身分證字號：</div>
                                                                                         <div className="flex-1">{idNo || '—'}</div>
@@ -17741,31 +17815,36 @@
                                                                             </div>
 
                                                                             <div className="grid grid-cols-12 border-b border-gray-700">
-                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-sm font-bold">假別</div>
-                                                                                <div className="col-span-10 p-2 text-sm">{leaveType || '—'}</div>
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-base font-bold">假別</div>
+                                                                                <div className="col-span-10 p-2 text-base">{leaveType || '—'}</div>
                                                                             </div>
 
                                                                             <div className="grid grid-cols-12 border-b border-gray-700">
-                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-sm font-bold">事由</div>
-                                                                                <div className="col-span-10 p-2 text-sm whitespace-pre-wrap">{reason || '—'}</div>
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-base font-bold">事由</div>
+                                                                                <div className="col-span-10 p-2 text-base whitespace-pre-wrap">{reason || '—'}</div>
                                                                             </div>
 
                                                                             <div className="grid grid-cols-12 border-b border-gray-700">
-                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-sm font-bold">起迄時間</div>
-                                                                                <div className="col-span-10 p-2 text-sm">
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-base font-bold">起迄時間</div>
+                                                                                <div className="col-span-10 p-2 text-base">
                                                                                     <div>起：{start || '—'}</div>
                                                                                     <div>迄：{end || '—'}</div>
                                                                                 </div>
                                                                             </div>
 
-                                                                            <div className="grid grid-cols-12">
-                                                                                <div className="col-span-6 border-r border-gray-700 p-2 text-sm">
+                                                                            <div className="grid grid-cols-12 relative">
+                                                                                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[10%] z-0 pointer-events-none select-none">
+                                                                                    <div className="text-gray-300 font-black opacity-30 tracking-widest text-7xl transform -rotate-45 whitespace-nowrap">
+                                                                                        西北保全／西北公寓
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="col-span-9 border-r border-gray-700 p-2 text-base relative z-10">
                                                                                     <div className="font-bold">請假人簽章</div>
-                                                                                    <div className="h-20 flex items-center justify-center border border-gray-200 bg-white">
+                                                                                    <div className="h-20 flex items-center justify-center border border-gray-200 bg-transparent">
                                                                                         {(function(){
                                                                                             const leaveId = String(l.id || '');
                                                                                             const url = leaveId ? (leaveDocSignatureMap && leaveDocSignatureMap[leaveId] ? leaveDocSignatureMap[leaveId].applicant : '') : '';
-                                                                                            if (url) return <img src={url} alt="signature" className="max-h-[72px] w-full object-contain" />;
+                                                                                            if (url) return <img src={url} alt="signature" className="max-h-[72px] w-full object-contain" style={{ mixBlendMode: 'multiply' }} />;
                                                                                             return (
                                                                                                 <button type="button" onClick={openLeaveDocSignature} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200">
                                                                                                     簽名
@@ -17774,18 +17853,14 @@
                                                                                         })()}
                                                                                     </div>
                                                                                 </div>
-                                                                                <div className="col-span-3 border-r border-gray-700 p-2 text-sm">
-                                                                                    <div className="font-bold">代理人</div>
-                                                                                    <div className="h-20 border border-gray-200 bg-white"></div>
-                                                                                </div>
-                                                                                <div className="col-span-3 p-2 text-sm">
+                                                                                <div className="col-span-3 p-2 text-base relative z-10">
                                                                                     <div className="font-bold">核准狀態</div>
                                                                                     <div className="h-20 flex items-center justify-center text-lg font-black">{statusText || '—'}</div>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
 
-                                                                        <div className="mt-6 text-[11px] text-gray-700 leading-relaxed">
+                                                                        <div className="mt-5 text-xs text-gray-700 leading-relaxed text-center">
                                                                             <div>備註：</div>
                                                                             <div>1、病假-請附上診斷證明書、掛號單。</div>
                                                                             <div>2、事假-請假時，應於事前親自以口頭或書面敘明請假理由及日數，並於三天前告知，得提出有關證明文件。</div>
@@ -17796,6 +17871,7 @@
                                                                 </div>
                                                             );
                                                         })()}
+                                                    </div>
                                                     </div>
                                                 </div>
                                             </div>
