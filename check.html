@@ -177,6 +177,20 @@
             <div id="location-map-list" class="space-y-2 mt-4">
                 <!-- Mappings will appear here -->
             </div>
+
+            <div class="mt-8">
+                <h2 class="font-bold text-gray-700 mb-4">督勤重點項目</h2>
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <div class="text-sm text-gray-600 font-bold">掃碼成功後會要求勾選本次督勤內容</div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="addInspectionGroup()" class="text-xs bg-red-600 text-white px-3 py-2 rounded-xl font-bold hover:bg-red-700 transition">新增大項</button>
+                            <button onclick="resetInspectionChecklistToDefault()" class="text-xs bg-gray-100 text-gray-700 px-3 py-2 rounded-xl font-bold hover:bg-gray-200 transition">重設預設</button>
+                        </div>
+                    </div>
+                    <div id="inspection-checklist-list" class="space-y-3"></div>
+                </div>
+            </div>
         </div>
 
         <div id="view-download" class="view-content hidden">
@@ -233,8 +247,38 @@
             <div class="bg-gray-50 rounded-lg p-3 text-left text-xs text-gray-500 mb-6 space-y-1">
                 <p id="modal-time"></p>
                 <p id="modal-coords"></p>
+                <div id="modal-inspection" class="hidden">
+                    <div class="mt-2 font-bold text-gray-600 text-[11px]">督勤內容</div>
+                    <div id="modal-inspection-items" class="mt-1 space-y-1"></div>
+                </div>
             </div>
             <button onclick="closeModal()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-red-200">確定</button>
+        </div>
+    </div>
+
+    <div id="inspection-modal" class="fixed inset-0 bg-black/50 z-[101] hidden p-4 flex items-center justify-center">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div class="font-black text-gray-800 text-sm">督勤內容</div>
+                <button onclick="closeInspectionModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="px-4 py-4">
+                <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                    <div class="text-xs text-gray-500 font-bold">地點</div>
+                    <div id="inspection-modal-location" class="font-black text-gray-800"></div>
+                    <div id="inspection-modal-code" class="text-xs text-gray-500 font-mono mt-1"></div>
+                </div>
+                <div class="mt-4">
+                    <div class="text-xs font-bold text-gray-400 uppercase mb-2">勾選本次督勤項目</div>
+                    <div id="inspection-modal-list" class="space-y-4 max-h-[55vh] overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+            <div class="px-4 py-3 border-t border-gray-100 flex gap-2">
+                <button onclick="closeInspectionModal(true)" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                <button onclick="submitInspectionModal()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">完成督勤</button>
+            </div>
         </div>
     </div>
 
@@ -310,6 +354,31 @@
                     <button onclick="closeEditLogModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
                     <button onclick="saveLogEdit()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="inspection-log-modal" class="fixed inset-0 bg-black/50 z-[108] hidden p-4 flex items-center justify-center">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div class="font-black text-gray-800 text-sm">督勤內容</div>
+                <button onclick="closeInspectionLogModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="px-4 py-4">
+                <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                    <div class="text-xs text-gray-500 font-bold">地點</div>
+                    <div id="inspection-log-location" class="font-black text-gray-800"></div>
+                    <div id="inspection-log-meta" class="text-xs text-gray-600 mt-1"></div>
+                </div>
+                <div class="mt-4">
+                    <div class="text-xs font-bold text-gray-400 uppercase mb-2">全部督勤項目（已勾選會標示）</div>
+                    <div id="inspection-log-list" class="space-y-4 max-h-[60vh] overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+            <div class="px-4 py-3 border-t border-gray-100">
+                <button onclick="closeInspectionLogModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
             </div>
         </div>
     </div>
@@ -422,9 +491,441 @@
         let pendingConfirmAction = null;
         let isPublicView = false;
         let sharePublicUrl = '';
+        let inspectionChecklist = [];
+        let inspectionChecklistLoaded = false;
+        let inspectionChecklistDefaultWritten = false;
+        let pendingInspectionScan = null;
+        let pendingInspectionSelectedIds = new Set();
+        let inspectionLogViewTargetId = '';
 
         function normalizeKey(v) {
             return String(v || '').replace(/\uFEFF/g, '').trim();
+        }
+
+        function getDefaultInspectionChecklist() {
+            return [
+                {
+                    id: 'g1',
+                    title: '人員儀容與精神狀態',
+                    items: [
+                        { id: 'g1i1', text: '服裝儀容：是否穿著整齊制服、佩戴識別證，鞋襪是否符合規定。' },
+                        { id: 'g1i2', text: '精神狀態：是否有打瞌睡、飲酒、吃檳榔、閱讀書報、滑手機（非公務）等違規行為。' },
+                        { id: 'g1i3', text: '值勤態度：應對住戶與訪客是否禮貌、主動。' }
+                    ]
+                },
+                {
+                    id: 'g2',
+                    title: '門禁與值勤紀錄檢核',
+                    items: [
+                        { id: 'g2i1', text: '訪客登記：檢查訪客/外送/廠商登記簿是否確實記錄（時間、事由、證件換發）。' },
+                        { id: 'g2i2', text: '郵件包裹：代收紀錄與存放管理是否落實，有無遺漏或簽領混亂情形。' },
+                        { id: 'g2i3', text: '值勤日誌：總幹事與保全人員的工作日誌是否按時填寫，交班事項是否完整銜接。' },
+                        { id: 'g2i4', text: '監視系統：監控畫面是否正常顯示，錄影功能是否運作中，有無異常死角。' }
+                    ]
+                },
+                {
+                    id: 'g3',
+                    title: '社區巡邏與安全防護',
+                    items: [
+                        { id: 'g3i1', text: '巡邏紀錄：檢查巡邏鐘或電子巡邏系統的紀錄，確認是否按時、按點巡視（含屋頂、地下室、逃生梯）。' },
+                        { id: 'g3i2', text: '車道管理：車輛進出管制情形，停車場是否有外車違規停放或閒雜人員逗留。' },
+                        { id: 'g3i3', text: '公設管理：巡視公共設施（如健身房、交誼廳）的使用狀況及燈光/空調開啟是否依時程執行。' }
+                    ]
+                },
+                {
+                    id: 'g4',
+                    title: '環境與設備查驗',
+                    items: [
+                        { id: 'g4i1', text: '管理室整潔：櫃台有無堆放雜物，周邊環境是否保持乾淨。' },
+                        { id: 'g4i2', text: '緊急通報設備：對講機、消防警報主機是否有故障訊號，有無報修追蹤。' },
+                        { id: 'g4i3', text: '清潔品質督導：若公司包含清潔業務，會抽查公共區域、垃圾房、樓梯間的清潔完成度。' }
+                    ]
+                },
+                {
+                    id: 'g5',
+                    title: '行政財務與公關服務',
+                    items: [
+                        { id: 'g5i1', text: '管理費核對：若現場由總幹事收款，幹部會抽查收據存根與現金管理是否相符。' },
+                        { id: 'g5i2', text: '公告與公文：檢視管委會交辦事項之進度，社區公告是否及時更新或過期未撤。' },
+                        { id: 'g5i3', text: '住戶意見回饋：詢問現場人員是否有住戶投訴或重大爭議事件，並評估處理方式。' }
+                    ]
+                },
+                {
+                    id: 'g6',
+                    title: '突發事件與教育訓練',
+                    items: [
+                        { id: 'g6i1', text: '防災應變：隨機詢問保全人員若遇火災、電梯受困或停電時的處置流程（SOP）。' },
+                        { id: 'g6i2', text: '政令宣導：傳達公司最新規定或法令更新（如公寓大廈管理條例修正）。' }
+                    ]
+                }
+            ];
+        }
+
+        function normalizeInspectionChecklist(raw) {
+            if (!Array.isArray(raw)) return [];
+            const out = [];
+            raw.forEach(g => {
+                const id = normalizeKey(g?.id);
+                const title = normalizeKey(g?.title);
+                if (!id || !title) return;
+                const items = [];
+                const rawItems = Array.isArray(g?.items) ? g.items : [];
+                rawItems.forEach(it => {
+                    const iid = normalizeKey(it?.id);
+                    const text = normalizeKey(it?.text);
+                    if (!iid || !text) return;
+                    items.push({ id: iid, text });
+                });
+                out.push({ id, title, items });
+            });
+            return out;
+        }
+
+        function ensureInspectionChecklistReady() {
+            if (inspectionChecklistLoaded && Array.isArray(inspectionChecklist) && inspectionChecklist.length > 0) return;
+            inspectionChecklist = getDefaultInspectionChecklist();
+            inspectionChecklistLoaded = true;
+        }
+
+        function getInspectionItemById(groupId, itemId) {
+            const gid = normalizeKey(groupId);
+            const iid = normalizeKey(itemId);
+            const g = (inspectionChecklist || []).find(x => String(x.id) === gid);
+            const it = g ? (g.items || []).find(x => String(x.id) === iid) : null;
+            return { group: g || null, item: it || null };
+        }
+
+        function renderInspectionChecklistManager() {
+            const container = document.getElementById('inspection-checklist-list');
+            if (!container) return;
+            ensureInspectionChecklistReady();
+            const list = Array.isArray(inspectionChecklist) ? inspectionChecklist : [];
+            if (list.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-gray-400"><p class="text-sm">尚無督勤項目</p></div>`;
+                return;
+            }
+
+            container.innerHTML = list.map(g => {
+                const title = escapeHtml(g.title);
+                const groupId = String(g.id);
+                const itemsHtml = (g.items || []).map(it => {
+                    const itemId = String(it.id);
+                    const text = escapeHtml(it.text);
+                    return `
+                        <div class="flex items-start justify-between gap-3 py-2 border-b last:border-b-0 border-gray-100">
+                            <div class="text-sm text-gray-700 font-bold leading-snug">${text}</div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick='editInspectionItem(${JSON.stringify(groupId)}, ${JSON.stringify(itemId)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                                <button onclick='deleteInspectionItem(${JSON.stringify(groupId)}, ${JSON.stringify(itemId)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="border border-gray-100 rounded-2xl overflow-hidden">
+                        <div class="px-4 py-3 bg-gray-50 flex items-center justify-between gap-3">
+                            <div class="font-black text-gray-800 text-sm">${title}</div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick='addInspectionItem(${JSON.stringify(groupId)})' class="text-xs bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-xl font-bold hover:bg-gray-100 transition">新增項目</button>
+                                <button onclick='editInspectionGroup(${JSON.stringify(groupId)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                                <button onclick='deleteInspectionGroup(${JSON.stringify(groupId)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                            </div>
+                        </div>
+                        <div class="px-4 py-2">${itemsHtml || `<div class="py-4 text-center text-gray-400 text-sm">此大項尚無子項目</div>`}</div>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function persistInspectionChecklist(next) {
+            if (!canManageSettings) return Promise.resolve();
+            if (!settingsDocRef || !dbUser) return Promise.resolve();
+            const normalized = normalizeInspectionChecklist(next);
+            inspectionChecklist = normalized;
+            inspectionChecklistLoaded = true;
+            return settingsDocRef.set({
+                inspectionChecklist: normalized,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: dbUser.id
+            }, { merge: true }).catch(() => {
+                alert('儲存督勤項目失敗');
+            });
+        }
+
+        function nextId(prefix) {
+            return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+        }
+
+        function addInspectionGroup() {
+            if (!canManageSettings) return;
+            ensureInspectionChecklistReady();
+            const title = normalizeKey(window.prompt('新增督勤大項名稱', ''));
+            if (!title) return;
+            const next = [...inspectionChecklist, { id: nextId('g'), title, items: [] }];
+            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+        }
+
+        function editInspectionGroup(groupId) {
+            if (!canManageSettings) return;
+            ensureInspectionChecklistReady();
+            const gid = normalizeKey(groupId);
+            const idx = inspectionChecklist.findIndex(x => String(x.id) === gid);
+            if (idx < 0) return;
+            const currentTitle = inspectionChecklist[idx].title || '';
+            const title = normalizeKey(window.prompt('編輯督勤大項名稱', currentTitle));
+            if (!title) return;
+            const next = inspectionChecklist.map((g, i) => i === idx ? ({ ...g, title }) : g);
+            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+        }
+
+        function deleteInspectionGroup(groupId) {
+            if (!canManageSettings) return;
+            ensureInspectionChecklistReady();
+            const gid = normalizeKey(groupId);
+            const target = inspectionChecklist.find(x => String(x.id) === gid);
+            if (!target) return;
+            openConfirmModal('確認刪除', `確定要刪除「${target.title}」及其所有項目嗎？`, () => {
+                const next = inspectionChecklist.filter(x => String(x.id) !== gid);
+                return persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            });
+        }
+
+        function addInspectionItem(groupId) {
+            if (!canManageSettings) return;
+            ensureInspectionChecklistReady();
+            const gid = normalizeKey(groupId);
+            const idx = inspectionChecklist.findIndex(x => String(x.id) === gid);
+            if (idx < 0) return;
+            const text = normalizeKey(window.prompt('新增督勤項目', ''));
+            if (!text) return;
+            const next = inspectionChecklist.map((g, i) => {
+                if (i !== idx) return g;
+                const items = Array.isArray(g.items) ? g.items : [];
+                return { ...g, items: [...items, { id: nextId('i'), text }] };
+            });
+            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+        }
+
+        function editInspectionItem(groupId, itemId) {
+            if (!canManageSettings) return;
+            ensureInspectionChecklistReady();
+            const gid = normalizeKey(groupId);
+            const iid = normalizeKey(itemId);
+            const gIdx = inspectionChecklist.findIndex(x => String(x.id) === gid);
+            if (gIdx < 0) return;
+            const items = Array.isArray(inspectionChecklist[gIdx].items) ? inspectionChecklist[gIdx].items : [];
+            const iIdx = items.findIndex(x => String(x.id) === iid);
+            if (iIdx < 0) return;
+            const currentText = items[iIdx].text || '';
+            const text = normalizeKey(window.prompt('編輯督勤項目', currentText));
+            if (!text) return;
+            const next = inspectionChecklist.map((g, gi) => {
+                if (gi !== gIdx) return g;
+                const nextItems = items.map((it, ii) => ii === iIdx ? ({ ...it, text }) : it);
+                return { ...g, items: nextItems };
+            });
+            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+        }
+
+        function deleteInspectionItem(groupId, itemId) {
+            if (!canManageSettings) return;
+            ensureInspectionChecklistReady();
+            const gid = normalizeKey(groupId);
+            const iid = normalizeKey(itemId);
+            const found = getInspectionItemById(gid, iid);
+            if (!found.group || !found.item) return;
+            openConfirmModal('確認刪除', '確定要刪除此督勤項目嗎？', () => {
+                const next = inspectionChecklist.map(g => {
+                    if (String(g.id) !== gid) return g;
+                    const nextItems = (g.items || []).filter(it => String(it.id) !== iid);
+                    return { ...g, items: nextItems };
+                });
+                return persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            });
+        }
+
+        function resetInspectionChecklistToDefault() {
+            if (!canManageSettings) return;
+            openConfirmModal('重設預設', '確定要重設為預設督勤重點項目嗎？（會覆蓋目前設定）', () => {
+                const next = getDefaultInspectionChecklist();
+                return persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            });
+        }
+
+        function renderInspectionModalList() {
+            const container = document.getElementById('inspection-modal-list');
+            if (!container) return;
+            ensureInspectionChecklistReady();
+            const list = inspectionChecklist || [];
+            container.innerHTML = list.map(g => {
+                const groupTitle = escapeHtml(g.title);
+                const itemsHtml = (g.items || []).map(it => {
+                    const idKey = `${g.id}:${it.id}`;
+                    const checkboxId = `inspect_${g.id}_${it.id}`;
+                    const checked = pendingInspectionSelectedIds.has(idKey);
+                    const text = escapeHtml(it.text);
+                    return `
+                        <label class="flex items-start gap-3 py-2">
+                            <input id="${escapeHtml(checkboxId)}" type="checkbox" class="mt-1 h-4 w-4 text-red-600 focus:ring-red-500" ${checked ? 'checked' : ''} onchange="toggleInspectionSelected(${JSON.stringify(idKey)}, this.checked)">
+                            <span class="text-sm text-gray-700 font-bold leading-snug">${text}</span>
+                        </label>
+                    `;
+                }).join('');
+                return `
+                    <div class="border border-gray-100 rounded-2xl overflow-hidden">
+                        <div class="px-4 py-3 bg-gray-50 font-black text-gray-800 text-sm">${groupTitle}</div>
+                        <div class="px-4 py-2">${itemsHtml || `<div class="py-4 text-center text-gray-400 text-sm">此大項尚無子項目</div>`}</div>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function toggleInspectionSelected(idKey, checked) {
+            const k = String(idKey || '');
+            if (!k) return;
+            if (checked) pendingInspectionSelectedIds.add(k);
+            else pendingInspectionSelectedIds.delete(k);
+        }
+
+        function openInspectionModal(scan) {
+            ensureInspectionChecklistReady();
+            pendingInspectionScan = scan || null;
+            pendingInspectionSelectedIds = new Set();
+            const modal = document.getElementById('inspection-modal');
+            const locEl = document.getElementById('inspection-modal-location');
+            const codeEl = document.getElementById('inspection-modal-code');
+            if (locEl) locEl.textContent = normalizeKey(scan?.locationName || '');
+            if (codeEl) codeEl.textContent = scan?.code ? `代碼: ${normalizeKey(scan.code)}` : '';
+            renderInspectionModalList();
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeInspectionModal(discard) {
+            const modal = document.getElementById('inspection-modal');
+            if (modal) modal.classList.add('hidden');
+            if (discard) {
+                pendingInspectionScan = null;
+                pendingInspectionSelectedIds = new Set();
+            }
+        }
+
+        function collectInspectionSelectionPayload() {
+            const ids = Array.from(pendingInspectionSelectedIds || []);
+            const items = ids.map(key => {
+                const [gid, iid] = String(key).split(':');
+                const found = getInspectionItemById(gid, iid);
+                const groupTitle = found.group ? found.group.title : '';
+                const itemText = found.item ? found.item.text : '';
+                return {
+                    groupId: gid,
+                    groupTitle,
+                    itemId: iid,
+                    text: itemText
+                };
+            }).filter(x => x.groupId && x.itemId && x.text);
+            return { ids, items };
+        }
+
+        function submitInspectionModal() {
+            const scan = pendingInspectionScan;
+            if (!scan) {
+                closeInspectionModal(true);
+                return;
+            }
+            const payload = collectInspectionSelectionPayload();
+            closeInspectionModal(false);
+            recordCheckIn(scan.locationName, scan.code, scan.coords, payload);
+            pendingInspectionScan = null;
+            pendingInspectionSelectedIds = new Set();
+        }
+
+        function resolveLogInspectionSelectedKeys(log) {
+            const out = new Set();
+            const ids = Array.isArray(log?.inspectionIds) ? log.inspectionIds : [];
+            ids.forEach(x => {
+                const k = normalizeKey(x);
+                if (k) out.add(k);
+            });
+            const items = Array.isArray(log?.inspectionItems) ? log.inspectionItems : [];
+            items.forEach(x => {
+                const gid = normalizeKey(x?.groupId);
+                const iid = normalizeKey(x?.itemId);
+                if (gid && iid) out.add(`${gid}:${iid}`);
+            });
+            return out;
+        }
+
+        function renderInspectionLogModal(log) {
+            ensureInspectionChecklistReady();
+            const locEl = document.getElementById('inspection-log-location');
+            const metaEl = document.getElementById('inspection-log-meta');
+            const listEl = document.getElementById('inspection-log-list');
+            if (!listEl) return;
+
+            const t = (log?.createdAt && typeof log.createdAt.toDate === 'function')
+                ? log.createdAt.toDate()
+                : (typeof log?.createdAt === 'number')
+                    ? new Date(log.createdAt)
+                    : (typeof log?.createdAt === 'string')
+                        ? new Date(log.createdAt)
+                        : null;
+            const timeStr = t ? t.toLocaleString('zh-TW') : '';
+            const guard = normalizeKey(log?.userName || log?.userId || '');
+            const code = normalizeKey(log?.code || '');
+            const locationFromLog = normalizeKey(log?.location || '');
+            const mappedLocation = code ? normalizeKey(locationMap[code] || '') : '';
+            const location = mappedLocation || locationFromLog || code;
+
+            if (locEl) locEl.textContent = location;
+            if (metaEl) metaEl.textContent = `${guard ? `人員：${guard}  ` : ''}${timeStr ? `時間：${timeStr}  ` : ''}${code ? `代碼：${code}` : ''}`.trim();
+
+            const selected = resolveLogInspectionSelectedKeys(log);
+
+            listEl.innerHTML = (inspectionChecklist || []).map(g => {
+                const groupTitle = escapeHtml(g.title);
+                const itemsHtml = (g.items || []).map(it => {
+                    const key = `${g.id}:${it.id}`;
+                    const checked = selected.has(key);
+                    const text = escapeHtml(it.text);
+                    return `
+                        <div class="flex items-start gap-3 py-2 border-b last:border-b-0 border-gray-100">
+                            <div class="mt-0.5 h-5 w-5 rounded-md border ${checked ? 'bg-red-600 border-red-600' : 'bg-white border-gray-300'} flex items-center justify-center shrink-0">
+                                ${checked ? `<i data-lucide="check" size="14" class="text-white"></i>` : ``}
+                            </div>
+                            <div class="text-sm ${checked ? 'text-gray-900' : 'text-gray-600'} font-bold leading-snug">${text}</div>
+                        </div>
+                    `;
+                }).join('');
+                return `
+                    <div class="border border-gray-100 rounded-2xl overflow-hidden">
+                        <div class="px-4 py-3 bg-gray-50 font-black text-gray-800 text-sm">${groupTitle}</div>
+                        <div class="px-4 py-2">${itemsHtml || `<div class="py-4 text-center text-gray-400 text-sm">此大項尚無子項目</div>`}</div>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function openInspectionLogModal(logId) {
+            const id = String(logId || '');
+            if (!id) return;
+            const target = (logs || []).find(x => String(x.id) === id);
+            if (!target) return;
+            inspectionLogViewTargetId = id;
+            const modal = document.getElementById('inspection-log-modal');
+            if (modal) modal.classList.remove('hidden');
+            renderInspectionLogModal(target);
+            lucide.createIcons();
+        }
+
+        function closeInspectionLogModal() {
+            inspectionLogViewTargetId = '';
+            const modal = document.getElementById('inspection-log-modal');
+            if (modal) modal.classList.add('hidden');
         }
         
         function hideAppChrome() {
@@ -923,6 +1424,13 @@
                     normalized[nk] = normalizeKey(map[k]);
                 });
                 locationMap = normalized;
+                const checklist = normalizeInspectionChecklist(data.inspectionChecklist);
+                if (checklist.length > 0) {
+                    inspectionChecklist = checklist;
+                    inspectionChecklistLoaded = true;
+                } else {
+                    ensureInspectionChecklistReady();
+                }
             }, () => {});
 
             setPageTitle();
@@ -1028,7 +1536,25 @@
                     normalized[nk] = normalizeKey(map[k]);
                 });
                 locationMap = normalized;
-                if (!document.getElementById('view-settings')?.classList.contains('hidden')) renderLocationMap();
+                const checklist = normalizeInspectionChecklist(data.inspectionChecklist);
+                if (checklist.length > 0) {
+                    inspectionChecklist = checklist;
+                    inspectionChecklistLoaded = true;
+                } else {
+                    ensureInspectionChecklistReady();
+                    if (!inspectionChecklistDefaultWritten && canManageSettings && settingsDocRef && dbUser) {
+                        inspectionChecklistDefaultWritten = true;
+                        settingsDocRef.set({
+                            inspectionChecklist: inspectionChecklist,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            updatedBy: dbUser.id
+                        }, { merge: true }).catch(() => {});
+                    }
+                }
+                if (!document.getElementById('view-settings')?.classList.contains('hidden')) {
+                    renderLocationMap();
+                    renderInspectionChecklistManager();
+                }
             }, () => {});
 
             selectedLogsDate = new Date();
@@ -1066,7 +1592,10 @@
                 subscribeLogsForDate(selectedLogsDate);
                 renderLogs();
             }
-            if (viewName === 'settings') renderLocationMap();
+            if (viewName === 'settings') {
+                renderLocationMap();
+                renderInspectionChecklistManager();
+            }
             if (viewName === 'download') initDownloadUI();
         }
 
@@ -1134,21 +1663,30 @@
             
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => recordCheckIn(locationName, code, pos.coords),
-                    (err) => recordCheckIn(locationName, code, null)
+                    (pos) => openInspectionModal({ locationName, code, coords: pos.coords }),
+                    (err) => openInspectionModal({ locationName, code, coords: null })
                 );
             } else {
-                recordCheckIn(locationName, code, null);
+                openInspectionModal({ locationName, code, coords: null });
             }
         }
 
-        function recordCheckIn(locationName, originalCode, coords) {
+        function recordCheckIn(locationName, originalCode, coords, inspectionPayload) {
             const now = new Date();
             const timestamp = now.toLocaleString('zh-TW');
             const lat = coords ? Number(coords.latitude.toFixed(6)) : null;
             const lng = coords ? Number(coords.longitude.toFixed(6)) : null;
 
             if (!db || !dbUser || !selectedCommunityId) return;
+            const inspectionIds = Array.isArray(inspectionPayload?.ids) ? inspectionPayload.ids.map(x => String(x)) : [];
+            const inspectionItems = Array.isArray(inspectionPayload?.items)
+                ? inspectionPayload.items.map(x => ({
+                    groupId: normalizeKey(x.groupId),
+                    groupTitle: normalizeKey(x.groupTitle),
+                    itemId: normalizeKey(x.itemId),
+                    text: normalizeKey(x.text)
+                })).filter(x => x.groupId && x.itemId && x.text)
+                : [];
             settingsDocRef.collection('logs')
                 .add({
                     userId: dbUser.id,
@@ -1157,6 +1695,8 @@
                     location: locationName,
                     lat,
                     lng,
+                    inspectionIds,
+                    inspectionItems,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     source: 'web'
                 })
@@ -1165,6 +1705,20 @@
                     document.getElementById('modal-code').innerText = `代碼: ${originalCode}`;
                     document.getElementById('modal-time').innerText = `時間：${timestamp}`;
                     document.getElementById('modal-coords').innerText = `座標：${lat !== null ? lat.toFixed(6) : '無定位'}, ${lng !== null ? lng.toFixed(6) : '無定位'}`;
+                    const box = document.getElementById('modal-inspection');
+                    const listEl = document.getElementById('modal-inspection-items');
+                    if (box && listEl) {
+                        if (inspectionItems.length > 0) {
+                            listEl.innerHTML = inspectionItems.slice(0, 12).map(x => {
+                                const label = escapeHtml(`${x.groupTitle}｜${x.text}`);
+                                return `<div class="text-[11px] text-gray-600 leading-snug">- ${label}</div>`;
+                            }).join('');
+                            box.classList.remove('hidden');
+                        } else {
+                            listEl.innerHTML = '';
+                            box.classList.add('hidden');
+                        }
+                    }
                     document.getElementById('success-modal').classList.remove('hidden');
                     if (window.navigator.vibrate) window.navigator.vibrate([100, 50, 100]);
                 })
@@ -1227,6 +1781,7 @@
                     ? `<div class="flex flex-col items-end gap-2">
                            <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
                            <div class="flex gap-2">
+                               <button onclick='openInspectionLogModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1" title="督勤內容"><i data-lucide="list-checks" size="16"></i></button>
                                <button onclick='openEditLogModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                                <button onclick='deleteLog(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
                            </div>
