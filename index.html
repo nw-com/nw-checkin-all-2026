@@ -8871,6 +8871,13 @@
             // Feedback (客服) 資料狀態與處理函數
             const [feedbackData, setFeedbackData] = useState([]);
             const [feedbackLoading, setFeedbackLoading] = useState(false);
+            const [expandedFeedbackIds, setExpandedFeedbackIds] = useState([]);
+
+            const handleToggleFeedbackExpand = (id) => {
+                const key = String(id || '');
+                if (!key) return;
+                setExpandedFeedbackIds(prev => prev.includes(key) ? prev.filter(x => x !== key) : [...prev, key]);
+            };
 
             useEffect(() => {
                 try {
@@ -9083,7 +9090,9 @@
                     const rphone = String(item?.residentPhone || '');
                     const remail = String(item?.residentEmail || '');
                     const content = String(item?.residentFeedback || '');
+                    const receivedAt = formatDateTime(item?.createdAt || item?.timestamp || item?.updatedAt, false);
                     const parts = [
+                        `接收日期時間：${receivedAt}`,
                         '客服意見反應',
                         cid ? `社區編號：${cid}` : '',
                         cname ? `社區名稱：${cname}` : '',
@@ -17127,6 +17136,7 @@
                                     <table className="w-full text-left text-sm">
                                         <thead className="bg-gray-50 text-gray-500 border-b">
                                             <tr>
+                                                <th className="px-4 py-3 font-bold whitespace-nowrap">日期時間</th>
                                                 <th className="px-4 py-3 font-bold whitespace-nowrap">社區編號</th>
                                                 <th className="px-4 py-3 font-bold whitespace-nowrap">社區名稱</th>
                                                 <th className="px-4 py-3 font-bold whitespace-nowrap">住戶姓名</th>
@@ -17140,7 +17150,7 @@
                                         <tbody className="divide-y text-gray-600">
                                             {feedbackData.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan="8" className="px-4 py-8 text-center text-gray-400">
+                                                    <td colSpan="9" className="px-4 py-8 text-center text-gray-400">
                                                         尚無資料
                                                     </td>
                                                 </tr>
@@ -17156,14 +17166,35 @@
                                                             }
                                                             return true;
                                                         });
-                                                        return list.map(({ item, originalIndex }) => (
-                                                            <tr key={item.id || originalIndex} className="hover:bg-gray-50">
+                                                        return list.map(({ item, originalIndex }) => {
+                                                            const rowId = String(item.id || originalIndex);
+                                                            const raw = String(item.residentFeedback || '');
+                                                            const firstLine = raw.split(/\r?\n/)[0] || '';
+                                                            const firstLineChars = Array.from(firstLine);
+                                                            const previewLine = firstLineChars.slice(0, 20).join('') + (firstLineChars.length > 20 ? '…' : '');
+                                                            const expanded = expandedFeedbackIds.includes(rowId);
+                                                            return (
+                                                            <tr key={rowId} className="hover:bg-gray-50">
+                                                                <td className="px-4 py-3 whitespace-nowrap text-xs">{formatDateTime(item.createdAt || item.timestamp || item.updatedAt, false)}</td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">{item.communityId}</td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">{item.communityName}</td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">{item.residentName}</td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">{item.residentPhone}</td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">{item.residentEmail}</td>
-                                                                <td className="px-4 py-3 min-w-[200px]">{item.residentFeedback}</td>
+                                                                <td className="px-4 py-3 min-w-[260px] align-top">
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <div className={`flex-1 text-sm ${expanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
+                                                                            {expanded ? raw : previewLine}
+                                                                        </div>
+                                                                        <button 
+                                                                            type="button"
+                                                                            onClick={() => handleToggleFeedbackExpand(rowId)}
+                                                                            className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 flex-shrink-0 mt-[-4px]"
+                                                                        >
+                                                                            <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
                                                                 <td className="px-4 py-3 whitespace-nowrap">
                                                                     <button 
                                                                         onClick={() => toggleFeedbackStatus(originalIndex)}
@@ -17196,7 +17227,8 @@
                                                                     </button>
                                                                 </td>
                                                             </tr>
-                                                        ));
+                                                        );
+                                                        });
                                                     } catch (_) {
                                                         return null;
                                                     }
