@@ -6442,6 +6442,33 @@
                        d1.getDate() === d2.getDate();
             };
 
+            const pad2 = (n) => String(n).padStart(2, '0');
+            const formatYMD = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+            const computeLogicDateStr = (now, nightShift) => {
+                if (!nightShift) return formatYMD(now);
+                const base = new Date(now);
+                if (base.getHours() < 12) base.setDate(base.getDate() - 1);
+                return formatYMD(base);
+            };
+            const getRecordTime = (r) => {
+                const seconds = r?.timestamp?.seconds || r?.createdAt?.seconds || 0;
+                if (!seconds) return null;
+                return new Date(seconds * 1000);
+            };
+            const getRecordShiftStr = (r) => {
+                const s = String(r?.shift || '');
+                if (s === 'day' || s === 'night') return s;
+                if (typeof r?.isNightShift === 'boolean') return r.isNightShift ? 'night' : 'day';
+                return 'day';
+            };
+            const getRecordLogicDateStr = (r) => {
+                const logicDate = String(r?.logicDate || '').trim();
+                if (logicDate) return logicDate;
+                const t = getRecordTime(r) || new Date();
+                const night = getRecordShiftStr(r) === 'night';
+                return computeLogicDateStr(t, night);
+            };
+
             // Helper to calculate distance
             const calculateDistance = (lat1, lon1, lat2, lon2) => {
                 const R = 6371e3; // metres
@@ -6506,12 +6533,12 @@
                 if (mode !== 'work') return;
                 if (!currentUser) return;
 
-                const year = currentTime.getFullYear();
-                const month = String(currentTime.getMonth() + 1).padStart(2, '0');
-                const date = String(currentTime.getDate()).padStart(2, '0');
-                const todayStr = `${year}-${month}-${date}`;
-                const scheduleToday = mySchedules[todayStr];
-                const scheduleNight = !!(scheduleToday && (scheduleToday.startTime === '12:00' || scheduleToday.crossDay === true));
+                const todayStr = formatYMD(currentTime);
+                const scheduleDateStr = currentTime.getHours() < 12
+                    ? formatYMD(new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate() - 1))
+                    : todayStr;
+                const scheduleBase = mySchedules[scheduleDateStr];
+                const scheduleNight = !!(scheduleBase && (scheduleBase.startTime === '12:00' || scheduleBase.crossDay === true));
 
                 let defaultNight = scheduleNight;
 
@@ -6847,114 +6874,56 @@
                 }
             }, [currentUser, companies, communities, checkInLocation, setCheckInLocation, currentLocation, hasLocationSorted, isCompanyGroup, mode, isManualLocation]);
 
-            // Auto-Reset Logic: Determine if still "Working" within the shift window
-            const isWorking = useMemo(() => {
-                // 1. Determine current shift window (day: 00:00~23:59, night: 12:00~11:59 next day)
-                const y = currentTime.getFullYear();
-                const m = String(currentTime.getMonth() + 1).padStart(2, '0');
-                const d = String(currentTime.getDate()).padStart(2, '0');
-                const todayStr = `${y}-${m}-${d}`;
-                const scheduleToday = mySchedules[todayStr];
-                const isNightShift = !!(scheduleToday && (scheduleToday.startTime === '12:00' || scheduleToday.crossDay === true));
-                
-                let windowStart = new Date(currentTime);
-                let windowEnd = new Date(currentTime);
-                if (isNightShift) {
-                    if (windowStart.getHours() >= 12) {
-                        windowStart.setHours(12, 0, 0, 0);
-                    } else {
-                        windowStart.setDate(windowStart.getDate() - 1);
-                        windowStart.setHours(12, 0, 0, 0);
-                    }
-                    windowEnd = new Date(windowStart);
-                    windowEnd.setDate(windowEnd.getDate() + 1);
-                    windowEnd.setHours(11, 59, 59, 999);
-                } else {
-                    windowStart.setHours(0, 0, 0, 0);
-                    windowEnd.setHours(23, 59, 59, 999);
+            const activeLocationId = useMemo(() => {
+                const id = (checkInLocation && checkInLocation.id) ? checkInLocation.id : (currentUser?.communityId || '');
+                return String(id || '');
+            }, [checkInLocation?.id, currentUser?.communityId]);
+
+            const shiftStr = useMemo(() => (isNightShift ? 'night' : 'day'), [isNightShift]);
+            const logicDateStr = useMemo(() => computeLogicDateStr(currentTime, isNightShift), [currentTime, isNightShift]);
+
+            const workCheckState = useMemo(() => {
+                if (mode !== 'work') return { state: 'A', logicDate: logicDateStr, shift: shiftStr };
+                if (!currentUser?.id) return { state: 'A', logicDate: logicDateStr, shift: shiftStr };
+
+                const inTypes = new Set(['in', 'work_in', 'duty_in']);
+                const outTypes = new Set(['out', 'work_out', 'duty_out']);
+
+                const scoped = sourceHistory.filter(r => {
+                    if (String(r?.userId || '') !== String(currentUser.id)) return false;
+                    if (String(r?.communityId || '') !== activeLocationId) return false;
+                    if (getRecordShiftStr(r) !== shiftStr) return false;
+                    if (getRecordLogicDateStr(r) !== logicDateStr) return false;
+                    const t = String(r?.type || '');
+                    return inTypes.has(t) || outTypes.has(t);
+                });
+
+                let lastInTime = null;
+                for (const r of scoped) {
+                    if (!inTypes.has(String(r?.type || ''))) continue;
+                    const t = getRecordTime(r);
+                    if (!t) continue;
+                    if (!lastInTime || t > lastInTime) lastInTime = t;
                 }
 
-                // 2. Get records within window, sorted by time asc
-                const recordsInWindow = sourceHistory
-                    .filter(r => {
-                        const seconds = r.timestamp?.seconds || r.createdAt?.seconds || 0;
-                        const t = new Date(seconds * 1000);
-                        return t >= windowStart && t <= windowEnd;
-                    })
-                    .sort((a, b) => {
-                        const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
-                        const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
-                        return ta - tb;
-                    });
+                if (!lastInTime) return { state: 'A', logicDate: logicDateStr, shift: shiftStr };
 
-                // 3. If no 'in' in window -> not working
-                const lastInIndex = (() => {
-                    for (let i = recordsInWindow.length - 1; i >= 0; i--) {
-                        if (['in', 'work_in', 'duty_in'].includes(recordsInWindow[i].type)) return i;
+                let hasOutAfterIn = false;
+                for (const r of scoped) {
+                    if (!outTypes.has(String(r?.type || ''))) continue;
+                    const t = getRecordTime(r);
+                    if (!t) continue;
+                    if (t > lastInTime) {
+                        hasOutAfterIn = true;
+                        break;
                     }
-                    return -1;
-                })();
-                if (lastInIndex === -1) return false;
-
-                // 4. If has 'out' after last 'in' -> not working; otherwise working
-                const hasOutAfterIn = recordsInWindow.slice(lastInIndex + 1).some(r => ['out', 'work_out', 'duty_out'].includes(r.type));
-                return !hasOutAfterIn;
-            }, [sourceHistory, mySchedules, currentTime]);
-
-            const hasFinishedWork = useMemo(() => {
-                // 1. Determine current shift window (Same as isWorking)
-                const y = currentTime.getFullYear();
-                const m = String(currentTime.getMonth() + 1).padStart(2, '0');
-                const d = String(currentTime.getDate()).padStart(2, '0');
-                const todayStr = `${y}-${m}-${d}`;
-                const scheduleToday = mySchedules[todayStr];
-                const isNightShift = !!(scheduleToday && (scheduleToday.startTime === '12:00' || scheduleToday.crossDay === true));
-                
-                let windowStart = new Date(currentTime);
-                let windowEnd = new Date(currentTime);
-                if (isNightShift) {
-                    if (windowStart.getHours() >= 12) {
-                        windowStart.setHours(12, 0, 0, 0);
-                    } else {
-                        windowStart.setDate(windowStart.getDate() - 1);
-                        windowStart.setHours(12, 0, 0, 0);
-                    }
-                    windowEnd = new Date(windowStart);
-                    windowEnd.setDate(windowEnd.getDate() + 1);
-                    windowEnd.setHours(11, 59, 59, 999);
-                } else {
-                    windowStart.setHours(0, 0, 0, 0);
-                    windowEnd.setHours(23, 59, 59, 999);
                 }
 
-                // 2. Get records within window
-                const recordsInWindow = sourceHistory
-                    .filter(r => {
-                        const seconds = r.timestamp?.seconds || r.createdAt?.seconds || 0;
-                        const t = new Date(seconds * 1000);
-                        return t >= windowStart && t <= windowEnd;
-                    })
-                    .sort((a, b) => {
-                        const ta = a.timestamp?.seconds || a.createdAt?.seconds || 0;
-                        const tb = b.timestamp?.seconds || b.createdAt?.seconds || 0;
-                        return ta - tb;
-                    });
+                return { state: hasOutAfterIn ? 'C' : 'B', logicDate: logicDateStr, shift: shiftStr };
+            }, [mode, sourceHistory, currentUser?.id, activeLocationId, shiftStr, logicDateStr]);
 
-                // 3. Logic for "Finished"
-                const lastInIndex = (() => {
-                    for (let i = recordsInWindow.length - 1; i >= 0; i--) {
-                        if (['in', 'work_in', 'duty_in'].includes(recordsInWindow[i].type)) return i;
-                    }
-                    return -1;
-                })();
-
-                if (lastInIndex === -1) return false; // Never clocked in
-
-                // Has IN. Check if there is an OUT after it.
-                const hasOutAfterIn = recordsInWindow.slice(lastInIndex + 1).some(r => ['out', 'work_out', 'duty_out'].includes(r.type));
-                
-                return hasOutAfterIn;
-            }, [sourceHistory, mySchedules, currentTime]);
+            const isWorking = useMemo(() => (mode === 'work' && workCheckState.state === 'B'), [mode, workCheckState.state]);
+            const hasFinishedWork = useMemo(() => (mode === 'work' && workCheckState.state === 'C'), [mode, workCheckState.state]);
 
             const isOutingActive = useMemo(() => {
                 if (!lastRecord || !['outing_start','outing_arrive'].includes(lastRecord.type)) return false;
@@ -7010,21 +6979,20 @@
                 }
 
                 if (hasFinishedWork) {
-                    return { type: 'finished', text: '今日勤務已完成', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-gray-200 text-gray-500 border-2 border-gray-100 cursor-not-allowed', iconBg: 'bg-gray-100', iconColor: 'text-gray-500', disabled: true };
+                    return { type: 'finished', text: '已完成今日勤務', sub: '打卡已鎖定', icon: LogOut, colorClass: 'bg-gray-200 text-gray-500 border-2 border-gray-100 cursor-not-allowed', iconBg: 'bg-gray-100', iconColor: 'text-gray-500', disabled: true };
                 }
                 
                 // Default work mode
-                if (!isWorking) { // Preparing for Clock In
-                     const y = currentTime.getFullYear();
-                     const m = String(currentTime.getMonth() + 1).padStart(2, '0');
-                     const d = String(currentTime.getDate()).padStart(2, '0');
-                     const todayStr = `${y}-${m}-${d}`;
-                     
-                     // Check Schedule & Holiday Logic
-                     const schedule = mySchedules[todayStr];
-                     const dayOfWeek = currentTime.getDay();
+                if (workCheckState.state === 'B') {
+                    return { type: 'out', text: '下班打卡', sub: '結束今日勤務', icon: LogOut, colorClass: 'bg-white text-red-600 border-2 border-red-100', iconBg: 'bg-red-50', iconColor: 'text-red-600' };
+                }
+
+                if (workCheckState.state === 'A') {
+                     const baseDate = new Date(`${logicDateStr}T00:00:00`);
+                     const schedule = mySchedules[logicDateStr];
+                     const dayOfWeek = baseDate.getDay();
                      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                     const isNationalHoliday = holidays.includes(todayStr);
+                     const isNationalHoliday = holidays.includes(logicDateStr);
                      const isCalendarHoliday = isWeekend || isNationalHoliday;
 
                      // 1. If Schedule Exists
@@ -7037,10 +7005,10 @@
                              const [sh, sm] = startTimeStr.split(':').map(Number);
                              const [eh, em] = endTimeStr.split(':').map(Number);
                              
-                             const startDateTime = new Date(currentTime);
+                             const startDateTime = new Date(baseDate);
                              startDateTime.setHours(sh, sm, 0, 0);
                              
-                             const endDateTime = new Date(currentTime);
+                             const endDateTime = new Date(baseDate);
                              endDateTime.setHours(eh, em, 0, 0);
                              
                              // Handle crossDay or implied crossDay
@@ -7052,8 +7020,9 @@
                              const leaveEarlyThreshold = new Date(endDateTime.getTime() - 60 * 60000); // -60 mins
                              
                              if (currentTime > lateThreshold && currentTime < leaveEarlyThreshold) {
+                                 const lateType = schedule.type === 'duty' ? 'duty_in' : 'work_in';
                                  return { 
-                                     type: 'work_in', 
+                                     type: lateType, 
                                      text: '補上班打卡', 
                                      sub: '紀錄補上班時間', 
                                      icon: MapPin, 
@@ -7062,14 +7031,15 @@
                                      iconColor: 'text-gray-500' 
                                  };
                              } else if (currentTime >= leaveEarlyThreshold) {
+                                 const lateType = schedule.type === 'duty' ? 'duty_in' : 'work_in';
                                  return { 
-                                     type: 'out', 
-                                     text: '下班打卡', 
-                                     sub: '結束今日勤務', 
-                                     icon: LogOut, 
-                                     colorClass: 'bg-white text-red-600 border-2 border-red-100', 
-                                     iconBg: 'bg-red-50', 
-                                     iconColor: 'text-red-600' 
+                                     type: lateType, 
+                                     text: '補上班打卡', 
+                                     sub: '紀錄補上班時間', 
+                                     icon: MapPin, 
+                                     colorClass: 'bg-gray-100 text-gray-600 border-2 border-gray-200', 
+                                     iconBg: 'bg-gray-200', 
+                                     iconColor: 'text-gray-500' 
                                  };
                              }
 
@@ -7101,22 +7071,34 @@
                      return;
                  }
                  if (config.disabled) return;
+                 if (mode === 'work') {
+                     const isWorkInType = ['in', 'work_in', 'duty_in'].includes(config.type);
+                     const isWorkOutType = ['out', 'work_out', 'duty_out'].includes(config.type);
+                     if (workCheckState.state === 'C') return;
+                     if (isWorkInType && workCheckState.state !== 'A') {
+                         alert('目前狀態僅允許下班打卡');
+                         return;
+                     }
+                     if (isWorkOutType && workCheckState.state !== 'B') {
+                         alert('目前狀態僅允許上班打卡');
+                         return;
+                     }
+                 }
                  
                  // Intercept only 'in' (Clock In)
-                 if (config.type === 'in') {
-                     const y = currentTime.getFullYear();
-                     const m = String(currentTime.getMonth() + 1).padStart(2, '0');
-                     const d = String(currentTime.getDate()).padStart(2, '0');
-                     const todayStr = `${y}-${m}-${d}`;
+                 if (['in', 'work_in', 'duty_in'].includes(config.type)) {
                      
                      // 1. Check if 'Leave' (Approved Leave Request)
-                     const todayStart = new Date(`${todayStr}T00:00:00`);
-                     const todayEnd = new Date(`${todayStr}T23:59:59`);
+                     const dayStart = new Date(`${logicDateStr}T00:00:00`);
+                     const dayEnd = new Date(`${logicDateStr}T23:59:59`);
                      
                      const isLeaveToday = myLeaves.some(l => {
-                         const start = new Date(l.startDate);
-                         const end = new Date(l.endDate);
-                         return start <= todayEnd && end >= todayStart;
+                         const startRaw = l.startDate || l.leaveStartDate || l.leaveStart || l.start || '';
+                         const endRaw = l.endDate || l.leaveEndDate || l.leaveEnd || l.end || '';
+                         const start = startRaw ? new Date(startRaw) : null;
+                         const end = endRaw ? new Date(endRaw) : null;
+                         if (!start || !end) return false;
+                         return start <= dayEnd && end >= dayStart;
                      });
 
                      if (isLeaveToday) {
@@ -7129,7 +7111,7 @@
                      }
 
                      // 2. Check Schedule
-                     const schedule = mySchedules[todayStr];
+                     const schedule = mySchedules[logicDateStr];
                      if (schedule) {
                          if (schedule.type === 'off') {
                             setScheduleConfirmData({
@@ -7145,7 +7127,7 @@
                              const endTimeStr = schedule.endTime || '18:00';
                              
                              const [sh, sm] = startTimeStr.split(':').map(Number);
-                             const scheduleStart = new Date(currentTime);
+                             const scheduleStart = new Date(`${logicDateStr}T00:00:00`);
                              scheduleStart.setHours(sh, sm, 0, 0);
 
                              const isEarly = currentTime < scheduleStart;
@@ -7172,12 +7154,26 @@
                  if (config.type === 'leave') {
                      setShowLeaveModal(true);
                 } else {
+                    const extra = {};
+                    const isWorkType = ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(config.type);
+                    if (mode === 'work' && isWorkType) {
+                        const roleObj = (roles || []).find(r => r.id === currentUser?.role);
+                        const roleName = roleObj ? roleObj.name : currentUser?.roleName;
+                        const schedule = mySchedules[logicDateStr];
+                        const positionId = roleName === '保全'
+                            ? String(schedule?.sentryPoint || currentUser?.defaultSentryPoint || '')
+                            : '';
+                        extra.logicDate = logicDateStr;
+                        extra.shift = shiftStr;
+                        extra.locationId = activeLocationId;
+                        extra.positionId = positionId;
+                    }
                     onClockIn(
                         config.type, 
                         availableLocations,
-                        (config.type || '').startsWith('outing') 
-                            ? { outingReason: (outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption) } 
-                            : undefined
+                        (config.type || '').startsWith('outing')
+                            ? { ...extra, outingReason: (outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption) }
+                            : extra
                     );
                 }
             };
@@ -10046,6 +10042,7 @@
             const [resetPasswordSaving, setResetPasswordSaving] = useState(false);
             const [showCameraModal, setShowCameraModal] = useState(false);
             const [clockType, setClockType] = useState('in');
+            const [pendingClockMeta, setPendingClockMeta] = useState(null);
             const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
             const [timeOffset, setTimeOffset] = useState(0);
             const [timeSynced, setTimeSynced] = useState(false);
@@ -13244,6 +13241,14 @@
             const handleClockIn = (type, locations = [], extra = {}) => {
                 if (!requireOnline('目前離線，無法打卡')) return;
                 setClockType(type);
+                const meta = {
+                    logicDate: extra?.logicDate,
+                    shift: extra?.shift,
+                    locationId: extra?.locationId,
+                    positionId: extra?.positionId
+                };
+                const hasAnyMeta = !!(meta.logicDate || meta.shift || meta.locationId || meta.positionId);
+                setPendingClockMeta(hasAnyMeta ? meta : null);
                 if (locations.length > 0) {
                     setAvailableClockInLocations(locations);
                 }
@@ -13305,28 +13310,54 @@
 
                 // 2. Database Step
                 try {
+                    const isWorkClockType = ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(clockType);
+                    const pad2 = (n) => String(n).padStart(2, '0');
+                    const formatYMD = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+                    const computeLogicDateStr = (now, shift) => {
+                        if (String(shift) !== 'night') return formatYMD(now);
+                        const base = new Date(now);
+                        if (base.getHours() < 12) base.setDate(base.getDate() - 1);
+                        return formatYMD(base);
+                    };
+                    const clockNow = networkTime || new Date();
+                    const resolvedShift = (pendingClockMeta && pendingClockMeta.shift) ? String(pendingClockMeta.shift) : (isNightShift ? 'night' : 'day');
+                    const resolvedLogicDate = (pendingClockMeta && pendingClockMeta.logicDate) ? String(pendingClockMeta.logicDate) : computeLogicDateStr(clockNow, resolvedShift);
+                    const resolvedLocationId = (pendingClockMeta && pendingClockMeta.locationId)
+                        ? String(pendingClockMeta.locationId)
+                        : String((checkInLocation ? checkInLocation.id : dbUser.communityId) || '');
+                    const resolvedPositionId = (pendingClockMeta && pendingClockMeta.positionId) ? String(pendingClockMeta.positionId) : '';
+
+                    const payload = {
+                        userId: dbUser.id,
+                        userName: dbUser.name,
+                        userRole: dbUser.role,
+                        communityId: checkInLocation ? checkInLocation.id : dbUser.communityId,
+                        checkInLocationName: checkInLocation ? checkInLocation.name : (dbUser.communityName || ''),
+                        type: clockType,
+                        outingReason: (clockType || '').startsWith('outing') ? (pendingOutingReason || '') : '',
+                        isNightShift: !!isNightShift,
+                        timestamp: serverTimestamp(),
+                        device: 'Web Browser',
+                        location: `${location.lat}, ${location.lng}`,
+                        address: address,
+                        photoUrl: photoUrl
+                    };
+                    if (isWorkClockType) {
+                        payload.shift = resolvedShift;
+                        payload.logicDate = resolvedLogicDate;
+                        payload.locationId = resolvedLocationId;
+                        if (resolvedPositionId) payload.positionId = resolvedPositionId;
+                    }
+
                     await withTimeout(
-                        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
-                            userId: dbUser.id,
-                            userName: dbUser.name,
-                            userRole: dbUser.role,
-                            communityId: checkInLocation ? checkInLocation.id : dbUser.communityId,
-                            checkInLocationName: checkInLocation ? checkInLocation.name : (dbUser.communityName || ''),
-                            type: clockType,
-                            outingReason: (clockType || '').startsWith('outing') ? (pendingOutingReason || '') : '',
-                            isNightShift: !!isNightShift,
-                            timestamp: serverTimestamp(),
-                            device: 'Web Browser',
-                            location: `${location.lat}, ${location.lng}`,
-                            address: address,
-                            photoUrl: photoUrl
-                        }),
+                        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), payload),
                         15000,
                         '資料寫入逾時(15秒)'
                     );
                     
                     setShowCameraModal(false);
                     setToast('打卡完成');
+                    setPendingClockMeta(null);
                 } catch (e) {
                     console.error("Database Error", e);
                     let msg = e.message;
