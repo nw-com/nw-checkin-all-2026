@@ -8809,6 +8809,12 @@
             const [leaveDocPdfError, setLeaveDocPdfError] = useState('');
             const leaveDocPdfRef = useRef(null);
             const [leaveDocPdfPreviewScale, setLeaveDocPdfPreviewScale] = useState(1);
+            const [leaveDocListTab, setLeaveDocListTab] = useState('special');
+            const [showLeaveDocCreateModal, setShowLeaveDocCreateModal] = useState(false);
+            const [leaveDocCreateForm, setLeaveDocCreateForm] = useState({ rangeStart: '', rangeEnd: '', selectedDates: [], description: '' });
+            const [leaveDocCreateMonth, setLeaveDocCreateMonth] = useState('');
+            const [leaveDocCreateBusy, setLeaveDocCreateBusy] = useState(false);
+            const [leaveDocCreateError, setLeaveDocCreateError] = useState('');
             const [leaveDocSignatureMap, setLeaveDocSignatureMap] = useState({});
             const [showLeaveDocSignatureModal, setShowLeaveDocSignatureModal] = useState(false);
             const [leaveDocSignatureLeaveId, setLeaveDocSignatureLeaveId] = useState('');
@@ -13520,6 +13526,137 @@
                 return () => window.removeEventListener('resize', calc);
             }, [showLeaveDocPdfModal]);
 
+            const openLeaveDocCreateModal = () => {
+                const now = new Date();
+                const yyyy = now.getFullYear();
+                const mm = String(now.getMonth() + 1).padStart(2, '0');
+                const dd = String(now.getDate()).padStart(2, '0');
+                const today = `${yyyy}-${mm}-${dd}`;
+                setLeaveDocCreateError('');
+                setLeaveDocCreateForm({ rangeStart: today, rangeEnd: today, selectedDates: [today], description: '' });
+                setLeaveDocCreateMonth(`${yyyy}-${mm}`);
+                setShowLeaveDocCreateModal(true);
+            };
+
+            const closeLeaveDocCreateModal = () => {
+                setShowLeaveDocCreateModal(false);
+                setLeaveDocCreateBusy(false);
+                setLeaveDocCreateError('');
+            };
+
+            const buildLeaveDateRange = (startStr, endStr) => {
+                const s = String(startStr || '').trim();
+                const e = String(endStr || '').trim();
+                if (!s || !e) return [];
+                const start = new Date(`${s}T00:00:00`);
+                const end = new Date(`${e}T00:00:00`);
+                if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return [];
+                const list = [];
+                const cur = new Date(start);
+                let guard = 0;
+                while (cur <= end && guard < 400) {
+                    const yy = cur.getFullYear();
+                    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+                    const dd = String(cur.getDate()).padStart(2, '0');
+                    list.push(`${yy}-${mm}-${dd}`);
+                    cur.setDate(cur.getDate() + 1);
+                    guard += 1;
+                }
+                return list;
+            };
+
+            const updateLeaveDocCreateRange = (patch) => {
+                setLeaveDocCreateForm(prev => {
+                    const next = { ...prev, ...patch };
+                    const all = buildLeaveDateRange(next.rangeStart, next.rangeEnd);
+                    const selected = Array.isArray(next.selectedDates) ? next.selectedDates : [];
+                    const filtered = selected.filter(d => all.includes(d));
+                    next.selectedDates = filtered.length > 0 ? filtered : (all.length > 0 ? [all[0]] : []);
+                    return next;
+                });
+            };
+
+            const toggleLeaveDocCreateDate = (d, checked) => {
+                const day = String(d || '');
+                if (!day) return;
+                setLeaveDocCreateForm(prev => {
+                    const set = new Set(Array.isArray(prev.selectedDates) ? prev.selectedDates : []);
+                    if (checked) set.add(day);
+                    else set.delete(day);
+                    return { ...prev, selectedDates: Array.from(set).sort() };
+                });
+            };
+
+            const parseMonthKey = (key) => {
+                const s = String(key || '');
+                const parts = s.split('-');
+                const y = Number(parts[0] || 0);
+                const m = Number(parts[1] || 0);
+                if (!y || !m || m < 1 || m > 12) return null;
+                return { y, m };
+            };
+
+            const monthKeyFrom = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
+
+            const shiftMonthKey = (key, delta) => {
+                const parsed = parseMonthKey(key) || (() => {
+                    const n = new Date();
+                    return { y: n.getFullYear(), m: n.getMonth() + 1 };
+                })();
+                const base = new Date(parsed.y, parsed.m - 1, 1);
+                base.setMonth(base.getMonth() + Number(delta || 0));
+                return monthKeyFrom(base.getFullYear(), base.getMonth() + 1);
+            };
+
+            const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+
+            const ymd = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+            const submitLeaveDocCreate = async () => {
+                if (!dbUser) return;
+                if (!isOnline) { setLeaveDocCreateError('目前離線，無法新增'); return; }
+                const selectedDates = Array.isArray(leaveDocCreateForm?.selectedDates) ? leaveDocCreateForm.selectedDates : [];
+                const description = String(leaveDocCreateForm?.description || '').trim();
+                const uniqueDays = Array.from(new Set(selectedDates.map(d => String(d).trim()).filter(Boolean))).sort();
+                if (uniqueDays.length === 0) { setLeaveDocCreateError('請至少勾選一天'); return; }
+                setLeaveDocCreateBusy(true);
+                setLeaveDocCreateError('');
+                try {
+                    const first = uniqueDays[0];
+                    const last = uniqueDays[uniqueDays.length - 1];
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaves'), {
+                        userId: dbUser.id,
+                        userName: dbUser.name,
+                        userRole: dbUser.role,
+                        companyId: dbUser.companyId || '',
+                        companyName: dbUser.companyName || dbUser.company || '',
+                        communityId: '',
+                        checkInLocationName: '',
+                        type: 'leave_doc',
+                        timestamp: serverTimestamp(),
+                        createdAt: serverTimestamp(),
+                        device: 'Web Browser',
+                        leaveReason: '特休',
+                        leaveDates: uniqueDays,
+                        leaveStartDate: `${first}T09:00`,
+                        leaveEndDate: `${last}T18:00`,
+                        leaveDescription: description,
+                        approvalStatus: 'approved'
+                    });
+                    closeLeaveDocCreateModal();
+                } catch (e) {
+                    setLeaveDocCreateError(e?.message || '新增失敗');
+                } finally {
+                    setLeaveDocCreateBusy(false);
+                }
+            };
+
+            const deleteLeaveDocSpecial = async (leaveId) => {
+                const id = String(leaveId || '');
+                if (!id) return;
+                setConfirmDelete({ type: 'leaveDocSpecial', id, label: '特休假單' });
+            };
+
             const formatLeaveDocDateTime = (v) => {
                 if (!v) return '';
                 const raw = String(v);
@@ -13533,6 +13670,25 @@
                     return `${yy}/${mm}/${dd} ${hh}:${mi}`;
                 }
                 return raw.replace('T', ' ');
+            };
+
+            const normalizeLeaveYmd = (v) => {
+                const raw = String(v || '').trim();
+                if (!raw) return '';
+                const ymd = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
+                const parts = ymd.split('-');
+                if (parts.length < 3) return '';
+                const y = Number(parts[0]);
+                const m = Number(parts[1]);
+                const d = Number(parts[2]);
+                if (!y || !m || !d) return '';
+                return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            };
+
+            const formatLeaveDocDateOnly = (v) => {
+                const ymd = normalizeLeaveYmd(v);
+                if (!ymd) return '';
+                return ymd.replace(/-/g, '/');
             };
 
             const buildLeaveDocPdfBlob = async () => {
@@ -17635,7 +17791,10 @@
                                                     .filter(l => String(l.userId || '') === String(dbUser.id))
                                                     .sort((a, b) => toSecs(b) - toSecs(a));
 
-                                                if (list.length === 0) return <div className="text-center py-8 text-gray-400 font-bold">尚無假單</div>;
+                                                const isSpecialLeave = (l) => String(l?.leaveReason || '').trim() === '特休';
+                                                const specialList = list.filter(isSpecialLeave);
+                                                const generalList = list.filter(l => !isSpecialLeave(l));
+                                                const displayList = leaveDocListTab === 'special' ? specialList : generalList;
 
                                                 const statusLabel = (s) => {
                                                     if (s === 'approved') return '核准';
@@ -17651,8 +17810,40 @@
                                                 };
 
                                                 return (
-                                                    <div className="space-y-2">
-                                                        {list.slice(0, 200).map(l => {
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setLeaveDocListTab('special')}
+                                                                className={`px-3 py-2 text-xs font-bold rounded-2xl ${leaveDocListTab === 'special' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                            >
+                                                                特休
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setLeaveDocListTab('general')}
+                                                                className={`px-3 py-2 text-xs font-bold rounded-2xl ${leaveDocListTab === 'general' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                            >
+                                                                一般
+                                                            </button>
+                                                            <div className="flex-1"></div>
+                                                            {leaveDocListTab === 'special' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={openLeaveDocCreateModal}
+                                                                    className="px-3 py-2 text-xs font-bold rounded-2xl bg-red-600 text-white hover:bg-red-700 whitespace-nowrap"
+                                                                >
+                                                                    新增
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        {displayList.length === 0 ? (
+                                                            <div className="text-center py-8 text-gray-400 font-bold">
+                                                                {leaveDocListTab === 'special' ? '尚無特休' : '尚無假單'}
+                                                            </div>
+                                                        ) : (
+                                                        <div className="space-y-2">
+                                                        {displayList.slice(0, 200).map(l => {
                                                             const roleKey = String(dbUser?.role || '').trim().toLowerCase();
                                                             const roleObj = (roles || []).find(r => String(r.id) === String(dbUser?.role));
                                                             const myRoleName = String((roleObj?.name || dbUser?.roleName || '')).trim();
@@ -17670,7 +17861,20 @@
 
                                                             const comm = (communities || []).find(c => String(c.id) === String(l.communityId));
                                                             const commName = comm ? comm.name : (l.checkInLocationName || l.communityId || '');
-                                                            const dateRange = `${l.leaveStartDate || ''}${l.leaveEndDate ? ` ~ ${l.leaveEndDate}` : ''}`;
+                                                            const isSpecialCard = leaveDocListTab === 'special';
+                                                            const rawDates = Array.isArray(l.leaveDates) ? l.leaveDates : [];
+                                                            const normalizedDates = Array.from(new Set(rawDates.map(normalizeLeaveYmd).filter(Boolean))).sort();
+                                                            const firstYmd = normalizedDates.length > 0 ? normalizedDates[0] : normalizeLeaveYmd(l.leaveStartDate || '');
+                                                            const lastYmd = normalizedDates.length > 0 ? normalizedDates[normalizedDates.length - 1] : normalizeLeaveYmd(l.leaveEndDate || '');
+                                                            const dateRange = (function(){
+                                                                if (isSpecialCard) {
+                                                                    if (normalizedDates.length <= 1) return formatLeaveDocDateOnly(firstYmd);
+                                                                    return `${formatLeaveDocDateOnly(firstYmd)} ~ ${formatLeaveDocDateOnly(lastYmd)}（${normalizedDates.length}天）`;
+                                                                }
+                                                                const startStr = formatLeaveDocDateTime(l.leaveStartDate || '');
+                                                                const endStr = formatLeaveDocDateTime(l.leaveEndDate || '');
+                                                                return endStr ? `${startStr} ~ ${endStr}` : startStr;
+                                                            })();
                                                             const reason = l.leaveReason || '';
                                                             const desc = l.leaveDescription || '';
                                                             return (
@@ -17684,10 +17888,22 @@
                                                                             <div className="text-sm text-gray-700 font-bold mt-2 truncate">{reason || '請假'}</div>
                                                                             {desc && <div className="text-xs text-gray-500 mt-1 line-clamp-2">{desc}</div>}
                                                                         </div>
-                                                                        <div className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${statusClass(l.approvalStatus)}`}>
-                                                                            {statusLabel(l.approvalStatus)}
-                                                                        </div>
+                                                                        {!isSpecialCard && (
+                                                                            <div className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${statusClass(l.approvalStatus)}`}>
+                                                                                {statusLabel(l.approvalStatus)}
+                                                                            </div>
+                                                                        )}
                                                                     </div>
+                                                                    {isSpecialCard && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => deleteLeaveDocSpecial(l.id)}
+                                                                            className="absolute bottom-3 right-14 px-3 h-10 rounded-full bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200 transition"
+                                                                            title="刪除"
+                                                                        >
+                                                                            刪除
+                                                                        </button>
+                                                                    )}
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => openLeaveDocPdf(l)}
@@ -17699,9 +17915,129 @@
                                                                 </div>
                                                             );
                                                         })}
+                                                        </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })()}
+                                        </div>
+                                    </div>
+                                )}
+                                {showLeaveDocCreateModal && (
+                                    <div className="fixed inset-0 z-[96] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+                                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                                            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
+                                                <div className="font-black text-gray-800 text-sm">新增特休假單</div>
+                                                <button
+                                                    type="button"
+                                                    onClick={closeLeaveDocCreateModal}
+                                                    className="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                                >
+                                                    <X className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                            <div className="p-4 space-y-4">
+                                                <div className="text-xs text-gray-500 font-bold">此內容僅用於生成 PDF，不與班表/出勤聯動</div>
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-bold text-gray-600">勾選日期（可單選或複選）</label>
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3">
+                                                        <div className="flex items-center justify-between gap-2 mb-3">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setLeaveDocCreateMonth(prev => shiftMonthKey(prev, -1))}
+                                                                className="px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-100"
+                                                            >
+                                                                上月
+                                                            </button>
+                                                            <div className="text-sm font-black text-gray-800">
+                                                                {leaveDocCreateMonth || ''}
+                                                                <span className="ml-2 text-xs text-gray-500 font-bold">已選 {(leaveDocCreateForm.selectedDates || []).length} 天</span>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setLeaveDocCreateMonth(prev => shiftMonthKey(prev, 1))}
+                                                                className="px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-100"
+                                                            >
+                                                                下月
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-7 gap-2 text-xs font-bold text-gray-500 mb-2">
+                                                            <div className="text-center">日</div>
+                                                            <div className="text-center">一</div>
+                                                            <div className="text-center">二</div>
+                                                            <div className="text-center">三</div>
+                                                            <div className="text-center">四</div>
+                                                            <div className="text-center">五</div>
+                                                            <div className="text-center">六</div>
+                                                        </div>
+
+                                                        {(function(){
+                                                            const parsed = parseMonthKey(leaveDocCreateMonth) || (function(){
+                                                                const n = new Date();
+                                                                return { y: n.getFullYear(), m: n.getMonth() + 1 };
+                                                            })();
+                                                            const y = parsed.y;
+                                                            const m = parsed.m;
+                                                            const first = new Date(y, m - 1, 1).getDay();
+                                                            const total = daysInMonth(y, m);
+                                                            const cells = [];
+                                                            for (let i = 0; i < first; i++) cells.push(null);
+                                                            for (let d = 1; d <= total; d++) cells.push(d);
+                                                            while (cells.length % 7 !== 0) cells.push(null);
+                                                            const selected = new Set(leaveDocCreateForm.selectedDates || []);
+
+                                                            return (
+                                                                <div className="grid grid-cols-7 gap-2">
+                                                                    {cells.map((d, idx) => {
+                                                                        if (!d) return <div key={`e_${idx}`} className="h-10" />;
+                                                                        const key = ymd(y, m, d);
+                                                                        const on = selected.has(key);
+                                                                        return (
+                                                                            <button
+                                                                                key={key}
+                                                                                type="button"
+                                                                                onClick={() => toggleLeaveDocCreateDate(key, !on)}
+                                                                                className={`h-10 rounded-xl text-sm font-black border transition ${on ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-800 border-gray-200 hover:bg-gray-100'}`}
+                                                                            >
+                                                                                {d}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-bold text-gray-600">事由</label>
+                                                    <textarea
+                                                        value={leaveDocCreateForm.description}
+                                                        onChange={(e) => setLeaveDocCreateForm(prev => ({ ...prev, description: e.target.value }))}
+                                                        className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-3 text-sm min-h-[90px]"
+                                                        placeholder="可留空"
+                                                    />
+                                                </div>
+                                                {leaveDocCreateError && <div className="text-xs text-red-600 font-bold">{leaveDocCreateError}</div>}
+                                            </div>
+                                            <div className="px-4 py-3 border-t border-gray-100 flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={closeLeaveDocCreateModal}
+                                                    className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition"
+                                                    disabled={leaveDocCreateBusy}
+                                                >
+                                                    取消
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={submitLeaveDocCreate}
+                                                    className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition disabled:opacity-50"
+                                                    disabled={leaveDocCreateBusy}
+                                                >
+                                                    確認
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -17777,11 +18113,19 @@
                                                             const idNo = String(dbUser?.nationalId || dbUser?.idNumber || '').trim();
                                                             const leaveType = String(l.leaveReason || '').trim();
                                                             const reason = String(l.leaveDescription || '').trim();
-                                                            const start = formatLeaveDocDateTime(l.leaveStartDate || '');
-                                                            const end = formatLeaveDocDateTime(l.leaveEndDate || '');
+                                                            const isSpecial = leaveType === '特休';
+
+                                                            const rawDates = Array.isArray(l.leaveDates) ? l.leaveDates : [];
+                                                            const normalizedDates = Array.from(new Set(rawDates.map(normalizeLeaveYmd).filter(Boolean))).sort();
+                                                            const firstYmd = normalizedDates.length > 0 ? normalizedDates[0] : normalizeLeaveYmd(l.leaveStartDate || '');
+                                                            const lastYmd = normalizedDates.length > 0 ? normalizedDates[normalizedDates.length - 1] : normalizeLeaveYmd(l.leaveEndDate || '');
+                                                            const start = isSpecial ? formatLeaveDocDateOnly(firstYmd) : formatLeaveDocDateTime(l.leaveStartDate || '');
+                                                            const end = isSpecial ? formatLeaveDocDateOnly(lastYmd) : formatLeaveDocDateTime(l.leaveEndDate || '');
+                                                            const datesText = normalizedDates.length > 0 ? normalizedDates.map(formatLeaveDocDateOnly).join('、') : '';
+                                                            const reasonCell = isSpecial ? reason : reason;
                                                             const status = String(l.approvalStatus || '').trim();
 
-                                                            const statusText = status === 'approved' ? '核准' : status === 'rejected' ? '拒絕' : status === 'pending' ? '待核准' : '';
+                                                            const statusText = isSpecial ? '' : (status === 'approved' ? '核准' : status === 'rejected' ? '拒絕' : status === 'pending' ? '待核准' : '');
 
                                                             return (
                                                                 <div className="w-full h-full">
@@ -17808,7 +18152,7 @@
                                                                                 </div>
                                                                                 <div className="col-span-3 p-2 text-base">
                                                                                     <div className="flex gap-2">
-                                                                                        <div className="font-bold w-[86px]">身分證字號：</div>
+                                                                                        <div className="font-bold w-[86px] whitespace-nowrap">身分證字號：</div>
                                                                                         <div className="flex-1">{idNo || '—'}</div>
                                                                                     </div>
                                                                                 </div>
@@ -17821,14 +18165,18 @@
 
                                                                             <div className="grid grid-cols-12 border-b border-gray-700">
                                                                                 <div className="col-span-2 border-r border-gray-700 p-2 text-base font-bold">事由</div>
-                                                                                <div className="col-span-10 p-2 text-base whitespace-pre-wrap">{reason || '—'}</div>
+                                                                                <div className="col-span-10 p-2 text-base whitespace-pre-wrap">{reasonCell || '—'}</div>
                                                                             </div>
 
                                                                             <div className="grid grid-cols-12 border-b border-gray-700">
-                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-base font-bold">起迄時間</div>
-                                                                                <div className="col-span-10 p-2 text-base">
-                                                                                    <div>起：{start || '—'}</div>
-                                                                                    <div>迄：{end || '—'}</div>
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-base font-bold">{isSpecial ? '日期時間' : '起迄時間'}</div>
+                                                                                <div className={`col-span-10 p-2 text-base ${isSpecial ? 'whitespace-pre-wrap break-words' : ''}`}>
+                                                                                    {isSpecial ? (datesText || start || '—') : (
+                                                                                        <>
+                                                                                            <div>起：{start || '—'}</div>
+                                                                                            <div>迄：{end || '—'}</div>
+                                                                                        </>
+                                                                                    )}
                                                                                 </div>
                                                                             </div>
 
@@ -17846,7 +18194,7 @@
                                                                                             const url = leaveId ? (leaveDocSignatureMap && leaveDocSignatureMap[leaveId] ? leaveDocSignatureMap[leaveId].applicant : '') : '';
                                                                                             if (url) return <img src={url} alt="signature" className="max-h-[72px] w-full object-contain" style={{ mixBlendMode: 'multiply' }} />;
                                                                                             return (
-                                                                                                <button type="button" onClick={openLeaveDocSignature} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200">
+                                                                                                <button type="button" onClick={openLeaveDocSignature} className="px-6 py-4 rounded-2xl bg-gray-100 text-gray-700 text-lg font-black hover:bg-gray-200">
                                                                                                     簽名
                                                                                                 </button>
                                                                                             );
@@ -17855,13 +18203,13 @@
                                                                                 </div>
                                                                                 <div className="col-span-3 p-2 text-base relative z-10">
                                                                                     <div className="font-bold">核准狀態</div>
-                                                                                    <div className="h-20 flex items-center justify-center text-lg font-black">{statusText || '—'}</div>
+                                                                                    <div className="h-20 flex items-center justify-center text-lg font-black">{statusText || ''}</div>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
 
-                                                                        <div className="mt-5 text-xs text-gray-700 leading-relaxed text-center">
-                                                                            <div>備註：</div>
+                                                                        <div className="mt-5 text-base text-gray-700 leading-relaxed text-left">
+                                                                            <div className="font-bold">備註：</div>
                                                                             <div>1、病假-請附上診斷證明書、掛號單。</div>
                                                                             <div>2、事假-請假時，應於事前親自以口頭或書面敘明請假理由及日數，並於三天前告知，得提出有關證明文件。</div>
                                                                             <div>3、婚假-本人結婚，可請婚假8天。</div>
@@ -26690,7 +27038,7 @@
                     {confirmDelete && (
                         <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center">
                             <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-sm p-6 max-h-[90vh] overflow-y-auto">
-                                <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='signature'?'簽呈':confirmDelete.type==='community'?'社區':'人員'}「{confirmDelete.label}」？</div>
+                                <div className="text-sm text-gray-700 mb-4">確認刪除{confirmDelete.type==='role'?'角色':confirmDelete.type==='company'?'公司':confirmDelete.type==='area'?'區域':confirmDelete.type==='signatureType'?'簽呈類型':confirmDelete.type==='signature'?'簽呈':confirmDelete.type==='community'?'社區':confirmDelete.type==='leaveDocSpecial'?'特休假單':'人員'}「{confirmDelete.label}」？</div>
                                 <div className="flex justify-end gap-2">
                                     <button onClick={()=>setConfirmDelete(null)} className="px-3 py-2 rounded-2xl bg-gray-100 text-gray-700">取消</button>
                                     <button onClick={async()=>{ try { 
@@ -26703,6 +27051,10 @@
                                         else if (confirmDelete.type==='community') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'communities', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='user') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', confirmDelete.id)); } 
                                         else if (confirmDelete.type==='schedule') { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', confirmDelete.id)); } 
+                                        else if (confirmDelete.type==='leaveDocSpecial') {
+                                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leaves', confirmDelete.id));
+                                            if (leaveDocPdfTarget?.id === confirmDelete.id) closeLeaveDocPdf();
+                                        }
                                         setConfirmDelete(null); 
                                         setToast('刪除成功'); 
                                     } catch(e) { console.error(e); setConfirmDelete(null); setToast('刪除失敗'); } }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">刪除</button>
