@@ -30,6 +30,9 @@
             text-transform: none !important;
             border: none !important;
         }
+        #qr-shaded-region {
+            pointer-events: none !important;
+        }
     </style>
 </head>
 <body class="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col">
@@ -181,12 +184,9 @@
             <div class="mt-8">
                 <h2 class="font-bold text-gray-700 mb-4">督勤重點項目</h2>
                 <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                    <div class="flex items-center justify-between gap-3 mb-3">
-                        <div class="text-sm text-gray-600 font-bold">掃碼成功後會要求勾選本次督勤內容</div>
-                        <div class="flex items-center gap-2">
+                    <div class="flex items-center justify-end gap-2 mb-3">
                             <button onclick="addInspectionGroup()" class="text-xs bg-red-600 text-white px-3 py-2 rounded-xl font-bold hover:bg-red-700 transition">新增大項</button>
                             <button onclick="resetInspectionChecklistToDefault()" class="text-xs bg-gray-100 text-gray-700 px-3 py-2 rounded-xl font-bold hover:bg-gray-200 transition">重設預設</button>
-                        </div>
                     </div>
                     <div id="inspection-checklist-list" class="space-y-3"></div>
                 </div>
@@ -380,6 +380,31 @@
             </div>
             <div class="px-4 py-3 border-t border-gray-100">
                 <button onclick="closeInspectionLogModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="inspection-editor-modal" class="fixed inset-0 bg-black/50 z-[109] hidden p-4 flex items-center justify-center">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div id="inspection-editor-title" class="font-black text-gray-800 text-sm">編輯</div>
+                <button onclick="closeInspectionEditorModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-4">
+                <input type="hidden" id="inspection-editor-kind" value="">
+                <input type="hidden" id="inspection-editor-mode" value="">
+                <input type="hidden" id="inspection-editor-group-id" value="">
+                <input type="hidden" id="inspection-editor-item-id" value="">
+                <div>
+                    <label id="inspection-editor-label" class="block text-xs font-bold text-gray-400 uppercase mb-1">內容</label>
+                    <textarea id="inspection-editor-text" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition min-h-[120px]" placeholder=""></textarea>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeInspectionEditorModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveInspectionEditorModal()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
+                </div>
             </div>
         </div>
     </div>
@@ -656,34 +681,122 @@
             });
         }
 
+        function openInspectionEditorModal({ kind, mode, groupId, itemId, text }) {
+            if (!canManageSettings) { alert('權限不足'); return; }
+            ensureInspectionChecklistReady();
+            const modal = document.getElementById('inspection-editor-modal');
+            const titleEl = document.getElementById('inspection-editor-title');
+            const kindEl = document.getElementById('inspection-editor-kind');
+            const modeEl = document.getElementById('inspection-editor-mode');
+            const gidEl = document.getElementById('inspection-editor-group-id');
+            const iidEl = document.getElementById('inspection-editor-item-id');
+            const labelEl = document.getElementById('inspection-editor-label');
+            const textEl = document.getElementById('inspection-editor-text');
+
+            const k = String(kind || '');
+            const m = String(mode || '');
+            const gid = normalizeKey(groupId);
+            const iid = normalizeKey(itemId);
+            const initial = String(text || '');
+
+            if (kindEl) kindEl.value = k;
+            if (modeEl) modeEl.value = m;
+            if (gidEl) gidEl.value = gid;
+            if (iidEl) iidEl.value = iid;
+            if (textEl) textEl.value = initial;
+
+            if (titleEl) {
+                if (k === 'group' && m === 'add') titleEl.textContent = '新增督勤大項';
+                else if (k === 'group' && m === 'edit') titleEl.textContent = '編輯督勤大項';
+                else if (k === 'item' && m === 'add') titleEl.textContent = '新增督勤項目';
+                else if (k === 'item' && m === 'edit') titleEl.textContent = '編輯督勤項目';
+                else titleEl.textContent = '編輯';
+            }
+            if (labelEl) labelEl.textContent = k === 'group' ? '大項名稱' : '項目內容';
+            if (textEl) textEl.placeholder = k === 'group' ? '例如：門禁與值勤紀錄檢核' : '例如：巡邏紀錄：...';
+
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+            try { setTimeout(() => { try { textEl?.focus(); } catch {} }, 50); } catch {}
+        }
+
+        function closeInspectionEditorModal() {
+            const modal = document.getElementById('inspection-editor-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function saveInspectionEditorModal() {
+            if (!canManageSettings) { alert('權限不足'); return; }
+            ensureInspectionChecklistReady();
+            const kind = String(document.getElementById('inspection-editor-kind')?.value || '');
+            const mode = String(document.getElementById('inspection-editor-mode')?.value || '');
+            const groupId = normalizeKey(document.getElementById('inspection-editor-group-id')?.value);
+            const itemId = normalizeKey(document.getElementById('inspection-editor-item-id')?.value);
+            const text = normalizeKey(document.getElementById('inspection-editor-text')?.value);
+            if (!text) return;
+
+            if (kind === 'group' && mode === 'add') {
+                const next = [...inspectionChecklist, { id: nextId('g'), title: text, items: [] }];
+                persistInspectionChecklist(next).then(() => { closeInspectionEditorModal(); renderInspectionChecklistManager(); });
+                return;
+            }
+            if (kind === 'group' && mode === 'edit') {
+                const gid = normalizeKey(groupId);
+                const idx = inspectionChecklist.findIndex(x => String(x.id) === gid);
+                if (idx < 0) return;
+                const next = inspectionChecklist.map((g, i) => i === idx ? ({ ...g, title: text }) : g);
+                persistInspectionChecklist(next).then(() => { closeInspectionEditorModal(); renderInspectionChecklistManager(); });
+                return;
+            }
+            if (kind === 'item' && mode === 'add') {
+                const gid = normalizeKey(groupId);
+                const idx = inspectionChecklist.findIndex(x => String(x.id) === gid);
+                if (idx < 0) return;
+                const next = inspectionChecklist.map((g, i) => {
+                    if (i !== idx) return g;
+                    const items = Array.isArray(g.items) ? g.items : [];
+                    return { ...g, items: [...items, { id: nextId('i'), text }] };
+                });
+                persistInspectionChecklist(next).then(() => { closeInspectionEditorModal(); renderInspectionChecklistManager(); });
+                return;
+            }
+            if (kind === 'item' && mode === 'edit') {
+                const gid = normalizeKey(groupId);
+                const iid = normalizeKey(itemId);
+                const gIdx = inspectionChecklist.findIndex(x => String(x.id) === gid);
+                if (gIdx < 0) return;
+                const items = Array.isArray(inspectionChecklist[gIdx].items) ? inspectionChecklist[gIdx].items : [];
+                const iIdx = items.findIndex(x => String(x.id) === iid);
+                if (iIdx < 0) return;
+                const next = inspectionChecklist.map((g, gi) => {
+                    if (gi !== gIdx) return g;
+                    const nextItems = items.map((it, ii) => ii === iIdx ? ({ ...it, text }) : it);
+                    return { ...g, items: nextItems };
+                });
+                persistInspectionChecklist(next).then(() => { closeInspectionEditorModal(); renderInspectionChecklistManager(); });
+                return;
+            }
+        }
+
         function nextId(prefix) {
             return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
         }
 
         function addInspectionGroup() {
-            if (!canManageSettings) return;
-            ensureInspectionChecklistReady();
-            const title = normalizeKey(window.prompt('新增督勤大項名稱', ''));
-            if (!title) return;
-            const next = [...inspectionChecklist, { id: nextId('g'), title, items: [] }];
-            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            openInspectionEditorModal({ kind: 'group', mode: 'add', text: '' });
         }
 
         function editInspectionGroup(groupId) {
-            if (!canManageSettings) return;
             ensureInspectionChecklistReady();
             const gid = normalizeKey(groupId);
             const idx = inspectionChecklist.findIndex(x => String(x.id) === gid);
             if (idx < 0) return;
             const currentTitle = inspectionChecklist[idx].title || '';
-            const title = normalizeKey(window.prompt('編輯督勤大項名稱', currentTitle));
-            if (!title) return;
-            const next = inspectionChecklist.map((g, i) => i === idx ? ({ ...g, title }) : g);
-            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            openInspectionEditorModal({ kind: 'group', mode: 'edit', groupId: gid, text: currentTitle });
         }
 
         function deleteInspectionGroup(groupId) {
-            if (!canManageSettings) return;
+            if (!canManageSettings) { alert('權限不足'); return; }
             ensureInspectionChecklistReady();
             const gid = normalizeKey(groupId);
             const target = inspectionChecklist.find(x => String(x.id) === gid);
@@ -695,23 +808,14 @@
         }
 
         function addInspectionItem(groupId) {
-            if (!canManageSettings) return;
             ensureInspectionChecklistReady();
             const gid = normalizeKey(groupId);
             const idx = inspectionChecklist.findIndex(x => String(x.id) === gid);
             if (idx < 0) return;
-            const text = normalizeKey(window.prompt('新增督勤項目', ''));
-            if (!text) return;
-            const next = inspectionChecklist.map((g, i) => {
-                if (i !== idx) return g;
-                const items = Array.isArray(g.items) ? g.items : [];
-                return { ...g, items: [...items, { id: nextId('i'), text }] };
-            });
-            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            openInspectionEditorModal({ kind: 'item', mode: 'add', groupId: gid, text: '' });
         }
 
         function editInspectionItem(groupId, itemId) {
-            if (!canManageSettings) return;
             ensureInspectionChecklistReady();
             const gid = normalizeKey(groupId);
             const iid = normalizeKey(itemId);
@@ -721,18 +825,11 @@
             const iIdx = items.findIndex(x => String(x.id) === iid);
             if (iIdx < 0) return;
             const currentText = items[iIdx].text || '';
-            const text = normalizeKey(window.prompt('編輯督勤項目', currentText));
-            if (!text) return;
-            const next = inspectionChecklist.map((g, gi) => {
-                if (gi !== gIdx) return g;
-                const nextItems = items.map((it, ii) => ii === iIdx ? ({ ...it, text }) : it);
-                return { ...g, items: nextItems };
-            });
-            persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
+            openInspectionEditorModal({ kind: 'item', mode: 'edit', groupId: gid, itemId: iid, text: currentText });
         }
 
         function deleteInspectionItem(groupId, itemId) {
-            if (!canManageSettings) return;
+            if (!canManageSettings) { alert('權限不足'); return; }
             ensureInspectionChecklistReady();
             const gid = normalizeKey(groupId);
             const iid = normalizeKey(itemId);
@@ -749,7 +846,7 @@
         }
 
         function resetInspectionChecklistToDefault() {
-            if (!canManageSettings) return;
+            if (!canManageSettings) { alert('權限不足'); return; }
             openConfirmModal('重設預設', '確定要重設為預設督勤重點項目嗎？（會覆蓋目前設定）', () => {
                 const next = getDefaultInspectionChecklist();
                 return persistInspectionChecklist(next).then(() => renderInspectionChecklistManager());
@@ -1028,7 +1125,14 @@
         function computeCanManage(roleId, roleName) {
             const key = String(roleId || '').trim().toLowerCase();
             const name = String(roleName || '').trim();
-            return key === 'admin' || name === '系統管理員';
+            if (['admin', 'manager', 'hr', 'property', 'cadre'].includes(key)) return true;
+            if (!name) return false;
+            if (name.includes('系統管理員')) return true;
+            if (name.includes('管理')) return true;
+            if (name.includes('人事')) return true;
+            if (name.includes('物業')) return true;
+            if (name.includes('幹部')) return true;
+            return false;
         }
 
         function resolveAllowedCommunityIds(u) {
@@ -1634,9 +1738,20 @@
             }
         }
 
+        function cleanupScannerDom() {
+            try { document.getElementById('qr-shaded-region')?.remove(); } catch {}
+            try {
+                const reader = document.getElementById('reader');
+                if (!reader) return;
+                reader.querySelectorAll('#qr-shaded-region').forEach(n => { try { n.remove(); } catch {} });
+            } catch {}
+        }
+
         function startScanner() {
             const config = { fps: 10, qrbox: { width: 250, height: 250 } };
             if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+            cleanupScannerDom();
+            if (html5QrCode && html5QrCode.isScanning) return;
 
             html5QrCode.start(
                 { facingMode: "environment" }, 
@@ -1650,9 +1765,27 @@
         }
 
         function stopScanner() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => console.error(err));
-            }
+            cleanupScannerDom();
+            if (!html5QrCode) return;
+
+            const stopPromise = html5QrCode.isScanning ? html5QrCode.stop() : Promise.resolve();
+            Promise.resolve(stopPromise)
+                .catch(() => {})
+                .then(() => {
+                    try {
+                        const cleared = html5QrCode.clear();
+                        return Promise.resolve(cleared).catch(() => {});
+                    } catch {
+                        return Promise.resolve();
+                    }
+                })
+                .finally(() => {
+                    cleanupScannerDom();
+                    try {
+                        const reader = document.getElementById('reader');
+                        if (reader) reader.innerHTML = '';
+                    } catch {}
+                });
         }
 
         function showScanError(msg) {
@@ -1749,10 +1882,7 @@
                     const listEl = document.getElementById('modal-inspection-items');
                     if (box && listEl) {
                         if (inspectionItems.length > 0) {
-                            listEl.innerHTML = inspectionItems.slice(0, 12).map(x => {
-                                const label = escapeHtml(`${x.groupTitle}｜${x.text}`);
-                                return `<div class="text-[11px] text-gray-600 leading-snug">- ${label}</div>`;
-                            }).join('');
+                            listEl.innerHTML = `<div class="text-[11px] text-gray-600 leading-snug">共 ${inspectionItems.length} 項</div>`;
                             box.classList.remove('hidden');
                         } else {
                             listEl.innerHTML = '';

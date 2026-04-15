@@ -376,6 +376,13 @@
             return new Intl.DateTimeFormat('zh-TW', options).format(d).replace(/\//g, '/');
         };
 
+        const requireOnline = (message) => {
+            const offline = (typeof navigator !== 'undefined') && (navigator.onLine === false);
+            if (!offline) return true;
+            try { alert(message || '目前離線，無法操作'); } catch {}
+            return false;
+        };
+
         // --- Components ---
 
         // 1. Loading Spinner (Red Theme)
@@ -18552,7 +18559,7 @@
                                                         <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                                             <div>
                                                                 <span className="text-gray-600 font-bold mr-2"> 目前選擇社區:</span>
-                                                                <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                                                <span className="text-red-600 font-bold">{selectedCommunity ? `${selectedCommunity.id} ${selectedCommunity.name || ''}` : '未選擇'}</span>
                                                             </div>
                                                             {selectedCommunity && (function(){
                                                                 const counts = { director: 0, secretary: 0, cleaner: 0, electrician: 0, security: 0 };
@@ -18976,7 +18983,7 @@
                                                 <span className="text-red-600 font-bold">
                                                     {(() => {
                                                         const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
-                                                        return selectedCommunity?.name || '未選擇';
+                                                        return selectedCommunity ? `${selectedCommunity.id} ${selectedCommunity.name || ''}` : '未選擇';
                                                     })()}
                                                 </span>
                                             </div>
@@ -20241,7 +20248,7 @@
                                             <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                                 <div>
                                                     <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
-                                                    <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                                    <span className="text-red-600 font-bold">{selectedCommunity ? `${selectedCommunity.id} ${selectedCommunity.name || ''}` : '未選擇'}</span>
                                                 </div>
                                                 <div className="flex flex-nowrap items-center justify-center gap-x-1 mt-2 text-[10px] font-bold border-t border-red-200 pt-2 whitespace-nowrap overflow-x-auto no-scrollbar">
                                                     <span className="text-red-600">總幹事 : {counts.director}</span>
@@ -20334,7 +20341,7 @@
                                     <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                         <div>
                                             <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
-                                            <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                            <span className="text-red-600 font-bold">{selectedCommunity ? `${selectedCommunity.id} ${selectedCommunity.name || ''}` : '未選擇'}</span>
                                         </div>
                                         {selectedCommunity && (function(){
                                             const counts = { director: 0, secretary: 0, cleaner: 0, electrician: 0, security: 0 };
@@ -21177,7 +21184,7 @@
                                         <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                             <div>
                                                 <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
-                                                <span className="text-red-600 font-bold">{(communities || []).find(c => c.id === communityTabSelectedId)?.name || '未選擇'}</span>
+                                                <span className="text-red-600 font-bold">{(function(){ const c=(communities || []).find(x => x.id === communityTabSelectedId); return c ? `${c.id} ${c.name || ''}` : '未選擇'; })()}</span>
                                             </div>
                                         </div>
                                         {communityMapSelectedUserId && (
@@ -21199,14 +21206,11 @@
                                             {communityMapSelectedUserId ? (
                                                 <>
                                                     <button onClick={() => { setReportContext('community'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">出勤</button>
-                                                    <button onClick={() => { setReportContext('community'); setReportModalType('outing'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">外出</button>
-                                                    <button onClick={() => { setReportContext('community'); setReportModalType('duty'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">卡班</button>
                                                     <button onClick={() => { setReportContext('community'); setReportModalType('leave'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
                                                 </>
                                             ) : (
                                                 <>
                                                     <button onClick={() => { setReportContext('community'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
-                                                    <button onClick={() => { setReportContext('community'); setShowSignOffReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">簽呈</button>
                                                     <button onClick={() => { setReportContext('community'); setShowLeaveReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
                                                 </>
                                             )}
@@ -21332,7 +21336,7 @@
                                             <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                                 <div>
                                                     <span className="text-gray-600 font-bold mr-2">目前選擇社區:</span>
-                                                    <span className="text-red-600 font-bold">{selectedCommunity?.name || '未選擇'}</span>
+                                                    <span className="text-red-600 font-bold">{selectedCommunity ? `${selectedCommunity.id} ${selectedCommunity.name || ''}` : '未選擇'}</span>
                                                 </div>
                                                 {selectedCommunity && (function(){
                                                     const counts = { director: 0, secretary: 0, cleaner: 0, electrician: 0, security: 0 };
@@ -21696,7 +21700,7 @@
                                         <div className="mb-4 p-3 bg-red-50 rounded-xl text-center">
                                         <div>
                                             <span className="text-gray-600 font-bold mr-2"> 目前選擇社區:</span>
-                                            <span className="text-red-600 font-bold">{(communities || []).find(c => c.id === communityTabSelectedId)?.name || '未選擇'}</span>
+                                            <span className="text-red-600 font-bold">{(function(){ const c=(communities || []).find(x => x.id === communityTabSelectedId); return c ? `${c.id} ${c.name || ''}` : '未選擇'; })()}</span>
                                         </div>
                                         {(function(){
                                             const selectedCommunity = (communities || []).find(c => c.id === communityTabSelectedId);
@@ -27286,32 +27290,40 @@
                                                                 return map[key] || '';
                                                             };
 
-                                                            const allowedRoleNames = new Set(['系統管理員', '人事', '物業', '幹部', '員工']);
+                                                            const isCommunityContext = reportContext === 'community';
+                                                            const allowedRoleNames = isCommunityContext
+                                                                ? new Set(['總幹事', '秘書', '清潔', '機電', '保全'])
+                                                                : new Set(['系統管理員', '人事', '物業', '幹部', '員工']);
 
                                                             const filteredUsers = usersList.filter(u => {
                                                                 if (u.name === '蔡總') return false;
+                                                                if (!((u.status || '在職') === '在職')) return false;
+
+                                                                const roleName = resolveRoleName(u);
+                                                                if (!allowedRoleNames.has(roleName)) return false;
+
+                                                                if (isCommunityContext) {
+                                                                    const commId = String(communityTabSelectedId || '');
+                                                                    const ids = Array.isArray(u.communityIds) ? u.communityIds : [];
+                                                                    const inCommunity = ids.some(cid => String(cid) === commId) || (String(u.communityId || '') === commId);
+                                                                    return inCommunity;
+                                                                }
+
                                                                 if (!monthAttendanceUserIds.has(u.id)) return false;
-                                                                if (!allowedRoleNames.has(resolveRoleName(u))) return false;
                                                                 
                                                                 const targetCompanyName = cadreCompany || dbUser.companyName || dbUser.company || '';
                                                                 if (targetCompanyName) {
-                                                                    // 1. Resolve Company Name to ID
                                                                     const targetComp = companies.find(c => c.name === targetCompanyName);
-                                                                    
-                                                                    // 2. Check for ID Match (Primary)
                                                                     if (targetComp) {
                                                                         const hasIdMatch = (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetComp.id))) || 
                                                                                            (String(u.companyId) === String(targetComp.id));
                                                                         if (hasIdMatch) return true;
                                                                     }
                                                                     
-                                                                    // 3. Check for Name Match (Legacy/Fallback)
                                                                     const normalize = (s) => (s || '').replace('公司', '').trim();
                                                                     const uComp = normalize(u.company);
                                                                     const cComp = normalize(targetCompanyName);
-                                                                    
                                                                     if (uComp === cComp && uComp !== '') return true;
-                                                                    
                                                                     return false;
                                                                 }
                                                                 return true;
