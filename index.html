@@ -36,6 +36,10 @@
     <!-- SheetJS for Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 
+    <!-- PDF Generation -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
     <!-- Import Map for Modules -->
     <script type="importmap">
     {
@@ -8319,7 +8323,8 @@
                 { key: 'out', label: '外出' },
                 { key: 'card', label: '卡班' },
                 { key: 'leave', label: '請假' },
-                { key: 'schedule', label: '班表' }
+                { key: 'schedule', label: '班表' },
+                { key: 'leaveDoc', label: '假單' }
             ],
             function: [
                 { key: 'log', label: '日誌' },
@@ -8797,6 +8802,18 @@
             // Leave Report Modal State
             const [showLeaveReportModal, setShowLeaveReportModal] = useState(false);
             const [leaveReportDate, setLeaveReportDate] = useState(new Date());
+
+            const [showLeaveDocPdfModal, setShowLeaveDocPdfModal] = useState(false);
+            const [leaveDocPdfTarget, setLeaveDocPdfTarget] = useState(null);
+            const [leaveDocPdfBusy, setLeaveDocPdfBusy] = useState(false);
+            const [leaveDocPdfError, setLeaveDocPdfError] = useState('');
+            const leaveDocPdfRef = useRef(null);
+            const [leaveDocSignatureMap, setLeaveDocSignatureMap] = useState({});
+            const [showLeaveDocSignatureModal, setShowLeaveDocSignatureModal] = useState(false);
+            const [leaveDocSignatureLeaveId, setLeaveDocSignatureLeaveId] = useState('');
+            const leaveDocSignatureCanvasRef = useRef(null);
+            const leaveDocSignatureCanvasWrapRef = useRef(null);
+            const leaveDocSignatureDrawingRef = useRef(false);
 
             // Community Detail Modal State (Moved from AdminDashboard)
             const [showCommunityDetailModal, setShowCommunityDetailModal] = useState(false);
@@ -13471,6 +13488,206 @@
                 }
             };
 
+            const openLeaveDocPdf = (leave) => {
+                setLeaveDocPdfError('');
+                setLeaveDocPdfTarget(leave || null);
+                setShowLeaveDocPdfModal(true);
+            };
+
+            const closeLeaveDocPdf = () => {
+                setShowLeaveDocPdfModal(false);
+                setLeaveDocPdfTarget(null);
+                setLeaveDocPdfError('');
+            };
+
+            const formatLeaveDocDateTime = (v) => {
+                if (!v) return '';
+                const raw = String(v);
+                const d = new Date(raw);
+                if (!isNaN(d.getTime())) {
+                    const yy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    const hh = String(d.getHours()).padStart(2, '0');
+                    const mi = String(d.getMinutes()).padStart(2, '0');
+                    return `${yy}/${mm}/${dd} ${hh}:${mi}`;
+                }
+                return raw.replace('T', ' ');
+            };
+
+            const buildLeaveDocPdfBlob = async () => {
+                const el = leaveDocPdfRef.current;
+                if (!el) throw new Error('missing_preview');
+                const html2canvas = window.html2canvas;
+                const jsPDF = window.jspdf && window.jspdf.jsPDF;
+                if (!html2canvas || !jsPDF) throw new Error('missing_pdf_libs');
+
+                const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+                const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+                const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+                const pageW = pdf.internal.pageSize.getWidth();
+                const pageH = pdf.internal.pageSize.getHeight();
+
+                const imgW = pageW;
+                const imgH = canvas.height * (imgW / canvas.width);
+
+                let position = 0;
+                pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+                let remaining = imgH - pageH;
+                while (remaining > 0) {
+                    position -= pageH;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+                    remaining -= pageH;
+                }
+                return pdf.output('blob');
+            };
+
+            const downloadLeaveDocPdf = async () => {
+                if (!leaveDocPdfTarget) return;
+                setLeaveDocPdfError('');
+                setLeaveDocPdfBusy(true);
+                try {
+                    const blob = await buildLeaveDocPdfBlob();
+                    const start = formatLeaveDocDateTime(leaveDocPdfTarget.leaveStartDate || '').replace(/[^\d]/g, '').slice(0, 12);
+                    const safeName = String(leaveDocPdfTarget.userName || '請假').replace(/[\\/:*?"<>|]/g, '_');
+                    const filename = `假單_${safeName}_${start || Date.now()}.pdf`;
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                } catch (e) {
+                    setLeaveDocPdfError(e && e.message ? e.message : '產生 PDF 失敗');
+                } finally {
+                    setLeaveDocPdfBusy(false);
+                }
+            };
+
+            const shareLeaveDocPdf = async () => {
+                if (!leaveDocPdfTarget) return;
+                setLeaveDocPdfError('');
+                setLeaveDocPdfBusy(true);
+                try {
+                    const blob = await buildLeaveDocPdfBlob();
+                    const start = formatLeaveDocDateTime(leaveDocPdfTarget.leaveStartDate || '').replace(/[^\d]/g, '').slice(0, 12);
+                    const safeName = String(leaveDocPdfTarget.userName || '請假').replace(/[\\/:*?"<>|]/g, '_');
+                    const filename = `假單_${safeName}_${start || Date.now()}.pdf`;
+                    const file = new File([blob], filename, { type: 'application/pdf' });
+                    if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+                        await navigator.share({
+                            title: '請假單',
+                            text: `${leaveDocPdfTarget.userName || ''} ${leaveDocPdfTarget.leaveReason || ''}`.trim(),
+                            files: [file]
+                        });
+                        return;
+                    }
+                    await downloadLeaveDocPdf();
+                } catch (e) {
+                    setLeaveDocPdfError(e && e.message ? e.message : '分享失敗');
+                } finally {
+                    setLeaveDocPdfBusy(false);
+                }
+            };
+
+            const openLeaveDocSignature = () => {
+                if (!leaveDocPdfTarget?.id) return;
+                setLeaveDocSignatureLeaveId(String(leaveDocPdfTarget.id));
+                setShowLeaveDocSignatureModal(true);
+            };
+
+            const closeLeaveDocSignature = () => {
+                setShowLeaveDocSignatureModal(false);
+            };
+
+            const initLeaveDocSignatureCanvas = () => {
+                const canvas = leaveDocSignatureCanvasRef.current;
+                const wrap = leaveDocSignatureCanvasWrapRef.current;
+                if (!canvas || !wrap) return;
+                const w = Math.max(1, wrap.clientWidth || 1);
+                const h = Math.max(1, wrap.clientHeight || 1);
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = Math.floor(w * dpr);
+                canvas.height = Math.floor(h * dpr);
+                canvas.style.width = `${w}px`;
+                canvas.style.height = `${h}px`;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                ctx.strokeStyle = '#111827';
+            };
+
+            useEffect(() => {
+                if (!showLeaveDocSignatureModal) return;
+                const t = setTimeout(() => {
+                    initLeaveDocSignatureCanvas();
+                }, 50);
+                return () => clearTimeout(t);
+            }, [showLeaveDocSignatureModal]);
+
+            const leaveDocSignaturePoint = (e) => {
+                const canvas = leaveDocSignatureCanvasRef.current;
+                if (!canvas) return { x: 0, y: 0 };
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: (e.clientX - rect.left),
+                    y: (e.clientY - rect.top)
+                };
+            };
+
+            const leaveDocSignatureStart = (e) => {
+                const canvas = leaveDocSignatureCanvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+                try { e.preventDefault(); } catch {}
+                leaveDocSignatureDrawingRef.current = true;
+                try { canvas.setPointerCapture(e.pointerId); } catch {}
+                const p = leaveDocSignaturePoint(e);
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+            };
+
+            const leaveDocSignatureMove = (e) => {
+                if (!leaveDocSignatureDrawingRef.current) return;
+                const canvas = leaveDocSignatureCanvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+                try { e.preventDefault(); } catch {}
+                const p = leaveDocSignaturePoint(e);
+                ctx.lineTo(p.x, p.y);
+                ctx.stroke();
+            };
+
+            const leaveDocSignatureEnd = (e) => {
+                const canvas = leaveDocSignatureCanvasRef.current;
+                if (!canvas) return;
+                try { e.preventDefault(); } catch {}
+                leaveDocSignatureDrawingRef.current = false;
+                try { canvas.releasePointerCapture(e.pointerId); } catch {}
+            };
+
+            const confirmLeaveDocSignature = () => {
+                const canvas = leaveDocSignatureCanvasRef.current;
+                const leaveId = String(leaveDocSignatureLeaveId || '');
+                if (!canvas || !leaveId) { closeLeaveDocSignature(); return; }
+                const dataUrl = canvas.toDataURL('image/png');
+                setLeaveDocSignatureMap(prev => {
+                    const current = prev && prev[leaveId] ? prev[leaveId] : {};
+                    return { ...(prev || {}), [leaveId]: { ...current, applicant: dataUrl } };
+                });
+                closeLeaveDocSignature();
+            };
+
             const handleUpdateLeaveStatus = async (status, record = null) => {
                 const target = record || selectedApprovalLeave;
                 if (!target) return;
@@ -14893,6 +15110,7 @@
                                     })()}
                                     {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>請假</button>}
                                     <button onClick={() => setClockSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>班表</button>
+                                    {hasSubPermission('clock', 'leaveDoc') && <button onClick={() => setClockSubtab('leaveDoc')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leaveDoc' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>假單</button>}
                                 </div>
                             )}
 
@@ -17317,6 +17535,319 @@
                                         isNightShift={isNightShift}
                                         setIsNightShift={setIsNightShift}
                                     />
+                                )}
+                                {clockSubtab === 'leaveDoc' && hasSubPermission('clock', 'leaveDoc') && (
+                                    <div>
+                                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 假單
+                                            </h3>
+                                            {(function(){
+                                                if (!dbUser) return <div className="text-center py-8 text-gray-400 font-bold">請先登入</div>;
+                                                const toSecs = (r) => {
+                                                    if (!r) return 0;
+                                                    if (r.timestamp?.seconds) return r.timestamp.seconds;
+                                                    if (r.createdAt?.seconds) return r.createdAt.seconds;
+                                                    if (r.timestamp instanceof Date) return Math.floor(r.timestamp.getTime()/1000);
+                                                    if (r.createdAt instanceof Date) return Math.floor(r.createdAt.getTime()/1000);
+                                                    return 0;
+                                                };
+
+                                                const list = (leavesList || [])
+                                                    .filter(l => String(l.userId || '') === String(dbUser.id))
+                                                    .sort((a, b) => toSecs(b) - toSecs(a));
+
+                                                if (list.length === 0) return <div className="text-center py-8 text-gray-400 font-bold">尚無假單</div>;
+
+                                                const statusLabel = (s) => {
+                                                    if (s === 'approved') return '核准';
+                                                    if (s === 'rejected') return '拒絕';
+                                                    if (s === 'pending') return '待核准';
+                                                    return String(s || '未知');
+                                                };
+                                                const statusClass = (s) => {
+                                                    if (s === 'approved') return 'bg-green-100 text-green-700';
+                                                    if (s === 'rejected') return 'bg-red-100 text-red-700';
+                                                    if (s === 'pending') return 'bg-yellow-100 text-yellow-700';
+                                                    return 'bg-gray-100 text-gray-700';
+                                                };
+
+                                                return (
+                                                    <div className="space-y-2">
+                                                        {list.slice(0, 200).map(l => {
+                                                            const roleKey = String(dbUser?.role || '').trim().toLowerCase();
+                                                            const roleObj = (roles || []).find(r => String(r.id) === String(dbUser?.role));
+                                                            const myRoleName = String((roleObj?.name || dbUser?.roleName || '')).trim();
+                                                            const companyRoleNames = new Set(['系統管理員', '人事', '物業', '幹部', '員工']);
+                                                            const isCompanyRole = ['admin', 'hr', 'property', 'cadre', 'staff', 'manager'].includes(roleKey) || companyRoleNames.has(myRoleName);
+
+                                                            const companyId = (dbUser.companyIds && dbUser.companyIds.length > 0) ? dbUser.companyIds[0] : dbUser.companyId;
+                                                            const resolvedCompanyName = String(
+                                                                l.companyName ||
+                                                                dbUser.companyName ||
+                                                                dbUser.company ||
+                                                                (companyId ? ((companies || []).find(c => String(c.id) === String(companyId))?.name || '') : '') ||
+                                                                ''
+                                                            ).trim();
+
+                                                            const comm = (communities || []).find(c => String(c.id) === String(l.communityId));
+                                                            const commName = comm ? comm.name : (l.checkInLocationName || l.communityId || '');
+                                                            const dateRange = `${l.leaveStartDate || ''}${l.leaveEndDate ? ` ~ ${l.leaveEndDate}` : ''}`;
+                                                            const reason = l.leaveReason || '';
+                                                            const desc = l.leaveDescription || '';
+                                                            return (
+                                                                <div key={l.id} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                                                                    <div className="flex items-start justify-between gap-3">
+                                                                        <div className="min-w-0">
+                                                                            <div className="font-bold text-gray-800 truncate">{l.userName || '未知'} <span className="text-xs text-gray-400 ml-1">{dateRange}</span></div>
+                                                                            <div className="text-xs text-gray-500 mt-1 truncate">
+                                                                                {isCompanyRole ? (resolvedCompanyName || '所屬公司') : `${String(l.communityId || '')} ${commName}`}
+                                                                            </div>
+                                                                            <div className="text-sm text-gray-700 font-bold mt-2 truncate">{reason || '請假'}</div>
+                                                                            {desc && <div className="text-xs text-gray-500 mt-1 line-clamp-2">{desc}</div>}
+                                                                        </div>
+                                                                        <div className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${statusClass(l.approvalStatus)}`}>
+                                                                            {statusLabel(l.approvalStatus)}
+                                                                        </div>
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openLeaveDocPdf(l)}
+                                                                        className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-200 hover:bg-red-700 active:scale-95 transition"
+                                                                        title="生成"
+                                                                    >
+                                                                        <FileText className="w-5 h-5" />
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    </div>
+                                )}
+                                {showLeaveDocPdfModal && leaveDocPdfTarget && (
+                                    <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm">
+                                        <div className="absolute inset-0 flex flex-col">
+                                            <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={closeLeaveDocPdf}
+                                                    className="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                                >
+                                                    <X className="w-5 h-5" />
+                                                </button>
+                                                <div className="font-bold text-gray-800 truncate">員工請假單</div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        disabled={leaveDocPdfBusy}
+                                                        onClick={downloadLeaveDocPdf}
+                                                        className="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                                                        title="下載 PDF"
+                                                    >
+                                                        <Download className="w-5 h-5" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={leaveDocPdfBusy}
+                                                        onClick={shareLeaveDocPdf}
+                                                        className="p-2 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                                                        title="分享 PDF"
+                                                    >
+                                                        <Share2 className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {leaveDocPdfError && (
+                                                <div className="bg-red-50 text-red-600 text-xs font-bold px-4 py-2">
+                                                    {leaveDocPdfError === 'missing_pdf_libs' ? 'PDF 元件尚未載入，請稍候或重新整理頁面' : leaveDocPdfError}
+                                                </div>
+                                            )}
+
+                                            <div className="flex-1 overflow-auto bg-gray-200 p-4">
+                                                <div className="mx-auto w-full max-w-[820px]">
+                                                    <div
+                                                        ref={leaveDocPdfRef}
+                                                        className="relative overflow-hidden bg-white shadow-xl mx-auto w-full aspect-[210/297] border border-gray-300"
+                                                        style={{ maxWidth: 820 }}
+                                                    >
+                                                        {(function(){
+                                                            const l = leaveDocPdfTarget || {};
+                                                            const roleKey = String(dbUser?.role || '').trim().toLowerCase();
+                                                            const roleObj = (roles || []).find(r => String(r.id) === String(dbUser?.role));
+                                                            const myRoleName = String((roleObj?.name || dbUser?.roleName || '')).trim();
+                                                            const companyRoleNames = new Set(['系統管理員', '人事', '物業', '幹部', '員工']);
+                                                            const isCompanyRole = ['admin', 'hr', 'property', 'cadre', 'staff', 'manager'].includes(roleKey) || companyRoleNames.has(myRoleName);
+
+                                                            const companyId = (dbUser.companyIds && dbUser.companyIds.length > 0) ? dbUser.companyIds[0] : dbUser.companyId;
+                                                            const resolvedCompanyName = String(
+                                                                l.companyName ||
+                                                                dbUser.companyName ||
+                                                                dbUser.company ||
+                                                                (companyId ? ((companies || []).find(c => String(c.id) === String(companyId))?.name || '') : '') ||
+                                                                ''
+                                                            ).trim();
+
+                                                            const comm = (communities || []).find(c => String(c.id) === String(l.communityId));
+                                                            const commName = comm ? comm.name : (l.checkInLocationName || l.communityId || '');
+                                                            const site = isCompanyRole ? resolvedCompanyName : `${String(l.communityId || '')} ${commName}`.trim();
+                                                            const name = String(l.userName || dbUser?.name || '').trim();
+                                                            const idNo = String(dbUser?.nationalId || dbUser?.idNumber || '').trim();
+                                                            const leaveType = String(l.leaveReason || '').trim();
+                                                            const reason = String(l.leaveDescription || '').trim();
+                                                            const start = formatLeaveDocDateTime(l.leaveStartDate || '');
+                                                            const end = formatLeaveDocDateTime(l.leaveEndDate || '');
+                                                            const status = String(l.approvalStatus || '').trim();
+
+                                                            const statusText = status === 'approved' ? '核准' : status === 'rejected' ? '拒絕' : status === 'pending' ? '待核准' : '';
+
+                                                            return (
+                                                                <div className="w-full h-full">
+                                                                    <div className="absolute inset-0 z-0 pointer-events-none select-none flex items-center justify-center">
+                                                                        <div className="text-gray-300 font-black opacity-30 tracking-widest text-6xl transform -rotate-45">
+                                                                            西北保全／西北公寓
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="relative z-10 w-full h-full p-6">
+                                                                        <div className="text-center space-y-1">
+                                                                            <div className="text-lg font-black text-gray-900">西北保全股份有限公司</div>
+                                                                            <div className="text-lg font-black text-gray-900">西北公寓大廈管理維護股份有限公司</div>
+                                                                            <div className="text-2xl font-black tracking-wide text-gray-900">員工請假單</div>
+                                                                        </div>
+
+                                                                        <div className="mt-5 border border-gray-700">
+                                                                            <div className="grid grid-cols-12 border-b border-gray-700">
+                                                                                <div className="col-span-6 border-r border-gray-700 p-2 text-sm">
+                                                                                    <div className="flex gap-2">
+                                                                                        <div className="font-bold w-16">案場：</div>
+                                                                                        <div className="flex-1">{site || '—'}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="col-span-3 border-r border-gray-700 p-2 text-sm">
+                                                                                    <div className="flex gap-2">
+                                                                                        <div className="font-bold w-12">姓名：</div>
+                                                                                        <div className="flex-1">{name || '—'}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="col-span-3 p-2 text-sm">
+                                                                                    <div className="flex gap-2">
+                                                                                        <div className="font-bold w-[86px]">身分證字號：</div>
+                                                                                        <div className="flex-1">{idNo || '—'}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid grid-cols-12 border-b border-gray-700">
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-sm font-bold">假別</div>
+                                                                                <div className="col-span-10 p-2 text-sm">{leaveType || '—'}</div>
+                                                                            </div>
+
+                                                                            <div className="grid grid-cols-12 border-b border-gray-700">
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-sm font-bold">事由</div>
+                                                                                <div className="col-span-10 p-2 text-sm whitespace-pre-wrap">{reason || '—'}</div>
+                                                                            </div>
+
+                                                                            <div className="grid grid-cols-12 border-b border-gray-700">
+                                                                                <div className="col-span-2 border-r border-gray-700 p-2 text-sm font-bold">起迄時間</div>
+                                                                                <div className="col-span-10 p-2 text-sm">
+                                                                                    <div>起：{start || '—'}</div>
+                                                                                    <div>迄：{end || '—'}</div>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid grid-cols-12">
+                                                                                <div className="col-span-6 border-r border-gray-700 p-2 text-sm">
+                                                                                    <div className="font-bold">請假人簽章</div>
+                                                                                    <div className="h-20 flex items-center justify-center border border-gray-200 bg-white">
+                                                                                        {(function(){
+                                                                                            const leaveId = String(l.id || '');
+                                                                                            const url = leaveId ? (leaveDocSignatureMap && leaveDocSignatureMap[leaveId] ? leaveDocSignatureMap[leaveId].applicant : '') : '';
+                                                                                            if (url) return <img src={url} alt="signature" className="max-h-[72px] w-full object-contain" />;
+                                                                                            return (
+                                                                                                <button type="button" onClick={openLeaveDocSignature} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200">
+                                                                                                    簽名
+                                                                                                </button>
+                                                                                            );
+                                                                                        })()}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="col-span-3 border-r border-gray-700 p-2 text-sm">
+                                                                                    <div className="font-bold">代理人</div>
+                                                                                    <div className="h-20 border border-gray-200 bg-white"></div>
+                                                                                </div>
+                                                                                <div className="col-span-3 p-2 text-sm">
+                                                                                    <div className="font-bold">核准狀態</div>
+                                                                                    <div className="h-20 flex items-center justify-center text-lg font-black">{statusText || '—'}</div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="mt-6 text-[11px] text-gray-700 leading-relaxed">
+                                                                            <div>備註：</div>
+                                                                            <div>1、病假-請附上診斷證明書、掛號單。</div>
+                                                                            <div>2、事假-請假時，應於事前親自以口頭或書面敘明請假理由及日數，並於三天前告知，得提出有關證明文件。</div>
+                                                                            <div>3、婚假-本人結婚，可請婚假8天。</div>
+                                                                            <div>4、未依公司規定視同<span className="text-red-600 font-bold">曠職辦理</span>。</div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                {showLeaveDocSignatureModal && (
+                                    <div className="fixed inset-0 z-[96] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                                        <div className="bg-white w-[90vw] h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                                            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
+                                                <div className="font-black text-gray-800 text-sm">
+                                                    請假人簽名
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={closeLeaveDocSignature}
+                                                    className="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                                >
+                                                    <X className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                            <div className="flex-1 p-4 bg-gray-50">
+                                                <div ref={leaveDocSignatureCanvasWrapRef} className="w-full h-full bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                                    <canvas
+                                                        ref={leaveDocSignatureCanvasRef}
+                                                        onPointerDown={leaveDocSignatureStart}
+                                                        onPointerMove={leaveDocSignatureMove}
+                                                        onPointerUp={leaveDocSignatureEnd}
+                                                        onPointerCancel={leaveDocSignatureEnd}
+                                                        className="w-full h-full"
+                                                        style={{ touchAction: 'none' }}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="px-4 py-3 border-t border-gray-100 flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={closeLeaveDocSignature}
+                                                    className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition"
+                                                >
+                                                    取消
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={confirmLeaveDocSignature}
+                                                    className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition"
+                                                >
+                                                    確認
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 )}
                                 {clockSubtab === 'schedule' && (
                                     <div>
