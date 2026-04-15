@@ -269,6 +269,7 @@
                     <div class="text-xs text-gray-500 font-bold">地點</div>
                     <div id="inspection-modal-location" class="font-black text-gray-800"></div>
                     <div id="inspection-modal-code" class="text-xs text-gray-500 font-mono mt-1"></div>
+                    <div id="inspection-modal-geo" class="text-xs text-gray-500 mt-1"></div>
                 </div>
                 <div class="mt-4">
                     <div class="text-xs font-bold text-gray-400 uppercase mb-2">勾選本次督勤項目</div>
@@ -497,6 +498,7 @@
         let pendingInspectionScan = null;
         let pendingInspectionSelectedIds = new Set();
         let inspectionLogViewTargetId = '';
+        let pendingInspectionScanToken = 0;
 
         function normalizeKey(v) {
             return String(v || '').replace(/\uFEFF/g, '').trim();
@@ -768,7 +770,7 @@
                     const text = escapeHtml(it.text);
                     return `
                         <label class="flex items-start gap-3 py-2">
-                            <input id="${escapeHtml(checkboxId)}" type="checkbox" class="mt-1 h-4 w-4 text-red-600 focus:ring-red-500" ${checked ? 'checked' : ''} onchange="toggleInspectionSelected(${JSON.stringify(idKey)}, this.checked)">
+                            <input id="${escapeHtml(checkboxId)}" data-key="${escapeHtml(idKey)}" type="checkbox" class="mt-1 h-4 w-4 text-red-600 focus:ring-red-500" ${checked ? 'checked' : ''}>
                             <span class="text-sm text-gray-700 font-bold leading-snug">${text}</span>
                         </label>
                     `;
@@ -797,8 +799,10 @@
             const modal = document.getElementById('inspection-modal');
             const locEl = document.getElementById('inspection-modal-location');
             const codeEl = document.getElementById('inspection-modal-code');
+            const geoEl = document.getElementById('inspection-modal-geo');
             if (locEl) locEl.textContent = normalizeKey(scan?.locationName || '');
             if (codeEl) codeEl.textContent = scan?.code ? `代碼: ${normalizeKey(scan.code)}` : '';
+            if (geoEl) geoEl.textContent = '定位中...';
             renderInspectionModalList();
             if (modal) modal.classList.remove('hidden');
             lucide.createIcons();
@@ -836,6 +840,13 @@
                 closeInspectionModal(true);
                 return;
             }
+            const selectedFromDom = new Set();
+            try {
+                document.querySelectorAll('#inspection-modal-list input[type="checkbox"][data-key]').forEach((el) => {
+                    if (el && el.checked && el.dataset && el.dataset.key) selectedFromDom.add(String(el.dataset.key));
+                });
+            } catch {}
+            pendingInspectionSelectedIds = selectedFromDom.size > 0 ? selectedFromDom : pendingInspectionSelectedIds;
             const payload = collectInspectionSelectionPayload();
             closeInspectionModal(false);
             recordCheckIn(scan.locationName, scan.code, scan.coords, payload);
@@ -910,16 +921,24 @@
             lucide.createIcons();
         }
 
-        function openInspectionLogModal(logId) {
+        async function openInspectionLogModal(logId) {
             const id = String(logId || '');
             if (!id) return;
-            const target = (logs || []).find(x => String(x.id) === id);
-            if (!target) return;
             inspectionLogViewTargetId = id;
             const modal = document.getElementById('inspection-log-modal');
             if (modal) modal.classList.remove('hidden');
-            renderInspectionLogModal(target);
+            const target = (logs || []).find(x => String(x.id) === id);
+            if (target) renderInspectionLogModal(target);
             lucide.createIcons();
+
+            if (!settingsDocRef) return;
+            try {
+                const snap = await settingsDocRef.collection('logs').doc(id).get();
+                if (!snap.exists) return;
+                const fresh = { id: snap.id, ...(snap.data() || {}) };
+                if (inspectionLogViewTargetId !== id) return;
+                renderInspectionLogModal(fresh);
+            } catch (_) {}
         }
 
         function closeInspectionLogModal() {
@@ -1652,23 +1671,44 @@
             // 掃描到的是 Code，查找對應的地點名稱
             const code = normalizeKey(decodedText);
             const locationName = locationMap[code];
-            
-            toggleScanner(false);
 
             if (!locationName) {
+                toggleScanner(false);
                 showScanError('無法辨識');
                 if (window.navigator.vibrate) window.navigator.vibrate([80, 60, 80]);
                 return;
             }
-            
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => openInspectionModal({ locationName, code, coords: pos.coords }),
-                    (err) => openInspectionModal({ locationName, code, coords: null })
-                );
-            } else {
-                openInspectionModal({ locationName, code, coords: null });
+
+            const token = ++pendingInspectionScanToken;
+            openInspectionModal({ locationName, code, coords: null });
+            try {
+                requestAnimationFrame(() => toggleScanner(false));
+            } catch {
+                toggleScanner(false);
             }
+
+            if (!navigator.geolocation) {
+                const geoEl = document.getElementById('inspection-modal-geo');
+                if (geoEl) geoEl.textContent = '無定位';
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    if (token !== pendingInspectionScanToken) return;
+                    if (pendingInspectionScan && pendingInspectionScan.code === code) {
+                        pendingInspectionScan.coords = pos.coords;
+                    }
+                    const geoEl = document.getElementById('inspection-modal-geo');
+                    if (geoEl) geoEl.textContent = '已取得定位';
+                },
+                () => {
+                    if (token !== pendingInspectionScanToken) return;
+                    const geoEl = document.getElementById('inspection-modal-geo');
+                    if (geoEl) geoEl.textContent = '無定位';
+                },
+                { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 }
+            );
         }
 
         function recordCheckIn(locationName, originalCode, coords, inspectionPayload) {
@@ -1778,7 +1818,7 @@
                            </button>`)
                     : `<p class="text-xs text-red-600"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>`;
                 const actionBtns = canManageSettings
-                    ? `<div class="flex flex-col items-end gap-2">
+                    ? `<div class="flex items-center justify-between gap-2">
                            <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
                            <div class="flex gap-2">
                                <button onclick='openInspectionLogModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1" title="督勤內容"><i data-lucide="list-checks" size="16"></i></button>
@@ -1786,20 +1826,18 @@
                                <button onclick='deleteLog(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
                            </div>
                        </div>`
-                    : `<span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>`;
+                    : `<div class="flex justify-end"><span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span></div>`;
                 return `
-                <div class="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500 flex justify-between items-start">
-                    <div>
-                        <div class="flex items-center justify-between gap-2">
-                            <h4 class="font-bold text-gray-800">${location}</h4>
-                            <p class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">${code}</p>
-                        </div>
-                        <div class="flex items-center justify-between gap-2">
-                            <p class="text-xs text-gray-500">${timeStr}</p>
-                            ${mapBtn}
-                        </div>
+                <div class="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500 flex flex-col gap-2">
+                    <div class="flex items-center justify-between gap-2">
+                        <h4 class="font-bold text-gray-800">${location}</h4>
+                        <p class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">${code}</p>
                     </div>
-                    ${actionBtns}
+                    <p class="text-xs text-gray-500">${timeStr}</p>
+                    ${mapBtn}
+                    <div class="pt-1">
+                        ${actionBtns}
+                    </div>
                 </div>
             `;
             }).join('');
