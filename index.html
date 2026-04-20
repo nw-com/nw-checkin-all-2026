@@ -7005,6 +7005,9 @@
                      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                      const isNationalHoliday = holidays.includes(logicDateStr);
                      const isCalendarHoliday = isWeekend || isNationalHoliday;
+                     const roleObj = (roles || []).find(r => r.id === currentUser?.role);
+                     const roleName = String((roleObj && roleObj.name) ? roleObj.name : (currentUser?.roleName || '')).trim();
+                     const allowClockOnCalendarHolidayWithoutSchedule = ['總幹事', '秘書', '清潔', '機電', '保全'].includes(roleName);
 
                      // 1. If Schedule Exists
                      if (schedule) {
@@ -7066,6 +7069,9 @@
                      // 2. If No Schedule -> Check Calendar
                      if (!schedule) {
                          if (isCalendarHoliday) {
+                             if (allowClockOnCalendarHolidayWithoutSchedule) {
+                                 return { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
+                             }
                              return { type: 'in', text: '非上班日', sub: '', icon: MapPin, colorClass: 'bg-gray-200 text-gray-500 border-2 border-gray-100 cursor-not-allowed', iconBg: 'bg-gray-100', iconColor: 'text-gray-500', disabled: true };
                          }
                      }
