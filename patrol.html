@@ -145,6 +145,12 @@
                     </div>
                     <div>
                         <div class="text-xs font-bold text-gray-400 uppercase mb-2">檢視項目</div>
+                        <div class="mb-2">
+                            <label class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl p-3 cursor-pointer select-none">
+                                <input id="inspection-select-all" type="checkbox" class="w-5 h-5 text-red-600 focus:ring-red-500" onchange="toggleInspectionSelectAll()">
+                                <span class="font-bold text-gray-800">全選</span>
+                            </label>
+                        </div>
                         <div id="inspection-run-items" class="space-y-2"></div>
                     </div>
                 </div>
@@ -708,7 +714,29 @@
                     </label>
                 `;
             }).join('');
+            const inputs = Array.from(document.querySelectorAll('#inspection-run-items input[type="checkbox"][data-inspection-id]'));
+            inputs.forEach(i => i.addEventListener('change', updateInspectionSelectAllState, { passive: true }));
+            updateInspectionSelectAllState();
             lucide.createIcons();
+        }
+
+        function toggleInspectionSelectAll() {
+            const selectAll = document.getElementById('inspection-select-all');
+            if (!selectAll) return;
+            const checked = !!selectAll.checked;
+            const inputs = Array.from(document.querySelectorAll('#inspection-run-items input[type="checkbox"][data-inspection-id]'));
+            inputs.forEach(i => { i.checked = checked; });
+            updateInspectionSelectAllState();
+        }
+
+        function updateInspectionSelectAllState() {
+            const selectAll = document.getElementById('inspection-select-all');
+            if (!selectAll) return;
+            const inputs = Array.from(document.querySelectorAll('#inspection-run-items input[type="checkbox"][data-inspection-id]'));
+            const total = inputs.length;
+            const checkedCount = inputs.filter(i => i.checked).length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < total;
+            selectAll.checked = total > 0 && checkedCount === total;
         }
 
         function openInspectionRunModal(locationName, code, coords) {
@@ -738,10 +766,8 @@
             const items = Array.isArray(pendingInspectionScan.items) ? pendingInspectionScan.items : [];
             const inputs = Array.from(document.querySelectorAll('#inspection-run-items input[type="checkbox"][data-inspection-id]'));
             const checkedIds = new Set(inputs.filter(x => x.checked).map(x => normalizeKey(x.getAttribute('data-inspection-id'))));
-            const allIds = items.map(it => normalizeKey(it.id)).filter(Boolean);
-            const allChecked = allIds.length > 0 && allIds.every(id => checkedIds.has(id));
-            if (!allChecked) {
-                alert('請先勾選所有檢視項目');
+            if (checkedIds.size === 0) {
+                alert('請至少勾選一個檢視項目');
                 return;
             }
             const payload = {
@@ -1717,7 +1743,10 @@
                                <button onclick='deleteLog(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
                            </div>
                        </div>`
-                    : `<span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>`;
+                    : `<div class="flex flex-col items-end gap-2">
+                           <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
+                           <button onclick='openInspectionStatusModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
+                       </div>`;
                 return `
                 <div class="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500 flex justify-between items-start">
                     <div>
