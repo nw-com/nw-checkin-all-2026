@@ -985,7 +985,8 @@
             const guard = normalizeKey(log?.userName || log?.userId || '');
             const code = normalizeKey(log?.code || '');
             const locationFromLog = normalizeKey(log?.location || '');
-            const mappedLocation = code ? normalizeKey(locationMap[code] || '') : '';
+            const data = code ? locationMap[code] : null;
+            const mappedLocation = data ? normalizeKey(data.name || data) : '';
             const location = mappedLocation || locationFromLog || code;
 
             if (locEl) locEl.textContent = location;
@@ -1544,7 +1545,18 @@
                 Object.keys(map || {}).forEach((k) => {
                     const nk = normalizeKey(k);
                     if (!nk) return;
-                    normalized[nk] = normalizeKey(map[k]);
+                    const v = map[k];
+                    if (typeof v === 'object' && v !== null && v.name) {
+                        normalized[nk] = {
+                            name: normalizeKey(v.name),
+                            createdAt: v.createdAt || null
+                        };
+                    } else {
+                        normalized[nk] = {
+                            name: normalizeKey(v),
+                            createdAt: null
+                        };
+                    }
                 });
                 locationMap = normalized;
                 const checklist = normalizeInspectionChecklist(data.inspectionChecklist);
@@ -1656,7 +1668,18 @@
                 Object.keys(map || {}).forEach((k) => {
                     const nk = normalizeKey(k);
                     if (!nk) return;
-                    normalized[nk] = normalizeKey(map[k]);
+                    const v = map[k];
+                    if (typeof v === 'object' && v !== null && v.name) {
+                        normalized[nk] = {
+                            name: normalizeKey(v.name),
+                            createdAt: v.createdAt || null
+                        };
+                    } else {
+                        normalized[nk] = {
+                            name: normalizeKey(v),
+                            createdAt: null
+                        };
+                    }
                 });
                 locationMap = normalized;
                 const checklist = normalizeInspectionChecklist(data.inspectionChecklist);
@@ -1803,7 +1826,8 @@
         function onScanSuccess(decodedText, decodedResult) {
             // 掃描到的是 Code，查找對應的地點名稱
             const code = normalizeKey(decodedText);
-            const locationName = locationMap[code];
+            const data = locationMap[code];
+            const locationName = data ? normalizeKey(data.name || data) : '';
 
             if (!locationName) {
                 toggleScanner(false);
@@ -1989,7 +2013,19 @@
             }
             
             if (!settingsDocRef || !dbUser) return;
-            const nextMap = { ...(locationMap || {}), [code]: name };
+            const existing = locationMap[code];
+            const nextMap = { ...(locationMap || {}) };
+            if (existing && existing.name) {
+                nextMap[code] = {
+                    name: name,
+                    createdAt: existing.createdAt || firebase.firestore.FieldValue.serverTimestamp()
+                };
+            } else {
+                nextMap[code] = {
+                    name: name,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+            }
             settingsDocRef.set({
                 locationMap: nextMap,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2033,11 +2069,22 @@
                 return;
             }
 
+            const sortedKeys = keys.sort((a, b) => {
+                const dataA = locationMap[a];
+                const dataB = locationMap[b];
+                const timeA = dataA && dataA.createdAt && dataA.createdAt.toMillis ? dataA.createdAt.toMillis() : 0;
+                const timeB = dataB && dataB.createdAt && dataB.createdAt.toMillis ? dataB.createdAt.toMillis() : 0;
+                return timeA - timeB;
+            });
+
             container.innerHTML = '<h3 class="text-xs font-bold text-gray-400 uppercase mt-6 mb-2">已定義的地點代碼</h3>' + 
-                keys.map(code => `
+                sortedKeys.map(code => {
+                    const data = locationMap[code];
+                    const name = data ? normalizeKey(data.name || data) : '';
+                    return `
                 <div class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm mb-2">
                     <div>
-                        <p class="font-bold text-gray-700">${normalizeKey(locationMap[code])}</p>
+                        <p class="font-bold text-gray-700">${name}</p>
                         <p class="text-xs font-mono text-red-500">${code}</p>
                     </div>
                     ${canManageSettings ? `
@@ -2048,14 +2095,15 @@
                         </div>
                     ` : ``}
                 </div>
-            `).join('');
+            `}).join('');
             lucide.createIcons();
         }
 
         function openPrintMapping(code) {
             const c = normalizeKey(code);
             if (!c) return;
-            const name = normalizeKey(locationMap[c]);
+            const data = locationMap[c];
+            const name = data ? normalizeKey(data.name || data) : '';
             if (!name) return;
             generateQR(name, c);
         }
@@ -2064,7 +2112,8 @@
             if (!canManageSettings) return;
             const c = normalizeKey(code);
             if (!c) return;
-            const name = normalizeKey(locationMap[c]);
+            const data = locationMap[c];
+            const name = data ? normalizeKey(data.name || data) : '';
             const modal = document.getElementById('edit-mapping-modal');
             const oldEl = document.getElementById('edit-map-old-code');
             const nameEl = document.getElementById('edit-map-name');
@@ -2092,17 +2141,21 @@
                 return;
             }
             const nextMap = { ...(locationMap || {}) };
+            const existing = locationMap[oldCode];
             if (oldCode !== nextCode) delete nextMap[oldCode];
-            nextMap[nextCode] = nextName;
+            nextMap[nextCode] = {
+                name: nextName,
+                createdAt: (existing && existing.createdAt) || firebase.firestore.FieldValue.serverTimestamp()
+            };
             const updates = {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedBy: dbUser.id
             };
             if (oldCode === nextCode) {
-                updates[`locationMap.${nextCode}`] = nextName;
+                updates[`locationMap.${nextCode}`] = nextMap[nextCode];
             } else {
                 updates[`locationMap.${oldCode}`] = firebase.firestore.FieldValue.delete();
-                updates[`locationMap.${nextCode}`] = nextName;
+                updates[`locationMap.${nextCode}`] = nextMap[nextCode];
             }
             settingsDocRef.update(updates).then(() => {
                 locationMap = nextMap;
