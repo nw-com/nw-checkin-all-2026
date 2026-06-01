@@ -65,6 +65,14 @@
             </div>
         </div>
 
+        <!-- 已巡邏地點標籤 -->
+        <div id="patrol-tags-container" class="bg-white rounded-xl p-4 shadow-sm mb-4 border border-gray-100">
+            <h3 class="text-xs font-bold text-gray-400 uppercase mb-2">已巡邏地點</h3>
+            <div id="patrol-tags" class="flex flex-wrap gap-2">
+                <span class="text-sm text-gray-400 italic">尚無巡邏記錄</span>
+            </div>
+        </div>
+
         <!-- 視圖：掃描打卡 -->
         <div id="view-scanner" class="view-content">
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-4">
@@ -1927,13 +1935,36 @@
 
         function updatePatrolCount() {
             const list = Array.isArray(logs) ? logs : [];
-            const unique = new Set(list.map(x => normalizeKey(x.code) || normalizeKey(x.location)).filter(Boolean));
+            const uniqueCodes = new Set(list.map(x => normalizeKey(x.code) || normalizeKey(x.location)).filter(Boolean));
 
             const totalEl = document.getElementById('patrol-count');
             if (totalEl) totalEl.innerText = String(list.length);
 
             const uniqueEl = document.getElementById('patrol-unique-count');
-            if (uniqueEl) uniqueEl.innerText = String(unique.size);
+            if (uniqueEl) uniqueEl.innerText = String(uniqueCodes.size);
+
+            // 更新巡逻点标签
+            const tagsContainer = document.getElementById('patrol-tags');
+            if (tagsContainer) {
+                if (uniqueCodes.size === 0) {
+                    tagsContainer.innerHTML = `<span class="text-sm text-gray-400 italic">尚無巡邏記錄</span>`;
+                } else {
+                    const tags = Array.from(uniqueCodes).map(code => {
+                        const mappedData = locationMap[code];
+                        const name = mappedData 
+                            ? (typeof mappedData === 'object' && mappedData.name 
+                                ? normalizeKey(mappedData.name) 
+                                : normalizeKey(mappedData))
+                            : normalizeKey(code);
+                        return `<span class="px-3 py-1 bg-red-50 text-red-700 text-sm font-medium rounded-full border border-red-100 flex items-center gap-1">
+                            <i data-lucide="check-circle" size="14"></i>
+                            ${escapeHtml(name)}
+                        </span>`;
+                    }).join('');
+                    tagsContainer.innerHTML = tags;
+                }
+                lucide.createIcons();
+            }
         }
 
         function renderLogs() {

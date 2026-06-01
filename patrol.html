@@ -30,6 +30,13 @@
             text-transform: none !important;
             border: none !important;
         }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
     </style>
 </head>
 <body class="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col">
@@ -60,6 +67,18 @@
                     <p class="text-sm text-gray-500">當日該社區已巡邏: <span id="patrol-unique-count" class="font-semibold text-red-600">0</span> 個地點 <span id="patrol-count" class="font-semibold text-red-600">0</span>次</p>
                 </div>
             </div>
+        </div>
+
+        <div id="patrol-points-card" class="bg-white rounded-xl p-4 shadow-sm mb-4 border border-gray-100">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex flex-col gap-0.5">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase">巡邏點</h3>
+                    <div id="patrol-points-date" class="text-[11px] font-bold text-gray-500"></div>
+                </div>
+                <span id="patrol-points-count" class="text-xs font-bold text-red-600">0 / 0</span>
+            </div>
+            <div id="patrol-points-tags" class="flex flex-nowrap gap-2 overflow-x-auto no-scrollbar pb-1"></div>
+            <div id="patrol-points-empty" class="text-sm text-gray-400 italic hidden">尚未設定巡邏點</div>
         </div>
 
         <!-- 視圖：掃描打卡 -->
@@ -105,6 +124,92 @@
                 </div>
                 <h3 id="scan-error-title" class="text-lg font-black text-gray-900 mb-1">無法辨識</h3>
                 <p id="scan-error-message" class="text-sm text-gray-600 font-bold">請掃描本社區設定的巡邏點 QR Code</p>
+            </div>
+        </div>
+
+        <div id="inspection-run-modal" class="fixed inset-0 z-[130] bg-black/40 hidden">
+            <div class="w-[90vw] h-[90vh] mx-auto my-[5vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="eye" class="text-red-600"></i>
+                        <div class="font-black text-gray-800">巡視確認</div>
+                    </div>
+                    <button onclick="closeInspectionRunModal()" class="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div class="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-1">
+                        <div id="inspection-run-location" class="font-bold text-gray-800"></div>
+                        <div id="inspection-run-code" class="text-xs font-mono text-gray-400"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2">檢視項目</div>
+                        <div id="inspection-run-items" class="space-y-2"></div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                    <button onclick="closeInspectionRunModal()" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">取消</button>
+                    <button onclick="confirmInspectionAndCheckIn()" class="px-5 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700">確認</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="inspection-settings-modal" class="fixed inset-0 z-[130] bg-black/40 hidden">
+            <div class="w-[90vw] h-[90vh] mx-auto my-[5vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="settings" class="text-red-600"></i>
+                        <div class="font-black text-gray-800">巡視項目設定</div>
+                    </div>
+                    <button onclick="closeInspectionSettingsModal()" class="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div class="bg-gray-50 rounded-xl border border-gray-100 p-4">
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2">新增項目</div>
+                        <div class="flex gap-2">
+                            <input id="inspection-new-text" type="text" class="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-200 outline-none" placeholder="例如：巡邏點確認">
+                            <button onclick="addInspectionItemFromInput()" class="px-4 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700">新增</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2">目前項目</div>
+                        <div id="inspection-items-list" class="space-y-2"></div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                    <button onclick="closeInspectionSettingsModal()" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">取消</button>
+                    <button onclick="saveInspectionItems()" class="px-5 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700">儲存</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="inspection-status-modal" class="fixed inset-0 z-[130] bg-black/40 hidden">
+            <div class="w-[90vw] h-[90vh] mx-auto my-[5vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="eye" class="text-red-600"></i>
+                        <div class="font-black text-gray-800">本次巡視狀況</div>
+                    </div>
+                    <button onclick="closeInspectionStatusModal()" class="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div class="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-1">
+                        <div id="inspection-status-location" class="font-bold text-gray-800"></div>
+                        <div id="inspection-status-time" class="text-xs text-gray-500"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2">勾選狀況</div>
+                        <div id="inspection-status-items" class="space-y-2"></div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-end">
+                    <button onclick="closeInspectionStatusModal()" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">關閉</button>
+                </div>
             </div>
         </div>
 
@@ -414,6 +519,8 @@
         let html5QrCode;
         let logs = [];
         let locationMap = {};
+        let inspectionItems = [];
+        let pendingInspectionScan = null;
         let selectedLogsDate = new Date();
         let canManageSettings = false;
         let downloadUIReady = false;
@@ -424,6 +531,218 @@
 
         function normalizeKey(v) {
             return String(v || '').replace(/\uFEFF/g, '').trim();
+        }
+
+        function normalizeInspectionItems(raw) {
+            const list = Array.isArray(raw) ? raw : [];
+            const normalized = [];
+            const seen = new Set();
+            for (const it of list) {
+                if (typeof it === 'string') {
+                    const text = normalizeKey(it);
+                    if (!text) continue;
+                    const id = `text_${text}`;
+                    if (seen.has(id)) continue;
+                    seen.add(id);
+                    normalized.push({ id, text });
+                    continue;
+                }
+                if (it && typeof it === 'object') {
+                    const id = normalizeKey(it.id || '');
+                    const text = normalizeKey(it.text || it.name || '');
+                    if (!text) continue;
+                    const finalId = id || `text_${text}`;
+                    if (seen.has(finalId)) continue;
+                    seen.add(finalId);
+                    normalized.push({ id: finalId, text });
+                }
+            }
+            if (normalized.length === 0) {
+                normalized.push({ id: 'default_patrol_point_confirm', text: '巡邏點確認' });
+            }
+            return normalized;
+        }
+
+        function renderInspectionSettingsList() {
+            const listEl = document.getElementById('inspection-items-list');
+            if (!listEl) return;
+            const items = Array.isArray(inspectionItems) ? inspectionItems : [];
+            listEl.innerHTML = items.map(it => {
+                const id = normalizeKey(it.id);
+                const text = normalizeKey(it.text);
+                return `
+                    <div class="flex items-center justify-between bg-white border border-gray-100 rounded-xl p-3">
+                        <div class="font-bold text-gray-700">${escapeHtml(text)}</div>
+                        <button onclick='removeInspectionItem(${JSON.stringify(id)})' class="px-3 py-1 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-bold">刪除</button>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function openInspectionSettingsModal() {
+            if (!canManageSettings) return;
+            const modal = document.getElementById('inspection-settings-modal');
+            if (!modal) return;
+            renderInspectionSettingsList();
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeInspectionSettingsModal() {
+            const modal = document.getElementById('inspection-settings-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function addInspectionItemFromInput() {
+            if (!canManageSettings) return;
+            const input = document.getElementById('inspection-new-text');
+            const text = normalizeKey(input ? input.value : '');
+            if (!text) return;
+            const next = Array.isArray(inspectionItems) ? [...inspectionItems] : [];
+            const id = `i_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+            next.push({ id, text });
+            inspectionItems = next;
+            if (input) input.value = '';
+            renderInspectionSettingsList();
+        }
+
+        function removeInspectionItem(id) {
+            if (!canManageSettings) return;
+            const targetId = normalizeKey(id);
+            const next = (Array.isArray(inspectionItems) ? inspectionItems : []).filter(it => normalizeKey(it.id) !== targetId);
+            inspectionItems = next.length > 0 ? next : [{ id: 'default_patrol_point_confirm', text: '巡邏點確認' }];
+            renderInspectionSettingsList();
+        }
+
+        async function saveInspectionItems() {
+            if (!canManageSettings) return;
+            if (!settingsDocRef || !dbUser) return;
+            const cleaned = normalizeInspectionItems(inspectionItems);
+            try {
+                await settingsDocRef.set({
+                    inspectionItems: cleaned,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedBy: dbUser.id
+                }, { merge: true });
+                inspectionItems = cleaned;
+                closeInspectionSettingsModal();
+            } catch {
+                alert('儲存巡視項目失敗');
+            }
+        }
+
+        function renderInspectionRunItems(checkedIds) {
+            const listEl = document.getElementById('inspection-run-items');
+            if (!listEl) return;
+            const items = Array.isArray(inspectionItems) ? inspectionItems : [];
+            listEl.innerHTML = items.map(it => {
+                const id = normalizeKey(it.id);
+                const text = normalizeKey(it.text);
+                const checked = checkedIds.has(id);
+                return `
+                    <label class="flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3 cursor-pointer select-none">
+                        <input type="checkbox" data-inspection-id="${escapeHtml(id)}" class="w-5 h-5 text-red-600 focus:ring-red-500" ${checked ? 'checked' : ''}>
+                        <span class="font-bold text-gray-800">${escapeHtml(text)}</span>
+                    </label>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function openInspectionRunModal(locationName, code, coords) {
+            const modal = document.getElementById('inspection-run-modal');
+            if (!modal) return;
+            if (!Array.isArray(inspectionItems) || inspectionItems.length === 0) {
+                inspectionItems = [{ id: 'default_patrol_point_confirm', text: '巡邏點確認' }];
+            }
+            pendingInspectionScan = { locationName: normalizeKey(locationName), code: normalizeKey(code), coords: coords || null };
+            const locEl = document.getElementById('inspection-run-location');
+            const codeEl = document.getElementById('inspection-run-code');
+            if (locEl) locEl.textContent = pendingInspectionScan.locationName || '巡邏點';
+            if (codeEl) codeEl.textContent = pendingInspectionScan.code ? `代碼：${pendingInspectionScan.code}` : '';
+            const checked = new Set();
+            renderInspectionRunItems(checked);
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeInspectionRunModal() {
+            pendingInspectionScan = null;
+            const modal = document.getElementById('inspection-run-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function confirmInspectionAndCheckIn() {
+            if (!pendingInspectionScan) return;
+            const items = Array.isArray(inspectionItems) ? inspectionItems : [];
+            const inputs = Array.from(document.querySelectorAll('#inspection-run-items input[type="checkbox"][data-inspection-id]'));
+            const checkedIds = new Set(inputs.filter(x => x.checked).map(x => normalizeKey(x.getAttribute('data-inspection-id'))));
+            const allIds = items.map(it => normalizeKey(it.id)).filter(Boolean);
+            const allChecked = allIds.length > 0 && allIds.every(id => checkedIds.has(id));
+            if (!allChecked) {
+                alert('請先勾選所有檢視項目');
+                return;
+            }
+            const payload = {
+                items: items.map(it => ({ id: normalizeKey(it.id), text: normalizeKey(it.text) })),
+                checkedIds: Array.from(checkedIds)
+            };
+            const { locationName, code, coords } = pendingInspectionScan;
+            closeInspectionRunModal();
+            recordCheckIn(locationName, code, coords, payload);
+        }
+
+        function openInspectionStatusModal(logId) {
+            const id = normalizeKey(logId);
+            const target = (logs || []).find(x => normalizeKey(x.id) === id);
+            if (!target) return;
+            const modal = document.getElementById('inspection-status-modal');
+            if (!modal) return;
+
+            const code = normalizeKey(target.code || '');
+            const locationFromLog = normalizeKey(target.location || '');
+            const data = code ? locationMap[code] : null;
+            const mappedLocation = data ? normalizeKey(data.name || data) : '';
+            const location = mappedLocation || locationFromLog || code;
+
+            const t = (target.createdAt && typeof target.createdAt.toDate === 'function')
+                ? target.createdAt.toDate()
+                : (typeof target.createdAt === 'number')
+                    ? new Date(target.createdAt)
+                    : (typeof target.createdAt === 'string')
+                        ? new Date(target.createdAt)
+                        : null;
+            const timeStr = t ? t.toLocaleString('zh-TW') : '';
+
+            const locEl = document.getElementById('inspection-status-location');
+            const timeEl = document.getElementById('inspection-status-time');
+            if (locEl) locEl.textContent = location || '巡邏點';
+            if (timeEl) timeEl.textContent = timeStr;
+
+            const listEl = document.getElementById('inspection-status-items');
+            const items = normalizeInspectionItems(target.inspectionItems || inspectionItems);
+            const checkedIds = new Set(Array.isArray(target.inspectionCheckedIds) ? target.inspectionCheckedIds.map(normalizeKey) : []);
+            if (listEl) {
+                listEl.innerHTML = items.map(it => {
+                    const ok = checkedIds.has(normalizeKey(it.id));
+                    return `
+                        <div class="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-3">
+                            <div class="font-bold ${ok ? 'text-green-700' : 'text-gray-700'}">${escapeHtml(normalizeKey(it.text))}</div>
+                            <div class="text-xs font-bold ${ok ? 'text-green-600 bg-green-50 border border-green-200' : 'text-gray-500 bg-gray-50 border border-gray-200'} px-2 py-1 rounded-lg">
+                                ${ok ? '已勾選' : '未勾選'}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeInspectionStatusModal() {
+            const modal = document.getElementById('inspection-status-modal');
+            if (modal) modal.classList.add('hidden');
         }
         
         function hideAppChrome() {
@@ -579,10 +898,12 @@
                 snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
                 logs = list;
                 updatePatrolCount();
+                renderPatrolPointsTags();
                 if (!document.getElementById('view-logs')?.classList.contains('hidden')) renderLogs();
             }, () => {
                 logs = [];
                 updatePatrolCount();
+                renderPatrolPointsTags();
                 const container = document.getElementById('logs-container');
                 if (container) {
                     container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="alert-triangle" size="48" class="mx-auto mb-2 opacity-20"></i><p>無法讀取巡邏記錄</p></div>`;
@@ -596,6 +917,7 @@
             next.setDate(next.getDate() + (Number(deltaDays) || 0));
             selectedLogsDate = next;
             updateLogsDateLabel();
+            renderPatrolPointsTags();
             subscribeLogsForDate(selectedLogsDate);
             renderLogs();
         }
@@ -891,6 +1213,8 @@
             if (connectionEl) connectionEl.classList.add('hidden');
             const userCard = document.getElementById('user-card');
             if (userCard) userCard.classList.add('hidden');
+            const patrolPointsCard = document.getElementById('patrol-points-card');
+            if (patrolPointsCard) patrolPointsCard.classList.add('hidden');
             const nav = document.getElementById('page-nav');
             if (nav) nav.classList.add('hidden');
             const clearBtn = document.getElementById('clear-logs-btn');
@@ -935,6 +1259,11 @@
                     }
                 });
                 locationMap = normalized;
+                inspectionItems = normalizeInspectionItems(data.inspectionItems || []);
+                if (canManageSettings && (!data.inspectionItems || (Array.isArray(data.inspectionItems) && data.inspectionItems.length === 0))) {
+                    settingsDocRef.set({ inspectionItems }, { merge: true }).catch(() => {});
+                }
+                renderPatrolPointsTags();
             }, () => {});
 
             setPageTitle();
@@ -1047,6 +1376,11 @@
                     }
                 });
                 locationMap = normalized;
+                inspectionItems = normalizeInspectionItems(data.inspectionItems || []);
+                if (canManageSettings && (!data.inspectionItems || (Array.isArray(data.inspectionItems) && data.inspectionItems.length === 0))) {
+                    settingsDocRef.set({ inspectionItems }, { merge: true }).catch(() => {});
+                }
+                renderPatrolPointsTags();
                 if (!document.getElementById('view-settings')?.classList.contains('hidden')) renderLocationMap();
             }, () => {});
 
@@ -1154,15 +1488,15 @@
             
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => recordCheckIn(locationName, code, pos.coords),
-                    (err) => recordCheckIn(locationName, code, null)
+                    (pos) => openInspectionRunModal(locationName, code, pos.coords),
+                    (err) => openInspectionRunModal(locationName, code, null)
                 );
             } else {
-                recordCheckIn(locationName, code, null);
+                openInspectionRunModal(locationName, code, null);
             }
         }
 
-        function recordCheckIn(locationName, originalCode, coords) {
+        function recordCheckIn(locationName, originalCode, coords, inspection) {
             const now = new Date();
             const timestamp = now.toLocaleString('zh-TW');
             const lat = coords ? Number(coords.latitude.toFixed(6)) : null;
@@ -1177,6 +1511,8 @@
                     location: locationName,
                     lat,
                     lng,
+                    inspectionItems: (inspection && Array.isArray(inspection.items)) ? inspection.items : (Array.isArray(inspectionItems) ? inspectionItems : []),
+                    inspectionCheckedIds: (inspection && Array.isArray(inspection.checkedIds)) ? inspection.checkedIds : [],
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     source: 'web'
                 })
@@ -1206,6 +1542,53 @@
 
             const uniqueEl = document.getElementById('patrol-unique-count');
             if (uniqueEl) uniqueEl.innerText = String(unique.size);
+        }
+
+        function renderPatrolPointsTags() {
+            const container = document.getElementById('patrol-points-tags');
+            const emptyEl = document.getElementById('patrol-points-empty');
+            const countEl = document.getElementById('patrol-points-count');
+            const dateEl = document.getElementById('patrol-points-date');
+            if (!container) return;
+
+            const map = (locationMap && typeof locationMap === 'object') ? locationMap : {};
+            const entries = Object.keys(map).map(code => {
+                const data = map[code];
+                const name = data ? normalizeKey(data.name || data) : '';
+                return { code: normalizeKey(code), name: normalizeKey(name) };
+            }).filter(x => x.code || x.name);
+
+            if (dateEl) dateEl.textContent = formatDateLabel(selectedLogsDate || new Date());
+
+            entries.sort((a, b) => {
+                const an = a.name || '';
+                const bn = b.name || '';
+                const byName = an.localeCompare(bn, 'zh-Hant');
+                if (byName !== 0) return byName;
+                return (a.code || '').localeCompare((b.code || ''), 'en');
+            });
+
+            const visited = new Set((logs || []).map(l => normalizeKey(l?.code) || normalizeKey(l?.location)).filter(Boolean));
+            const visitedCount = entries.filter(e => (e.code && visited.has(e.code)) || (e.name && visited.has(e.name))).length;
+            if (countEl) countEl.textContent = `${visitedCount} / ${entries.length}`;
+
+            if (entries.length === 0) {
+                container.innerHTML = '';
+                if (emptyEl) emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            if (emptyEl) emptyEl.classList.add('hidden');
+            container.innerHTML = entries.map(item => {
+                const label = item.name || item.code;
+                const isVisited = (item.code && visited.has(item.code)) || (item.name && visited.has(item.name));
+                return `
+                    <div class="shrink-0 px-3 py-1 rounded-full border text-xs font-bold flex items-center gap-2 ${isVisited ? 'border-green-200 bg-green-100 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-700'}">
+                        <span class="truncate max-w-[160px]">${escapeHtml(label)}</span>
+                    </div>
+                `;
+            }).join('');
+            lucide.createIcons();
         }
 
         function renderLogs() {
@@ -1248,6 +1631,7 @@
                     ? `<div class="flex flex-col items-end gap-2">
                            <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
                            <div class="flex gap-2">
+                               <button onclick='openInspectionStatusModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
                                <button onclick='openEditLogModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                                <button onclick='deleteLog(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
                            </div>
@@ -1363,6 +1747,7 @@
                     </div>
                     ${canManageSettings ? `
                         <div class="flex gap-2">
+                            <button onclick="openInspectionSettingsModal()" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
                             <button onclick='openEditMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                             <button onclick='openPrintMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="printer" size="16"></i></button>
                             <button onclick="deleteMapping('${code}')" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
@@ -1371,6 +1756,7 @@
                 </div>
             `}).join('');
             lucide.createIcons();
+            renderPatrolPointsTags();
         }
 
         function openPrintMapping(code) {
