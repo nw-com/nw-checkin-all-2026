@@ -160,7 +160,10 @@
                 <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <i data-lucide="settings" class="text-red-600"></i>
-                        <div class="font-black text-gray-800">巡視項目設定</div>
+                        <div>
+                            <div class="font-black text-gray-800">巡視項目設定</div>
+                            <div id="inspection-settings-target" class="text-[11px] font-bold text-gray-500"></div>
+                        </div>
                     </div>
                     <button onclick="closeInspectionSettingsModal()" class="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700">
                         <i data-lucide="x"></i>
@@ -229,11 +232,11 @@
                 </div>
             </div>
             <div id="logs-date-nav" class="flex items-center justify-center gap-2 mb-4">
-                <button onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                <button id="logs-prev-btn" onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-left" size="16"></i>
                 </button>
                 <div id="logs-date-label" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap"></div>
-                <button onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                <button id="logs-next-btn" onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-right" size="16"></i>
                 </button>
             </div>
@@ -519,7 +522,10 @@
         let html5QrCode;
         let logs = [];
         let locationMap = {};
-        let inspectionItems = [];
+        let inspectionItemsByCode = {};
+        let defaultInspectionItems = [{ id: 'default_patrol_point_confirm', text: '巡邏點確認' }];
+        let inspectionEditingCode = '';
+        let inspectionEditingItems = [];
         let pendingInspectionScan = null;
         let selectedLogsDate = new Date();
         let canManageSettings = false;
@@ -563,10 +569,41 @@
             return normalized;
         }
 
+        function normalizeInspectionItemsByCode(raw) {
+            const obj = (raw && typeof raw === 'object') ? raw : {};
+            const out = {};
+            Object.keys(obj).forEach((k) => {
+                const code = normalizeKey(k);
+                if (!code) return;
+                out[code] = normalizeInspectionItems(obj[k]);
+            });
+            return out;
+        }
+
+        function getDefaultInspectionItems() {
+            const items = normalizeInspectionItems(defaultInspectionItems);
+            return items;
+        }
+
+        function getInspectionItemsForCode(code) {
+            const c = normalizeKey(code);
+            const fromMap = c ? inspectionItemsByCode[c] : null;
+            const items = Array.isArray(fromMap) ? fromMap : getDefaultInspectionItems();
+            return normalizeInspectionItems(items);
+        }
+
+        function resolveInspectionTargetLabel(code) {
+            const c = normalizeKey(code);
+            if (!c) return '';
+            const data = locationMap[c];
+            const name = data ? normalizeKey(data.name || data) : '';
+            return name ? `${name}（${c}）` : c;
+        }
+
         function renderInspectionSettingsList() {
             const listEl = document.getElementById('inspection-items-list');
             if (!listEl) return;
-            const items = Array.isArray(inspectionItems) ? inspectionItems : [];
+            const items = Array.isArray(inspectionEditingItems) ? inspectionEditingItems : [];
             listEl.innerHTML = items.map(it => {
                 const id = normalizeKey(it.id);
                 const text = normalizeKey(it.text);
@@ -580,10 +617,16 @@
             lucide.createIcons();
         }
 
-        function openInspectionSettingsModal() {
+        function openInspectionSettingsModal(code) {
             if (!canManageSettings) return;
+            const c = normalizeKey(code);
+            if (!c) return;
+            inspectionEditingCode = c;
+            inspectionEditingItems = getInspectionItemsForCode(c);
             const modal = document.getElementById('inspection-settings-modal');
             if (!modal) return;
+            const targetEl = document.getElementById('inspection-settings-target');
+            if (targetEl) targetEl.textContent = resolveInspectionTargetLabel(c);
             renderInspectionSettingsList();
             modal.classList.remove('hidden');
             lucide.createIcons();
@@ -592,6 +635,8 @@
         function closeInspectionSettingsModal() {
             const modal = document.getElementById('inspection-settings-modal');
             if (modal) modal.classList.add('hidden');
+            inspectionEditingCode = '';
+            inspectionEditingItems = [];
         }
 
         function addInspectionItemFromInput() {
@@ -599,10 +644,10 @@
             const input = document.getElementById('inspection-new-text');
             const text = normalizeKey(input ? input.value : '');
             if (!text) return;
-            const next = Array.isArray(inspectionItems) ? [...inspectionItems] : [];
+            const next = Array.isArray(inspectionEditingItems) ? [...inspectionEditingItems] : [];
             const id = `i_${Date.now()}_${Math.random().toString(16).slice(2)}`;
             next.push({ id, text });
-            inspectionItems = next;
+            inspectionEditingItems = next;
             if (input) input.value = '';
             renderInspectionSettingsList();
         }
@@ -610,33 +655,49 @@
         function removeInspectionItem(id) {
             if (!canManageSettings) return;
             const targetId = normalizeKey(id);
-            const next = (Array.isArray(inspectionItems) ? inspectionItems : []).filter(it => normalizeKey(it.id) !== targetId);
-            inspectionItems = next.length > 0 ? next : [{ id: 'default_patrol_point_confirm', text: '巡邏點確認' }];
+            const next = (Array.isArray(inspectionEditingItems) ? inspectionEditingItems : []).filter(it => normalizeKey(it.id) !== targetId);
+            inspectionEditingItems = next.length > 0 ? next : [{ id: 'default_patrol_point_confirm', text: '巡邏點確認' }];
             renderInspectionSettingsList();
         }
 
         async function saveInspectionItems() {
             if (!canManageSettings) return;
             if (!settingsDocRef || !dbUser) return;
-            const cleaned = normalizeInspectionItems(inspectionItems);
+            const c = normalizeKey(inspectionEditingCode);
+            if (!c) return;
+            const cleaned = normalizeInspectionItems(inspectionEditingItems);
             try {
-                await settingsDocRef.set({
-                    inspectionItems: cleaned,
+                const updates = {
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedBy: dbUser.id
-                }, { merge: true });
-                inspectionItems = cleaned;
+                };
+                updates[`inspectionItemsByCode.${c}`] = cleaned;
+                await settingsDocRef.update(updates);
+                inspectionItemsByCode = { ...(inspectionItemsByCode || {}), [c]: cleaned };
+                inspectionEditingItems = cleaned;
                 closeInspectionSettingsModal();
             } catch {
-                alert('儲存巡視項目失敗');
+                try {
+                    const setData = {
+                        inspectionItemsByCode: { ...(inspectionItemsByCode || {}), [c]: cleaned },
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedBy: dbUser.id
+                    };
+                    await settingsDocRef.set(setData, { merge: true });
+                    inspectionItemsByCode = { ...(inspectionItemsByCode || {}), [c]: cleaned };
+                    inspectionEditingItems = cleaned;
+                    closeInspectionSettingsModal();
+                } catch {
+                    alert('儲存巡視項目失敗');
+                }
             }
         }
 
-        function renderInspectionRunItems(checkedIds) {
+        function renderInspectionRunItems(items, checkedIds) {
             const listEl = document.getElementById('inspection-run-items');
             if (!listEl) return;
-            const items = Array.isArray(inspectionItems) ? inspectionItems : [];
-            listEl.innerHTML = items.map(it => {
+            const list = Array.isArray(items) ? items : [];
+            listEl.innerHTML = list.map(it => {
                 const id = normalizeKey(it.id);
                 const text = normalizeKey(it.text);
                 const checked = checkedIds.has(id);
@@ -653,16 +714,15 @@
         function openInspectionRunModal(locationName, code, coords) {
             const modal = document.getElementById('inspection-run-modal');
             if (!modal) return;
-            if (!Array.isArray(inspectionItems) || inspectionItems.length === 0) {
-                inspectionItems = [{ id: 'default_patrol_point_confirm', text: '巡邏點確認' }];
-            }
-            pendingInspectionScan = { locationName: normalizeKey(locationName), code: normalizeKey(code), coords: coords || null };
+            const c = normalizeKey(code);
+            const items = getInspectionItemsForCode(c);
+            pendingInspectionScan = { locationName: normalizeKey(locationName), code: c, coords: coords || null, items };
             const locEl = document.getElementById('inspection-run-location');
             const codeEl = document.getElementById('inspection-run-code');
             if (locEl) locEl.textContent = pendingInspectionScan.locationName || '巡邏點';
             if (codeEl) codeEl.textContent = pendingInspectionScan.code ? `代碼：${pendingInspectionScan.code}` : '';
             const checked = new Set();
-            renderInspectionRunItems(checked);
+            renderInspectionRunItems(items, checked);
             modal.classList.remove('hidden');
             lucide.createIcons();
         }
@@ -675,7 +735,7 @@
 
         function confirmInspectionAndCheckIn() {
             if (!pendingInspectionScan) return;
-            const items = Array.isArray(inspectionItems) ? inspectionItems : [];
+            const items = Array.isArray(pendingInspectionScan.items) ? pendingInspectionScan.items : [];
             const inputs = Array.from(document.querySelectorAll('#inspection-run-items input[type="checkbox"][data-inspection-id]'));
             const checkedIds = new Set(inputs.filter(x => x.checked).map(x => normalizeKey(x.getAttribute('data-inspection-id'))));
             const allIds = items.map(it => normalizeKey(it.id)).filter(Boolean);
@@ -721,7 +781,7 @@
             if (timeEl) timeEl.textContent = timeStr;
 
             const listEl = document.getElementById('inspection-status-items');
-            const items = normalizeInspectionItems(target.inspectionItems || inspectionItems);
+            const items = normalizeInspectionItems(target.inspectionItems || getInspectionItemsForCode(target.code || ''));
             const checkedIds = new Set(Array.isArray(target.inspectionCheckedIds) ? target.inspectionCheckedIds.map(normalizeKey) : []);
             if (listEl) {
                 listEl.innerHTML = items.map(it => {
@@ -875,6 +935,24 @@
             const el = document.getElementById('logs-date-label');
             if (!el) return;
             el.textContent = formatDateLabel(selectedLogsDate);
+            syncLogsDateNav();
+        }
+
+        function syncLogsDateNav() {
+            const nextBtn = document.getElementById('logs-next-btn');
+            if (!nextBtn) return;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const current = new Date(selectedLogsDate);
+            current.setHours(0, 0, 0, 0);
+            const isFuture = current.getTime() > today.getTime();
+            if (isFuture) {
+                selectedLogsDate = new Date(today);
+                const label = document.getElementById('logs-date-label');
+                if (label) label.textContent = formatDateLabel(selectedLogsDate);
+            }
+            const atToday = new Date(selectedLogsDate).setHours(0, 0, 0, 0) >= today.getTime();
+            nextBtn.classList.toggle('hidden', atToday);
         }
 
         function subscribeLogsForDate(d) {
@@ -915,6 +993,13 @@
         function changeLogDate(deltaDays) {
             const next = new Date(selectedLogsDate);
             next.setDate(next.getDate() + (Number(deltaDays) || 0));
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const nextDay = new Date(next);
+            nextDay.setHours(0, 0, 0, 0);
+            if (nextDay.getTime() > today.getTime()) {
+                return;
+            }
             selectedLogsDate = next;
             updateLogsDateLabel();
             renderPatrolPointsTags();
@@ -1259,10 +1344,8 @@
                     }
                 });
                 locationMap = normalized;
-                inspectionItems = normalizeInspectionItems(data.inspectionItems || []);
-                if (canManageSettings && (!data.inspectionItems || (Array.isArray(data.inspectionItems) && data.inspectionItems.length === 0))) {
-                    settingsDocRef.set({ inspectionItems }, { merge: true }).catch(() => {});
-                }
+                defaultInspectionItems = normalizeInspectionItems(data.defaultInspectionItems || data.inspectionItems || []);
+                inspectionItemsByCode = normalizeInspectionItemsByCode(data.inspectionItemsByCode || {});
                 renderPatrolPointsTags();
             }, () => {});
 
@@ -1376,10 +1459,8 @@
                     }
                 });
                 locationMap = normalized;
-                inspectionItems = normalizeInspectionItems(data.inspectionItems || []);
-                if (canManageSettings && (!data.inspectionItems || (Array.isArray(data.inspectionItems) && data.inspectionItems.length === 0))) {
-                    settingsDocRef.set({ inspectionItems }, { merge: true }).catch(() => {});
-                }
+                defaultInspectionItems = normalizeInspectionItems(data.defaultInspectionItems || data.inspectionItems || []);
+                inspectionItemsByCode = normalizeInspectionItemsByCode(data.inspectionItemsByCode || {});
                 renderPatrolPointsTags();
                 if (!document.getElementById('view-settings')?.classList.contains('hidden')) renderLocationMap();
             }, () => {});
@@ -1511,7 +1592,7 @@
                     location: locationName,
                     lat,
                     lng,
-                    inspectionItems: (inspection && Array.isArray(inspection.items)) ? inspection.items : (Array.isArray(inspectionItems) ? inspectionItems : []),
+                    inspectionItems: (inspection && Array.isArray(inspection.items)) ? inspection.items : [],
                     inspectionCheckedIds: (inspection && Array.isArray(inspection.checkedIds)) ? inspection.checkedIds : [],
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     source: 'web'
@@ -1747,7 +1828,7 @@
                     </div>
                     ${canManageSettings ? `
                         <div class="flex gap-2">
-                            <button onclick="openInspectionSettingsModal()" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
+                            <button onclick='openInspectionSettingsModal(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
                             <button onclick='openEditMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                             <button onclick='openPrintMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="printer" size="16"></i></button>
                             <button onclick="deleteMapping('${code}')" class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
@@ -1816,9 +1897,21 @@
             } else {
                 updates[`locationMap.${oldCode}`] = firebase.firestore.FieldValue.delete();
                 updates[`locationMap.${nextCode}`] = nextMap[nextCode];
+                const oldInspection = (inspectionItemsByCode && inspectionItemsByCode[oldCode]) ? inspectionItemsByCode[oldCode] : null;
+                if (Array.isArray(oldInspection) && oldInspection.length > 0) {
+                    updates[`inspectionItemsByCode.${oldCode}`] = firebase.firestore.FieldValue.delete();
+                    updates[`inspectionItemsByCode.${nextCode}`] = oldInspection;
+                }
             }
             settingsDocRef.update(updates).then(() => {
                 locationMap = nextMap;
+                if (oldCode !== nextCode && inspectionItemsByCode && inspectionItemsByCode[oldCode]) {
+                    const moved = inspectionItemsByCode[oldCode];
+                    const nextObj = { ...(inspectionItemsByCode || {}) };
+                    delete nextObj[oldCode];
+                    nextObj[nextCode] = moved;
+                    inspectionItemsByCode = nextObj;
+                }
                 closeEditMappingModal();
                 renderLocationMap();
             }).catch(() => {
