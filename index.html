@@ -6546,7 +6546,6 @@
 
             useEffect(() => {
                 if (typeof setIsNightShift !== 'function') return;
-                if (mode !== 'work') return;
                 if (!currentUser) return;
 
                 const todayStr = formatYMD(currentTime);
@@ -6975,7 +6974,13 @@
                 const d = String(recordTime.getDate()).padStart(2, '0');
                 const recordDateStr = `${y}-${m}-${d}`;
                 const schedule = mySchedules[recordDateStr];
-                const isNightShiftRecord = schedule && (schedule.startTime === '12:00' || schedule.crossDay === true);
+                const isNightShiftRecord = !!(schedule && (
+                    schedule.shift === 'night' ||
+                    schedule.isNightShift === true ||
+                    schedule.crossDay === true ||
+                    (schedule.startTime && schedule.endTime && String(schedule.endTime) < String(schedule.startTime)) ||
+                    schedule.startTime === '12:00'
+                ));
                 const resetTime = new Date(recordTime);
                 resetTime.setHours(0, 0, 0, 0);
                 if (isNightShiftRecord) {
@@ -7641,7 +7646,17 @@
                                     
                                     const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                                     const schedule = mySchedules[dateStr];
-                                    const isNightShiftDisplay = !!(r.isNightShift || (schedule && (schedule.startTime === '12:00' || schedule.crossDay === true)));
+                                    const isNightShiftDisplay = (() => {
+                                        const s = String(r.shift || '');
+                                        if (s === 'night') return true;
+                                        if (s === 'day') return false;
+                                        if (typeof r.isNightShift === 'boolean') return r.isNightShift;
+                                        if (!schedule) return false;
+                                        if (schedule.shift === 'night' || schedule.isNightShift === true || schedule.crossDay === true) return true;
+                                        if (schedule.startTime && schedule.endTime && String(schedule.endTime) < String(schedule.startTime)) return true;
+                                        if (schedule.startTime === '12:00') return true;
+                                        return false;
+                                    })();
                                     
                                     return (
                                         <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -12400,6 +12415,7 @@
 
             useEffect(() => {
                 let mounted = true;
+                let userDocUnsub = null;
                 const timer = setTimeout(() => {
                     if (mounted) setLoading(false);
                 }, 3000);
@@ -12427,28 +12443,43 @@
                                 );
                                 const snap = await getDocs(q);
                                 if (!snap.empty) {
-                                    const data = { id: snap.docs[0].id, ...snap.docs[0].data() };
-                                    data.status = data.status || '在職';
-                                    if (data.status === '離職') {
-                                        const today = new Date();
-                                        today.setHours(0,0,0,0);
-                                        let shouldBlock = true;
-                                        if (data.resignDate) {
-                                            const rDate = new Date(data.resignDate);
-                                            // If resign date is in the future, allow login
-                                            if (rDate > today) shouldBlock = false;
-                                        }
-                                        if (shouldBlock) {
-                                            await signOut(auth);
-                                            setDbUser(null);
-                                            setView('login');
-                                            return;
-                                        }
+                                    const preferredDoc = snap.docs.find(d => {
+                                        const data = d.data() || {};
+                                        return String(data.status || '在職') !== '離職';
+                                    }) || snap.docs[0];
+                                    const userDocId = preferredDoc.id;
+                                    if (typeof userDocUnsub === 'function') {
+                                        try { userDocUnsub(); } catch {}
                                     }
-                                    const comm = communities.find(c => c.id === data.communityId);
-                                    data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
-                                    setDbUser(data);
-                                    setView('dashboard');
+                                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', String(userDocId));
+                                    userDocUnsub = onSnapshot(userRef, async (userSnap) => {
+                                        if (!mounted) return;
+                                        if (!userSnap.exists()) return;
+                                        const data = { id: userSnap.id, ...(userSnap.data() || {}) };
+                                        data.status = data.status || '在職';
+                                        if (data.status === '離職') {
+                                            const today = new Date();
+                                            today.setHours(0, 0, 0, 0);
+                                            let shouldBlock = true;
+                                            if (data.resignDate) {
+                                                const rDate = new Date(data.resignDate);
+                                                if (rDate > today) shouldBlock = false;
+                                            }
+                                            if (shouldBlock) {
+                                                try { userDocUnsub && userDocUnsub(); } catch {}
+                                                userDocUnsub = null;
+                                                await signOut(auth);
+                                                if (!mounted) return;
+                                                setDbUser(null);
+                                                setView('login');
+                                                return;
+                                            }
+                                        }
+                                        const comm = communities.find(c => c.id === data.communityId);
+                                        data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
+                                        setDbUser(data);
+                                        setView('dashboard');
+                                    });
                                 } else {
                                     setView('dashboard');
                                 }
@@ -12457,6 +12488,10 @@
                             }
                         })();
                     } else {
+                        if (typeof userDocUnsub === 'function') {
+                            try { userDocUnsub(); } catch {}
+                        }
+                        userDocUnsub = null;
                         setDbUser(null);
                         setView('login');
                     }
@@ -12467,6 +12502,9 @@
                 window.addEventListener('offline', offlineHandler);
                 return () => {
                     mounted = false;
+                    if (typeof userDocUnsub === 'function') {
+                        try { userDocUnsub(); } catch {}
+                    }
                     unsubscribe();
                     clearTimeout(timer);
                     window.removeEventListener('online', onlineHandler);
@@ -13396,7 +13434,9 @@
                         return formatYMD(base);
                     };
                     const clockNow = networkTime || new Date();
-                    const resolvedShift = (pendingClockMeta && pendingClockMeta.shift) ? String(pendingClockMeta.shift) : (isNightShift ? 'night' : 'day');
+                    const resolvedShift = (((pendingClockMeta && pendingClockMeta.shift) ? String(pendingClockMeta.shift) : (isNightShift ? 'night' : 'day')) === 'night')
+                        ? 'night'
+                        : 'day';
                     const resolvedLogicDate = (pendingClockMeta && pendingClockMeta.logicDate) ? String(pendingClockMeta.logicDate) : computeLogicDateStr(clockNow, resolvedShift);
                     const resolvedLocationId = (pendingClockMeta && pendingClockMeta.locationId)
                         ? String(pendingClockMeta.locationId)
@@ -13411,7 +13451,7 @@
                         checkInLocationName: checkInLocation ? checkInLocation.name : (dbUser.communityName || ''),
                         type: clockType,
                         outingReason: (clockType || '').startsWith('outing') ? (pendingOutingReason || '') : '',
-                        isNightShift: !!isNightShift,
+                        isNightShift: resolvedShift === 'night',
                         timestamp: serverTimestamp(),
                         device: 'Web Browser',
                         location: `${location.lat}, ${location.lng}`,
@@ -15442,7 +15482,13 @@
                                                     const [hh, mm] = t.split(':').map(v => parseInt(v, 10));
                                                     return { h: Number.isFinite(hh) ? hh : defH, m: Number.isFinite(mm) ? mm : defM };
                                                 };
-                                                const isNight = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+                                                const isNight = (s) => !!(s && (
+                                                    s.shift === 'night' ||
+                                                    s.isNightShift === true ||
+                                                    s.crossDay === true ||
+                                                    (s.startTime && s.endTime && String(s.endTime) < String(s.startTime)) ||
+                                                    s.startTime === '12:00'
+                                                ));
                                                 let redCount = 0;
                                                 // 缺哨統計
                                                 const needDay = Array.from(new Set((selectedCommunity?.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
@@ -20976,7 +21022,13 @@
                                     return new Date(secs * 1000).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
                                 };
 
-                                const isNightSchedule = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+                                const isNightSchedule = (s) => !!(s && (
+                                    s.shift === 'night' ||
+                                    s.isNightShift === true ||
+                                    s.crossDay === true ||
+                                    (s.startTime && s.endTime && String(s.endTime) < String(s.startTime)) ||
+                                    s.startTime === '12:00'
+                                ));
 
                                 const makeShiftWindow = (schedule) => {
                                     const { h: sh, m: sm } = parseTime(schedule?.startTime, 0, 0);
@@ -21978,7 +22030,17 @@
                                                         
                                                         const dateStr = `${recordDateObj.getFullYear()}-${String(recordDateObj.getMonth() + 1).padStart(2,'0')}-${String(recordDateObj.getDate()).padStart(2,'0')}`;
                                                         const schedule = schedulesList.find(s => s.userId === r.userId && s.date === dateStr);
-                                                        const isNightShiftDisplay = !!(r.isNightShift || (schedule && (schedule.startTime === '12:00' || schedule.crossDay === true)));
+                                                        const isNightShiftDisplay = (() => {
+                                                            const s = String(r.shift || '');
+                                                            if (s === 'night') return true;
+                                                            if (s === 'day') return false;
+                                                            if (typeof r.isNightShift === 'boolean') return r.isNightShift;
+                                                            if (!schedule) return false;
+                                                            if (schedule.shift === 'night' || schedule.isNightShift === true || schedule.crossDay === true) return true;
+                                                            if (schedule.startTime && schedule.endTime && String(schedule.endTime) < String(schedule.startTime)) return true;
+                                                            if (schedule.startTime === '12:00') return true;
+                                                            return false;
+                                                        })();
                                                         
                                                         return (
                                                             <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -24258,7 +24320,17 @@
                                                         
                                                         const dateStr = `${recordDateObj.getFullYear()}-${String(recordDateObj.getMonth() + 1).padStart(2,'0')}-${String(recordDateObj.getDate()).padStart(2,'0')}`;
                                                         const schedule = schedulesList.find(s => s.userId === r.userId && s.date === dateStr);
-                                                        const isNightShiftDisplay = !!(r.isNightShift || (schedule && (schedule.startTime === '12:00' || schedule.crossDay === true)));
+                                                        const isNightShiftDisplay = (() => {
+                                                            const s = String(r.shift || '');
+                                                            if (s === 'night') return true;
+                                                            if (s === 'day') return false;
+                                                            if (typeof r.isNightShift === 'boolean') return r.isNightShift;
+                                                            if (!schedule) return false;
+                                                            if (schedule.shift === 'night' || schedule.isNightShift === true || schedule.crossDay === true) return true;
+                                                            if (schedule.startTime && schedule.endTime && String(schedule.endTime) < String(schedule.startTime)) return true;
+                                                            if (schedule.startTime === '12:00') return true;
+                                                            return false;
+                                                        })();
                                                         
                                                         return (
                                                             <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
@@ -26486,7 +26558,13 @@
                                                         const [hh, mm] = t.split(':').map(v => parseInt(v, 10));
                                                         return { h: Number.isFinite(hh) ? hh : defH, m: Number.isFinite(mm) ? mm : defM };
                                                     };
-                                                    const isNight = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+                                                    const isNight = (s) => !!(s && (
+                                                        s.shift === 'night' ||
+                                                        s.isNightShift === true ||
+                                                        s.crossDay === true ||
+                                                        (s.startTime && s.endTime && String(s.endTime) < String(s.startTime)) ||
+                                                        s.startTime === '12:00'
+                                                    ));
                                                     let redCount = 0;
                                                     const needDay = Array.from(new Set((comm?.dayGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
                                                     const needNight = Array.from(new Set((comm?.nightGuardPoints || []).map(p => String(p || '').trim()).filter(Boolean)));
@@ -26837,7 +26915,13 @@
                                                     const [hh, mm] = t.split(':').map(v => parseInt(v, 10));
                                                     return { h: Number.isFinite(hh) ? hh : defH, m: Number.isFinite(mm) ? mm : defM };
                                                 };
-                                                const isNight = (s) => !!(s && (s.crossDay === true || s.startTime === '12:00'));
+                                                const isNight = (s) => !!(s && (
+                                                    s.shift === 'night' ||
+                                                    s.isNightShift === true ||
+                                                    s.crossDay === true ||
+                                                    (s.startTime && s.endTime && String(s.endTime) < String(s.startTime)) ||
+                                                    s.startTime === '12:00'
+                                                ));
 
                                                 let hasAbnormal = false;
                                                 for (const comm of userComms) {
