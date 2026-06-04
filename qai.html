@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>量子AI社區評分系統</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="量子AI社區評分系統">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#ffffff">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            font-family: "Microsoft JhengHei", "PingFang TC", "Heiti TC", "Apple LiGothic Medium", "PMingLiU", sans-serif !important;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+        }
+        html, body {
+            height: 100%;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .qai-split {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 16px 0;
+            height: 100%;
+            box-sizing: border-box;
+        }
+        .qai-pane {
+            flex: 1 1 0%;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+        }
+        .qai-card-scroll {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        @media (orientation: landscape) {
+            .qai-split {
+                flex-direction: row;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 overflow-x-hidden">
+    <div class="h-screen w-full grid overflow-x-hidden min-h-0" style="grid-template-rows: 8% 8% 76% 8%;">
+        <header class="bg-white border-b border-gray-100 px-4 flex items-center justify-between w-full min-w-0">
+            <div class="text-base sm:text-lg font-black text-gray-800 truncate">量子AI社區評分系統</div>
+            <div class="flex items-center gap-3">
+                <div id="qai-user-name" class="hidden sm:block text-sm font-bold text-gray-600"></div>
+                <button type="button" onclick="openQaiProfileModal()" class="relative w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 transition bg-gray-100 flex items-center justify-center font-bold text-gray-600">
+                    <img id="qai-user-avatar" class="w-full h-full object-cover hidden" alt="avatar" />
+                    <span id="qai-user-avatar-fallback">?</span>
+                </button>
+            </div>
+        </header>
+
+        <div id="qai-top" class="bg-white px-4 flex items-center border-b border-gray-100 w-full min-w-0"></div>
+        <main id="qai-main" class="bg-gray-50 px-4 overflow-hidden w-full min-w-0 min-h-0 flex flex-col">
+            <section id="qai-tab-company-qai" class="flex-1 min-h-0">
+                <div class="qai-split h-full">
+                    <div id="qai-company-left" class="qai-pane">
+                        <div id="qai-company-card-left" class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                    <div id="qai-company-right" class="qai-pane">
+                        <div id="qai-company-card-right" class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                </div>
+            </section>
+            <section id="qai-tab-community-qai" class="hidden flex-1 min-h-0">
+                <div class="qai-split h-full">
+                    <div id="qai-community-left" class="qai-pane">
+                        <div class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                    <div id="qai-community-right" class="qai-pane">
+                        <div class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                </div>
+            </section>
+            <section id="qai-tab-settings" class="hidden flex-1 min-h-0 flex flex-col">
+                <section id="qai-settings-general" class="flex-1 min-h-0">
+                    <div class="qai-pane">
+                        <div class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                </section>
+                <section id="qai-settings-company" class="hidden flex-1 min-h-0">
+                    <div class="qai-pane">
+                        <div class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                </section>
+                <section id="qai-settings-community" class="hidden flex-1 min-h-0">
+                    <div class="qai-pane">
+                        <div class="qai-card-scroll bg-white rounded-2xl shadow-sm border border-gray-100 p-4 min-h-[140px]"></div>
+                    </div>
+                </section>
+            </section>
+        </main>
+        <footer id="qai-footer" class="bg-white border-t border-gray-100 px-3 flex items-center justify-around gap-2 w-full min-w-0">
+            <button id="qai-tab-btn-company" type="button" onclick="switchQaiTab('company')" class="flex-1 py-2 rounded-2xl text-sm font-bold transition bg-red-50 text-red-600">
+                公司QAI
+            </button>
+            <button id="qai-tab-btn-community" type="button" onclick="switchQaiTab('community')" class="flex-1 py-2 rounded-2xl text-sm font-bold transition bg-gray-50 text-gray-700 hover:bg-gray-100">
+                社區QAI
+            </button>
+            <button id="qai-tab-btn-settings" type="button" onclick="switchQaiTab('settings')" class="flex-1 py-2 rounded-2xl text-sm font-bold transition bg-gray-50 text-gray-700 hover:bg-gray-100">
+                設定
+            </button>
+        </footer>
+    </div>
+
+    <div id="qai-profile-modal" class="fixed inset-0 z-[120] bg-black/50 hidden items-center justify-center p-4">
+        <div class="bg-white w-full max-w-xs rounded-2xl shadow-2xl overflow-hidden">
+            <div class="relative h-32 bg-gradient-to-r from-red-600 to-red-500">
+                <div class="absolute top-3 w-full flex justify-center">
+                    <h3 id="qai-profile-title" class="text-lg font-bold text-white drop-shadow-md uppercase tracking-wider">個人資訊</h3>
+                </div>
+                <button type="button" onclick="closeQaiProfileModal()" class="absolute top-3 right-3 p-1 bg-black/20 text-white rounded-full hover:bg-black/40 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true">
+                        <path d="M18 6 6 18"></path>
+                        <path d="m6 6 12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="px-6 pb-6">
+                <div class="relative -mt-20 mb-4">
+                    <div class="flex justify-center">
+                        <div class="w-40 h-40 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white flex items-center justify-center">
+                            <img id="qai-profile-avatar" alt="avatar" class="w-full h-full object-cover hidden" />
+                            <span id="qai-profile-avatar-fallback" class="text-4xl font-black text-gray-500">?</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="text-center mb-6">
+                    <h2 id="qai-profile-name" class="text-xl font-bold text-gray-800"></h2>
+                    <p id="qai-profile-job-title" class="text-xl text-gray-500"></p>
+                </div>
+                <div class="space-y-3">
+                    <button type="button" onclick="qaiLogout()" class="w-full flex items-center justify-center gap-2 p-3 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition text-sm shadow-md shadow-red-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" x2="9" y1="12" y2="12"></line>
+                        </svg>
+                        登出系統
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            try {
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('./sw.js').catch(function () {});
+                }
+            } catch (_) {}
+
+            var qaiAuth = null;
+            var qaiDb = null;
+            var qaiDbUser = null;
+            var qaiRoleName = '';
+            var qaiActiveTab = 'company';
+            var qaiActiveCompany = 'taipei';
+            var qaiActiveCommunityId = '';
+            var qaiCommunityOptions = [];
+            var qaiActiveSettingsTab = 'general';
+            var qaiAllUsers = [];
+            var qaiCompanies = [];
+            var qaiRoles = [];
+
+            function normalizeKey(v) {
+                return String(v || '').trim();
+            }
+
+            function escapeHtml(text) {
+                return String(text || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function escapeAttr(text) {
+                return escapeHtml(text).replace(/`/g, '&#96;');
+            }
+
+            function resolveAllowedCommunityIds(u) {
+                if (!u) return [];
+                if (String(u.role || '') === 'admin') return ['*'];
+                const ids = Array.isArray(u.communityIds) ? u.communityIds.slice() : [];
+                if (u.communityId) ids.push(u.communityId);
+                return Array.from(new Set(ids.map(x => String(x).trim().toUpperCase()).filter(Boolean)));
+            }
+
+            function initFirebaseCompat() {
+                if (!window.FIREBASE_CONFIG) throw new Error('缺少 firebase-config.js');
+                if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+                if (!firebase.apps || firebase.apps.length === 0) {
+                    firebase.initializeApp(window.FIREBASE_CONFIG);
+                }
+                return {
+                    auth: firebase.auth(),
+                    db: firebase.firestore()
+                };
+            }
+
+            async function loadDbUserByEmail(db, email) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+                const snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users')
+                    .where('email', '==', normalizeKey(email))
+                    .limit(1)
+                    .get();
+                if (snap.empty) return null;
+                const doc = snap.docs[0];
+                return { id: doc.id, ...doc.data() };
+            }
+
+            async function resolveRoleName(db, user) {
+                var roleId = normalizeKey(user && user.role);
+                if (!roleId) return '';
+                if (roleId === 'admin') return '系統管理員';
+                if (roleId === 'manager') return '管理層';
+                if (roleId === 'hr') return '人事';
+                if (roleId === 'property') return '物業';
+                if (roleId === 'cadre') return '幹部';
+                try {
+                    var appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+                    var snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles').doc(roleId).get();
+                    return snap.exists ? normalizeKey((snap.data() || {}).name || '') : '';
+                } catch (_) {
+                    return '';
+                }
+            }
+
+            function setUserAvatar(user) {
+                const img = document.getElementById('qai-user-avatar');
+                const fallback = document.getElementById('qai-user-avatar-fallback');
+                const nameEl = document.getElementById('qai-user-name');
+                const name = normalizeKey(user && user.name);
+                const avatarUrl = normalizeKey(user && user.avatarUrl);
+                if (nameEl) nameEl.textContent = name || '';
+                if (avatarUrl && img) {
+                    img.src = avatarUrl;
+                    img.classList.remove('hidden');
+                    if (fallback) fallback.classList.add('hidden');
+                    return;
+                }
+                if (img) img.classList.add('hidden');
+                if (fallback) {
+                    fallback.textContent = name ? name.charAt(0) : '?';
+                    fallback.classList.remove('hidden');
+                }
+            }
+
+            function getUserCompanyKeys(u) {
+                var ids = [];
+                if (u && Array.isArray(u.communityIds)) ids = ids.concat(u.communityIds);
+                if (u && u.communityId) ids.push(u.communityId);
+                ids = ids.map(function (x) { return String(x || '').trim().toUpperCase(); }).filter(Boolean);
+                var set = new Set();
+                ids.forEach(function (cid) {
+                    var prefix = cid.charAt(0);
+                    if (prefix === 'A' || prefix === 'B') set.add('taipei');
+                    if (prefix === 'C') set.add('taoyuan');
+                });
+                return Array.from(set);
+            }
+
+            function getUserCompanyName(u) {
+                var companyIds = (u && Array.isArray(u.companyIds)) ? u.companyIds : [];
+                var companyId = companyIds.length > 0 ? companyIds[0] : (u && u.companyId ? u.companyId : '');
+                var companyName = '';
+
+                if (companyId) {
+                    var found = (Array.isArray(qaiCompanies) ? qaiCompanies : []).find(function (c) {
+                        return String((c && c.id) || '') === String(companyId);
+                    });
+                    if (found) companyName = normalizeKey(found.name || '');
+                }
+
+                if (!companyName) companyName = normalizeKey(u && (u.companyName || ''));
+                return companyName;
+            }
+
+            function getUserCompanyKey(u) {
+                var name = getUserCompanyName(u);
+                if (name.indexOf('台北') !== -1) return 'taipei';
+                if (name.indexOf('桃園') !== -1) return 'taoyuan';
+                var fallback = getUserCompanyKeys(u);
+                if (fallback.includes('taipei')) return 'taipei';
+                if (fallback.includes('taoyuan')) return 'taoyuan';
+                return '';
+            }
+
+            function getResolvedRoleName(u) {
+                var roleId = String((u && u.role) || '').trim();
+                var roleKey = roleId.toLowerCase();
+                if (roleKey === 'admin') return '系統管理員';
+                if (roleKey === 'manager') return '管理層';
+                if (roleKey === 'hr') return '人事';
+                if (roleKey === 'property') return '物業';
+                if (roleKey === 'cadre') return '幹部';
+
+                if (roleId) {
+                    var found = (Array.isArray(qaiRoles) ? qaiRoles : []).find(function (r) {
+                        return String((r && r.id) || '') === String(roleId);
+                    });
+                    if (found && found.name) return normalizeKey(found.name);
+                }
+
+                var rn = normalizeKey(u && (u.roleName || ''));
+                if (rn) return rn;
+                return normalizeKey(roleId);
+            }
+
+            function getRoleGroupLabel(u) {
+                var rn = getResolvedRoleName(u);
+                if (!rn) return null;
+                if (rn.indexOf('系統管理員') !== -1) return '系統管理員';
+                if (rn.indexOf('人事') !== -1) return '人事';
+                if (rn.indexOf('物業') !== -1) return '物業';
+                if (rn.indexOf('幹部') !== -1) return '幹部';
+                if (rn.indexOf('員工') !== -1) return '員工';
+                return null;
+            }
+
+            function renderCompanyRoleUsers(companyKey, containerId, options) {
+                var container = document.getElementById(containerId);
+                if (!container) return;
+
+                var companyName = companyKey === 'taoyuan' ? '桃園公司' : '台北公司';
+                var roleOrder = (options && Array.isArray(options.roleOrder) && options.roleOrder.length > 0)
+                    ? options.roleOrder.slice()
+                    : ['系統管理員', '人事', '物業', '幹部', '員工'];
+                var groups = {};
+                roleOrder.forEach(function (k) { groups[k] = []; });
+
+                var users = Array.isArray(qaiAllUsers) ? qaiAllUsers.slice() : [];
+                users.forEach(function (u) {
+                    var status = String((u && u.status) || '').trim();
+                    if (status !== '在職') return;
+                    if (getUserCompanyKey(u) !== companyKey) return;
+                    var label = getRoleGroupLabel(u);
+                    if (!label) return;
+                    if (!groups[label]) groups[label] = [];
+                    groups[label].push(u);
+                });
+
+                roleOrder.forEach(function (k) {
+                    groups[k].sort(function (a, b) {
+                        var an = normalizeKey(a && a.name);
+                        var bn = normalizeKey(b && b.name);
+                        if (an < bn) return -1;
+                        if (an > bn) return 1;
+                        return 0;
+                    });
+                });
+
+                var total = roleOrder.reduce(function (acc, k) { return acc + (groups[k] ? groups[k].length : 0); }, 0);
+
+                var html = '';
+                html += '<div class="sticky top-2 z-20 -mx-4 px-4 py-2 bg-white border-b border-gray-100 flex items-center justify-between mb-3">';
+                html += '  <div class="font-black text-gray-800">' + escapeHtml(companyName) + '</div>';
+                html += '  <div class="text-xs font-bold text-gray-400">' + total + '</div>';
+                html += '</div>';
+
+                if (total === 0) {
+                    html += '<div class="text-sm font-bold text-gray-400">尚無資料</div>';
+                    container.innerHTML = html;
+                    return;
+                }
+
+                roleOrder.forEach(function (roleLabel) {
+                    var list = groups[roleLabel] || [];
+                    html += '<div class="mt-4 first:mt-0">';
+                    html += '  <div class="flex items-center justify-between mb-2">';
+                    html += '    <div class="text-xs font-black text-gray-500">' + escapeHtml(roleLabel) + '</div>';
+                    html += '    <div class="text-xs font-bold text-gray-300">' + list.length + '</div>';
+                    html += '  </div>';
+                    if (list.length === 0) {
+                        html += '  <div class="text-xs font-bold text-gray-300">—</div>';
+                    } else {
+                        html += '  <div class="space-y-2">';
+                        list.forEach(function (u) {
+                            var name = normalizeKey(u && (u.name || u.email || ''));
+                            var avatarUrl = normalizeKey(u && u.avatarUrl);
+                            var initial = name ? name.charAt(0) : '?';
+                            html += '    <div class="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100">';
+                            html += '      <div class="w-10 h-10 rounded-full overflow-hidden bg-white border border-gray-200 shrink-0 flex items-center justify-center font-black text-gray-600">';
+                            if (avatarUrl) {
+                                html += '        <img src="' + escapeAttr(avatarUrl) + '" alt="avatar" class="w-full h-full object-cover" onerror=\'this.style.display="none"; if(this.nextElementSibling){this.nextElementSibling.style.display="flex";}\' />';
+                                html += '        <span class="w-full h-full items-center justify-center hidden" style="display:none">' + escapeHtml(initial) + '</span>';
+                            } else {
+                                html += '        <span class="w-full h-full flex items-center justify-center">' + escapeHtml(initial) + '</span>';
+                            }
+                            html += '      </div>';
+                            html += '      <div class="min-w-0">';
+                            html += '        <div class="font-bold text-gray-800 text-sm truncate">' + escapeHtml(name || '—') + '</div>';
+                            html += '      </div>';
+                            html += '    </div>';
+                        });
+                        html += '  </div>';
+                    }
+                    html += '</div>';
+                });
+
+                container.innerHTML = html;
+            }
+
+            function renderCompanyMain(companyKey) {
+                var key = normalizeKey(companyKey);
+                if (key !== 'taoyuan') key = 'taipei';
+
+                var leftCard = document.getElementById('qai-company-card-left');
+                var rightCard = document.getElementById('qai-company-card-right');
+                if (leftCard) leftCard.innerHTML = '';
+                if (rightCard) rightCard.innerHTML = '';
+
+                var roleOrder = key === 'taoyuan'
+                    ? ['人事', '物業', '幹部', '員工']
+                    : ['系統管理員', '人事', '物業', '幹部', '員工'];
+                renderCompanyRoleUsers(key, 'qai-company-card-right', { roleOrder: roleOrder });
+            }
+
+            async function loadAllUsers(db) {
+                var appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+                var snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users')
+                    .limit(1000)
+                    .get();
+                var list = snap && snap.docs ? snap.docs.map(function (d) { return { id: d.id, ...(d.data() || {}) }; }) : [];
+                return list;
+            }
+
+            async function loadAllCompanies(db) {
+                var appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+                var snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('companies')
+                    .limit(200)
+                    .get();
+                var list = snap && snap.docs ? snap.docs.map(function (d) { return { id: d.id, ...(d.data() || {}) }; }) : [];
+                return list;
+            }
+
+            async function loadAllRoles(db) {
+                var appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+                var snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles')
+                    .limit(500)
+                    .get();
+                var list = snap && snap.docs ? snap.docs.map(function (d) { return { id: d.id, ...(d.data() || {}) }; }) : [];
+                return list;
+            }
+
+            function renderQaiTopSubtabs() {
+                var top = document.getElementById('qai-top');
+                if (!top) return;
+
+                if (qaiActiveTab === 'settings') {
+                    top.innerHTML = '' +
+                        '<div class="w-full grid grid-cols-3 gap-3">' +
+                        '  <button id="qai-settings-subtab-general" type="button" onclick="switchQaiSettingsSubtab(\'general\')" class="h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition">一般</button>' +
+                        '  <button id="qai-settings-subtab-company" type="button" onclick="switchQaiSettingsSubtab(\'company\')" class="h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition">公司</button>' +
+                        '  <button id="qai-settings-subtab-community" type="button" onclick="switchQaiSettingsSubtab(\'community\')" class="h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition">社區</button>' +
+                        '</div>';
+                    try { window.switchQaiSettingsSubtab(qaiActiveSettingsTab); } catch (_) {}
+                    return;
+                }
+
+                if (qaiActiveTab === 'community') {
+                    var items = Array.isArray(qaiCommunityOptions) ? qaiCommunityOptions.slice() : [];
+                    if (items.length === 0) {
+                        items = [{ id: 'DEFAULT_COMM_1', name: '第一建業' }];
+                    }
+                    var btnHtml = items.map(function (c) {
+                        var id = normalizeKey(c.id);
+                        var name = normalizeKey(c.name || c.id);
+                        var isActive = normalizeKey(qaiActiveCommunityId) === id;
+                        var cls = isActive
+                            ? 'shrink-0 h-10 px-4 rounded-2xl border border-red-200 bg-red-50 text-red-600 font-black text-sm flex items-center justify-center transition whitespace-nowrap'
+                            : 'shrink-0 h-10 px-4 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition whitespace-nowrap';
+                        var safeId = id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                        var safeName = name
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#39;');
+                        return '<button type="button" onclick="switchQaiSubtab(\'' + safeId + '\')" class="' + cls + '">' + safeName + '</button>';
+                    }).join('');
+
+                    top.innerHTML = '' +
+                        '<div class="w-full min-w-0 max-w-full flex items-center gap-2 py-2">' +
+                        '  <button type="button" onclick="scrollQaiCommunitySubtabs(-1)" class="shrink-0 w-9 h-9 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 transition flex items-center justify-center text-gray-600" aria-label="向左">' +
+                        '    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                        '      <path d="m15 18-6-6 6-6"></path>' +
+                        '    </svg>' +
+                        '  </button>' +
+                        '  <div id="qai-community-subtabs-scroll" class="no-scrollbar flex-1 min-w-0 max-w-full flex flex-nowrap items-center gap-3 overflow-x-auto overflow-y-hidden">' +
+                        btnHtml +
+                        '  </div>' +
+                        '  <button type="button" onclick="scrollQaiCommunitySubtabs(1)" class="shrink-0 w-9 h-9 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 transition flex items-center justify-center text-gray-600" aria-label="向右">' +
+                        '    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                        '      <path d="m9 18 6-6-6-6"></path>' +
+                        '    </svg>' +
+                        '  </button>' +
+                        '</div>';
+                    return;
+                }
+
+                top.innerHTML = '' +
+                    '<div class="w-full grid grid-cols-2 gap-3">' +
+                    '  <button id="qai-subtab-taipei" type="button" onclick="switchQaiSubtab(\'taipei\')" class="h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition">台北公司</button>' +
+                    '  <button id="qai-subtab-taoyuan" type="button" onclick="switchQaiSubtab(\'taoyuan\')" class="h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition">桃園公司</button>' +
+                    '</div>';
+
+                try { window.switchQaiSubtab(qaiActiveCompany); } catch (_) {}
+            }
+
+            function openQaiProfileModal() {
+                if (!qaiAuth) {
+                    window.location.href = './';
+                    return;
+                }
+                if (!qaiDbUser) {
+                    window.location.href = './';
+                    return;
+                }
+                var modal = document.getElementById('qai-profile-modal');
+                if (!modal) return;
+
+                var titleEl = document.getElementById('qai-profile-title');
+                var nameEl = document.getElementById('qai-profile-name');
+                var jobEl = document.getElementById('qai-profile-job-title');
+                var avatarEl = document.getElementById('qai-profile-avatar');
+                var fallbackEl = document.getElementById('qai-profile-avatar-fallback');
+
+                if (titleEl) titleEl.textContent = '個人資訊 ' + normalizeKey(qaiRoleName || '');
+                if (nameEl) nameEl.textContent = normalizeKey(qaiDbUser.name || qaiDbUser.email || '');
+                if (jobEl) jobEl.textContent = normalizeKey(qaiDbUser.title || qaiDbUser.jobTitle || '');
+
+                var avatarUrl = normalizeKey(qaiDbUser.avatarUrl || '');
+                if (avatarUrl && avatarEl) {
+                    avatarEl.src = avatarUrl;
+                    avatarEl.classList.remove('hidden');
+                    if (fallbackEl) fallbackEl.classList.add('hidden');
+                } else {
+                    if (avatarEl) avatarEl.classList.add('hidden');
+                    if (fallbackEl) {
+                        var n = normalizeKey(qaiDbUser.name || '');
+                        fallbackEl.textContent = n ? n.charAt(0) : '?';
+                        fallbackEl.classList.remove('hidden');
+                    }
+                }
+
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+
+            function closeQaiProfileModal() {
+                var modal = document.getElementById('qai-profile-modal');
+                if (!modal) return;
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+
+            async function qaiLogout() {
+                try {
+                    if (qaiAuth) {
+                        await qaiAuth.signOut();
+                    }
+                } catch (_) {}
+                window.location.href = './';
+            }
+
+            window.openQaiProfileModal = openQaiProfileModal;
+            window.closeQaiProfileModal = closeQaiProfileModal;
+            window.qaiLogout = qaiLogout;
+            window.switchQaiSettingsSubtab = function (subtab) {
+                var key = normalizeKey(subtab);
+                if (key !== 'company' && key !== 'community') key = 'general';
+                qaiActiveSettingsTab = key;
+
+                var generalView = document.getElementById('qai-settings-general');
+                var companyView = document.getElementById('qai-settings-company');
+                var communityView = document.getElementById('qai-settings-community');
+                if (generalView) generalView.classList.toggle('hidden', key !== 'general');
+                if (companyView) companyView.classList.toggle('hidden', key !== 'company');
+                if (communityView) communityView.classList.toggle('hidden', key !== 'community');
+
+                var btnA = document.getElementById('qai-settings-subtab-general');
+                var btnB = document.getElementById('qai-settings-subtab-company');
+                var btnC = document.getElementById('qai-settings-subtab-community');
+
+                var activeCls = 'h-10 rounded-2xl border border-red-200 bg-red-50 text-red-600 font-black text-sm flex items-center justify-center transition';
+                var idleCls = 'h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition';
+
+                if (btnA) btnA.className = key === 'general' ? activeCls : idleCls;
+                if (btnB) btnB.className = key === 'company' ? activeCls : idleCls;
+                if (btnC) btnC.className = key === 'community' ? activeCls : idleCls;
+            };
+            window.scrollQaiCommunitySubtabs = function (direction) {
+                var el = document.getElementById('qai-community-subtabs-scroll');
+                if (!el) return;
+                var w = el.clientWidth || 0;
+                var delta = Math.max(180, Math.floor(w * 0.7));
+                var dir = Number(direction) || 0;
+                el.scrollBy({ left: dir * delta, top: 0, behavior: 'smooth' });
+            };
+            window.switchQaiSubtab = function (subtab) {
+                var key = normalizeKey(subtab);
+                if (qaiActiveTab === 'community') {
+                    qaiActiveCommunityId = key;
+                    renderQaiTopSubtabs();
+                    return;
+                }
+
+                if (key !== 'taoyuan') key = 'taipei';
+                qaiActiveCompany = key;
+                var btnA = document.getElementById('qai-subtab-taipei');
+                var btnB = document.getElementById('qai-subtab-taoyuan');
+                if (btnA) {
+                    btnA.className = key === 'taipei'
+                        ? 'h-10 rounded-2xl border border-red-200 bg-red-50 text-red-600 font-black text-sm flex items-center justify-center transition'
+                        : 'h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition';
+                }
+                if (btnB) {
+                    btnB.className = key === 'taoyuan'
+                        ? 'h-10 rounded-2xl border border-red-200 bg-red-50 text-red-600 font-black text-sm flex items-center justify-center transition'
+                        : 'h-10 rounded-2xl border border-gray-200 bg-gray-50 text-gray-800 font-bold text-sm flex items-center justify-center hover:bg-gray-100 transition';
+                }
+                if (qaiActiveTab === 'company') {
+                    try { renderCompanyMain(key); } catch (_) {}
+                }
+            };
+            window.switchQaiTab = function (tab) {
+                var key = normalizeKey(tab);
+                if (key !== 'community' && key !== 'settings') key = 'company';
+                qaiActiveTab = key;
+                var companyView = document.getElementById('qai-tab-company-qai');
+                var communityView = document.getElementById('qai-tab-community-qai');
+                var settingsView = document.getElementById('qai-tab-settings');
+                var btnCompany = document.getElementById('qai-tab-btn-company');
+                var btnCommunity = document.getElementById('qai-tab-btn-community');
+                var btnSettings = document.getElementById('qai-tab-btn-settings');
+                if (companyView) companyView.classList.toggle('hidden', key !== 'company');
+                if (communityView) communityView.classList.toggle('hidden', key !== 'community');
+                if (settingsView) settingsView.classList.toggle('hidden', key !== 'settings');
+                if (btnCompany) {
+                    btnCompany.className = key === 'company'
+                        ? 'flex-1 py-2 rounded-2xl text-sm font-bold transition bg-red-50 text-red-600'
+                        : 'flex-1 py-2 rounded-2xl text-sm font-bold transition bg-gray-50 text-gray-700 hover:bg-gray-100';
+                }
+                if (btnCommunity) {
+                    btnCommunity.className = key === 'community'
+                        ? 'flex-1 py-2 rounded-2xl text-sm font-bold transition bg-red-50 text-red-600'
+                        : 'flex-1 py-2 rounded-2xl text-sm font-bold transition bg-gray-50 text-gray-700 hover:bg-gray-100';
+                }
+                if (btnSettings) {
+                    btnSettings.className = key === 'settings'
+                        ? 'flex-1 py-2 rounded-2xl text-sm font-bold transition bg-red-50 text-red-600'
+                        : 'flex-1 py-2 rounded-2xl text-sm font-bold transition bg-gray-50 text-gray-700 hover:bg-gray-100';
+                }
+                renderQaiTopSubtabs();
+            };
+
+            (async function () {
+                let auth, db;
+                try {
+                    const fb = initFirebaseCompat();
+                    auth = fb.auth;
+                    db = fb.db;
+                    qaiAuth = auth;
+                    qaiDb = db;
+                } catch (_) {
+                    setUserAvatar(null);
+                    return;
+                }
+
+                const fbUser = await new Promise(function (resolve) {
+                    try { auth.onAuthStateChanged(function (u) { resolve(u); }); } catch (_) { resolve(null); }
+                });
+                if (!fbUser || !fbUser.email) {
+                    setUserAvatar(null);
+                    return;
+                }
+
+                try {
+                    const dbUser = await loadDbUserByEmail(db, fbUser.email);
+                    qaiDbUser = dbUser || { name: fbUser.email };
+                    qaiRoleName = await resolveRoleName(db, qaiDbUser);
+                    setUserAvatar(qaiDbUser);
+                } catch (_) {
+                    qaiDbUser = { name: fbUser.email };
+                    qaiRoleName = '';
+                    setUserAvatar(qaiDbUser);
+                }
+
+                try {
+                    qaiAllUsers = await loadAllUsers(db);
+                } catch (_) {
+                    qaiAllUsers = [];
+                }
+
+                try {
+                    qaiCompanies = await loadAllCompanies(db);
+                } catch (_) {
+                    qaiCompanies = [];
+                }
+
+                try {
+                    qaiRoles = await loadAllRoles(db);
+                } catch (_) {
+                    qaiRoles = [];
+                }
+
+                try {
+                    renderCompanyMain(qaiActiveCompany);
+                } catch (_) {}
+
+                try {
+                    var appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+                    var commRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities');
+                    var commSnap = await commRef.get();
+                    var commItems = (commSnap && commSnap.docs ? commSnap.docs : []).map(function (d) {
+                        var data = d.data() || {};
+                        var id = String(d.id || '').trim().toUpperCase();
+                        var name = normalizeKey(data.name || d.id);
+                        var city = normalizeKey(data.city || data.county || data.area || data.region || '');
+                        return { id: id, name: name, city: city };
+                    }).filter(function (x) { return x.id; });
+
+                    var allowCities = ['台北', '新北', '桃園'];
+                    commItems = commItems.filter(function (x) {
+                        var prefix = x.id.charAt(0);
+                        var byId = prefix === 'A' || prefix === 'B' || prefix === 'C';
+                        var byCity = allowCities.some(function (k) { return x.city && x.city.indexOf(k) !== -1; });
+                        return byId || byCity;
+                    });
+
+                    var cityRank = function (x) {
+                        var p = x.id.charAt(0);
+                        if (p === 'A') return 1;
+                        if (p === 'B') return 2;
+                        if (p === 'C') return 3;
+                        if (x.city.indexOf('台北') !== -1) return 1;
+                        if (x.city.indexOf('新北') !== -1) return 2;
+                        if (x.city.indexOf('桃園') !== -1) return 3;
+                        return 9;
+                    };
+
+                    commItems.sort(function (a, b) {
+                        var ra = cityRank(a);
+                        var rb = cityRank(b);
+                        if (ra !== rb) return ra - rb;
+                        if (a.id < b.id) return -1;
+                        if (a.id > b.id) return 1;
+                        return 0;
+                    });
+
+                    qaiCommunityOptions = commItems.map(function (x) { return { id: x.id, name: x.name || x.id }; });
+                    qaiActiveCommunityId = normalizeKey((qaiCommunityOptions[0] || {}).id);
+                } catch (_) {}
+
+                try { window.switchQaiTab('company'); } catch (_) {}
+                try { window.switchQaiSubtab('taipei'); } catch (_) {}
+            })();
+        })();
+    </script>
+</body>
+</html>
