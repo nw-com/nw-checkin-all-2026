@@ -6692,7 +6692,7 @@
                         targetCommunities = communities || [];
                     } else {
                         const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
-                        targetCommunities = (communities || []).filter(c => userCommIds.includes(c.id));
+                        targetCommunities = (communities || []).filter(c => userCommIds.some(id => String(id) === String(c.id)));
                     }
                     
                     const communityLocs = targetCommunities.map(c => ({ 
@@ -6814,7 +6814,7 @@
                      return [...resultLocations, ...allCommunities];
                  } else {
                      const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
-                     const userComms = (communities || []).filter(c => userCommIds.includes(c.id)).map(c => ({ 
+                     const userComms = (communities || []).filter(c => userCommIds.some(id => String(id) === String(c.id))).map(c => ({ 
                          ...c, 
                          type: 'community',
                          lat: c.coordLat, // Map coordLat to lat for CameraModal
@@ -7509,8 +7509,10 @@
                                         {availableLocations.length > 1 && (function(){
                                             const role = (roles || []).find(r => r.id === currentUser?.role);
                                             const roleName = role ? role.name : currentUser?.roleName;
-                                            // Hide 'Change' button for Security role as per request (read-only view)
-                                            if (roleName === '保全') return false;
+                                            // For Security role, only show 'Change' button if they have multiple communities
+                                            if (roleName === '保全') {
+                                                return availableLocations.length > 1;
+                                            }
                                             return true;
                                         })() && (
                                             <button 
@@ -14260,12 +14262,25 @@
                 }
 
                 try {
-                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { ...userData, password: passwordToUse, updatedByName: (dbUser && dbUser.name) || '新增', updatedAt: serverTimestamp() });
+                    // Ensure communityIds are strings and set communityId
+                    const finalCommunityIds = (userData.communityIds || []).map(id => String(id));
+                    const finalCommunityId = finalCommunityIds.length > 0 ? finalCommunityIds[0] : '';
+                    
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { 
+                        ...userData, 
+                        communityIds: finalCommunityIds,
+                        communityId: finalCommunityId,
+                        password: passwordToUse, 
+                        updatedByName: (dbUser && dbUser.name) || '新增', 
+                        updatedAt: serverTimestamp() 
+                    });
                     
                     // Optimistic update for immediate UI feedback
                     setUsersList(prev => [...prev, { 
                         id: docRef.id, 
                         ...userData, 
+                        communityIds: finalCommunityIds,
+                        communityId: finalCommunityId,
                         password: passwordToUse, 
                         updatedByName: (dbUser && dbUser.name) || '新增', 
                         updatedAt: new Date() 
@@ -14579,11 +14594,12 @@
                 if (!editingUser) return;
                 try {
                     // Sync legacy communityId with communityIds
-                    const finalCommunityIds = editUserForm.communityIds || [];
+                    const finalCommunityIds = (editUserForm.communityIds || []).map(id => String(id));
                     const finalCommunityId = finalCommunityIds.length > 0 ? finalCommunityIds[0] : '';
 
                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUser.id), {
                         ...editUserForm,
+                        communityIds: finalCommunityIds,
                         communityId: finalCommunityId,
                         updatedAt: serverTimestamp()
                     });
@@ -30910,7 +30926,7 @@
                                                 <label key={c.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                     <input
                                                         type="checkbox"
-                                                        checked={addUserForm.communityIds && addUserForm.communityIds.includes(c.id)}
+                                                        checked={addUserForm.communityIds && addUserForm.communityIds.some(id => String(id) === String(c.id))}
                                                         onChange={e => {
                                                             const checked = e.target.checked;
                                                             setAddUserForm(prev => {
@@ -30919,7 +30935,7 @@
                                                                 if (checked) {
                                                                     newIds = [...currentIds, c.id];
                                                                 } else {
-                                                                    newIds = currentIds.filter(id => id !== c.id);
+                                                                    newIds = currentIds.filter(id => String(id) !== String(c.id));
                                                                 }
                                                                 return { ...prev, communityIds: newIds };
                                                             });
@@ -31083,7 +31099,7 @@
                                                 <label key={c.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                     <input
                                                         type="checkbox"
-                                                        checked={editUserForm.communityIds && editUserForm.communityIds.includes(c.id)}
+                                                        checked={editUserForm.communityIds && editUserForm.communityIds.some(id => String(id) === String(c.id))}
                                                         onChange={e => {
                                                             const checked = e.target.checked;
                                                             setEditUserForm(prev => {
@@ -31092,7 +31108,7 @@
                                                                 if (checked) {
                                                                     newIds = [...currentIds, c.id];
                                                                 } else {
-                                                                    newIds = currentIds.filter(id => id !== c.id);
+                                                                    newIds = currentIds.filter(id => String(id) !== String(c.id));
                                                                 }
                                                                 return { ...prev, communityIds: newIds };
                                                             });
