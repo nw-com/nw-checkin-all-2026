@@ -2390,26 +2390,20 @@
                 const hasCoords = (typeof log.lat === 'number') && (typeof log.lng === 'number');
                 const latNum = hasCoords ? log.lat : null;
                 const lngNum = hasCoords ? log.lng : null;
-                const mapBtn = hasCoords
-                    ? (isPublicView
-                        ? `<p class="text-xs text-red-600"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>`
-                        : `<button onclick='openMapModal(${latNum}, ${lngNum}, ${JSON.stringify(location)})' class="text-xs text-red-600 flex items-center gap-1 hover:underline">
-                               <i data-lucide="map-pin" size="10" class="inline"></i>
-                               <span>${lat}, ${lng}</span>
-                           </button>`)
-                    : `<p class="text-xs text-red-600"><i data-lucide="map-pin" size="10" class="inline"></i> ${lat}, ${lng}</p>`;
                 const actionBtns = canManageSettings
-                    ? `<div class="flex flex-col items-end gap-2">
-                           <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
+                    ? `<div class="flex flex-col items-end gap-2 pt-0.5">
                            <div class="flex gap-2">
-                               <button onclick='openInspectionStatusModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
+                               ${hasCoords ? `<button onclick='openMapModal(${latNum}, ${lngNum}, ${JSON.stringify(location)})' class="text-gray-400 hover:text-red-500 p-1 rounded-lg bg-gray-100 hover:bg-gray-200"><i data-lucide="map" size="16"></i></button>` : ''}
+                               <button onclick='openInspectionStatusModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1 rounded-lg bg-gray-100 hover:bg-gray-200"><i data-lucide="image" size="16"></i></button>
                                <button onclick='openEditLogModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                                <button onclick='deleteLog(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
                            </div>
                        </div>`
-                    : `<div class="flex flex-col items-end gap-2">
-                           <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
-                           <button onclick='openInspectionStatusModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
+                    : `<div class="flex flex-col items-end gap-2 pt-0.5">
+                           <div class="flex gap-2">
+                               ${hasCoords ? `<button onclick='openMapModal(${latNum}, ${lngNum}, ${JSON.stringify(location)})' class="text-gray-400 hover:text-red-500 p-1 rounded-lg bg-gray-100 hover:bg-gray-200"><i data-lucide="map" size="16"></i></button>` : ''}
+                               <button onclick='openInspectionStatusModal(${JSON.stringify(log.id)})' class="text-gray-400 hover:text-red-500 p-1 rounded-lg bg-gray-100 hover:bg-gray-200"><i data-lucide="image" size="16"></i></button>
+                           </div>
                        </div>`;
                 return `
                 <div class="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500 flex justify-between items-start">
@@ -2418,12 +2412,11 @@
                             <div class="flex items-center gap-2">
                                 <h4 class="font-bold text-gray-800">${location}</h4>
                                 ${log.photo ? `<i data-lucide="camera" class="text-red-500" size="14"></i>` : ''}
+                                <span class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">${guard}</span>
                             </div>
-                            <p class="text-[10px] font-mono text-gray-400 uppercase tracking-wider">${code}</p>
                         </div>
                         <div class="flex items-center justify-between gap-2">
                             <p class="text-xs text-gray-500">${timeStr}</p>
-                            ${mapBtn}
                         </div>
                     </div>
                     ${actionBtns}
@@ -2816,7 +2809,7 @@
             const lngNum = Number(lng);
             if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
             if (title) title.textContent = String(label || '');
-            if (iframe) iframe.src = `https://www.google.com/maps?q=${encodeURIComponent(String(latNum))},${encodeURIComponent(String(lngNum))}&z=18&output=embed&hl=zh-TW&gl=TW`;
+            if (iframe) iframe.src = `https://www.google.com/maps?q=${encodeURIComponent(String(latNum))},${encodeURIComponent(String(lngNum))}&z=20&output=embed&hl=zh-TW&gl=TW`;
             if (modal) modal.classList.remove('hidden');
             lucide.createIcons();
         }
