@@ -293,7 +293,7 @@
         <div id="period-settings-modal" class="fixed inset-0 z-[145] bg-black/50 hidden p-4">
             <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                    <div class="font-bold text-gray-800 text-sm">設定巡邏週期</div>
+                    <div class="font-bold text-gray-800 text-sm">設定項目週期</div>
                     <button onclick="closePeriodSettingsModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
                         <i data-lucide="x" size="18"></i>
                     </button>
@@ -390,8 +390,24 @@
                     
                     <div class="flex gap-2 pt-2">
                         <button onclick="closePeriodSettingsModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
-                        <button onclick="savePeriodSettings()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
+                        <button onclick="saveItemPeriodSettings()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 檢查項目詳情模態框 -->
+        <div id="inspection-items-modal" class="fixed inset-0 z-[145] bg-black/50 hidden p-4">
+            <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <div class="font-bold text-gray-800 text-sm">檢查項目</div>
+                    <button onclick="closeInspectionItemsModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                        <i data-lucide="x" size="18"></i>
+                    </button>
+                </div>
+                <div class="p-4">
+                    <div id="inspection-items-modal-location" class="font-bold text-gray-700 text-center mb-4"></div>
+                    <div id="inspection-items-modal-list" class="space-y-2"></div>
                 </div>
             </div>
         </div>
@@ -734,7 +750,7 @@
                     const id = `text_${text}`;
                     if (seen.has(id)) continue;
                     seen.add(id);
-                    normalized.push({ id, text });
+                    normalized.push({ id, text, period: 'daily' });
                     continue;
                 }
                 if (it && typeof it === 'object') {
@@ -744,11 +760,18 @@
                     const finalId = id || `text_${text}`;
                     if (seen.has(finalId)) continue;
                     seen.add(finalId);
-                    normalized.push({ id: finalId, text });
+                    normalized.push({ 
+                        id: finalId, 
+                        text, 
+                        period: it.period || 'daily',
+                        timesPerDay: it.timesPerDay || 1,
+                        dayOfWeek: it.dayOfWeek || 0,
+                        dayOfMonth: it.dayOfMonth || 1
+                    });
                 }
             }
             if (normalized.length === 0) {
-                normalized.push({ id: 'default_patrol_point_confirm', text: '巡邏點確認' });
+                normalized.push({ id: 'default_patrol_point_confirm', text: '巡邏點確認', period: 'daily' });
             }
             return normalized;
         }
@@ -798,14 +821,183 @@
             listEl.innerHTML = items.map(it => {
                 const id = normalizeKey(it.id);
                 const text = normalizeKey(it.text);
+                const period = it.period || 'daily';
+                const periodLabel = getPeriodLabel(period);
                 return `
                     <div class="flex items-center justify-between bg-white border border-gray-100 rounded-xl p-3">
                         <div class="font-bold text-gray-700">${escapeHtml(text)}</div>
-                        <button onclick='removeInspectionItem(${JSON.stringify(id)})' class="px-3 py-1 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-bold">刪除</button>
+                        <div class="flex items-center gap-2">
+                            <button onclick='openItemPeriodSettingsModal(${JSON.stringify(id)})' class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-lg font-bold text-gray-700 transition">${periodLabel}</button>
+                            <button onclick='removeInspectionItem(${JSON.stringify(id)})' class="px-3 py-1 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-bold">刪除</button>
+                        </div>
                     </div>
                 `;
             }).join('');
             lucide.createIcons();
+        }
+
+        function getPeriodLabel(period) {
+            const labels = {
+                'everytime': '每次',
+                'daily': '每日',
+                'weekly': '每週',
+                'biweekly': '雙週',
+                'monthly': '每月'
+            };
+            return labels[period] || '每日';
+        }
+
+        let periodEditingItemId = '';
+
+        function openItemPeriodSettingsModal(itemId) {
+            if (!canManageSettings) return;
+            const id = normalizeKey(itemId);
+            if (!id) return;
+            
+            const item = inspectionEditingItems.find(it => normalizeKey(it.id) === id);
+            if (!item) return;
+            
+            periodEditingItemId = id;
+            
+            const locationDiv = document.getElementById('period-settings-location');
+            if (locationDiv) locationDiv.textContent = item.text;
+            
+            selectedPeriod = item.period || 'daily';
+            
+            const timesPerDayInput = document.getElementById('times-per-day');
+            const dayOfWeekSelect = document.getElementById('day-of-week');
+            const biweeklyDayOfWeekSelect = document.getElementById('biweekly-day-of-week');
+            const dayOfMonthInput = document.getElementById('day-of-month');
+            
+            if (timesPerDayInput) timesPerDayInput.value = item.timesPerDay || 1;
+            if (dayOfWeekSelect) dayOfWeekSelect.value = item.dayOfWeek || 0;
+            if (biweeklyDayOfWeekSelect) biweeklyDayOfWeekSelect.value = item.dayOfWeek || 0;
+            if (dayOfMonthInput) dayOfMonthInput.value = item.dayOfMonth || 1;
+            
+            updatePeriodSelection(selectedPeriod);
+            
+            const modal = document.getElementById('period-settings-modal');
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function saveItemPeriodSettings() {
+            if (!canManageSettings) return;
+            const id = periodEditingItemId;
+            if (!id) return;
+            
+            const timesPerDay = parseInt(document.getElementById('times-per-day')?.value) || 1;
+            const dayOfWeek = parseInt(document.getElementById('day-of-week')?.value) || 0;
+            const biweeklyDayOfWeek = parseInt(document.getElementById('biweekly-day-of-week')?.value) || 0;
+            const dayOfMonth = parseInt(document.getElementById('day-of-month')?.value) || 1;
+            
+            inspectionEditingItems = inspectionEditingItems.map(it => {
+                if (normalizeKey(it.id) === id) {
+                    return {
+                        ...it,
+                        period: selectedPeriod,
+                        timesPerDay: timesPerDay,
+                        dayOfWeek: selectedPeriod === 'weekly' ? dayOfWeek : (selectedPeriod === 'biweekly' ? biweeklyDayOfWeek : 0),
+                        dayOfMonth: dayOfMonth
+                    };
+                }
+                return it;
+            });
+            
+            renderInspectionSettingsList();
+            closePeriodSettingsModal();
+        }
+
+        function openInspectionItemsModal(code) {
+            const c = normalizeKey(code);
+            if (!c) return;
+            
+            const data = locationMap[c];
+            let name = '';
+            if (data) {
+                if (typeof data === 'string') {
+                    name = normalizeKey(data);
+                } else if (data && typeof data === 'object') {
+                    name = normalizeKey(data.name || '');
+                }
+            }
+            
+            const items = getInspectionItemsForCode(c);
+            const locationEl = document.getElementById('inspection-items-modal-location');
+            const listEl = document.getElementById('inspection-items-modal-list');
+            
+            // 查找今天的日志中是否有该地点的记录
+            const todayStr = formatYmd(selectedLogsDate);
+            let checkedItemIds = new Set();
+            if (Array.isArray(logs)) {
+                const todayLogs = logs.filter(log => {
+                    const logCode = normalizeKey(log.code || log.location || '');
+                    if (logCode !== c) return false;
+                    
+                    // 检查日期是否匹配
+                    let logDate = log.createdAt;
+                    if (logDate && typeof logDate.toDate === 'function') {
+                        logDate = logDate.toDate();
+                    }
+                    if (logDate instanceof Date) {
+                        return formatYmd(logDate) === todayStr;
+                    }
+                    return false;
+                });
+                
+                if (todayLogs.length > 0) {
+                    const latestLog = todayLogs[todayLogs.length - 1];
+                    const ids = Array.isArray(latestLog.inspectionCheckedIds) ? latestLog.inspectionCheckedIds : [];
+                    checkedItemIds = new Set(ids.map(normalizeKey));
+                }
+            }
+            
+            if (locationEl) locationEl.textContent = name || c;
+            if (listEl) {
+                if (items.length === 0) {
+                    listEl.innerHTML = '<p class="text-center text-gray-500">沒有檢查項目</p>';
+                } else {
+                    listEl.innerHTML = items.map((item, index) => {
+                        const periodLabel = getPeriodLabel(item.period);
+                        let extraInfo = '';
+                        const itemId = normalizeKey(item.id);
+                        const isCompleted = checkedItemIds.has(itemId);
+                        
+                        if (item.period === 'everytime' && item.timesPerDay) {
+                            extraInfo = ` (${item.timesPerDay}次/天)`;
+                        } else if (item.period === 'weekly' && item.dayOfWeek !== undefined) {
+                            const dayLabels = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                            extraInfo = ` (${dayLabels[item.dayOfWeek]})`;
+                        } else if (item.period === 'biweekly' && item.dayOfWeek !== undefined) {
+                            const dayLabels = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                            extraInfo = ` (${dayLabels[item.dayOfWeek]})`;
+                        } else if (item.period === 'monthly' && item.dayOfMonth) {
+                            extraInfo = ` (${item.dayOfMonth}日)`;
+                        }
+                        
+                        const bgClass = isCompleted ? 'bg-green-100 border-green-200' : 'bg-gray-50 border-gray-100';
+                        
+                        return `
+                            <div class="flex items-center justify-between ${bgClass} rounded-xl p-3 border">
+                                <span class="font-bold ${isCompleted ? 'text-green-700' : 'text-gray-700'}">${index + 1}. ${escapeHtml(item.text)}</span>
+                                <div class="flex items-center gap-2">
+                                    ${isCompleted ? '<span class="text-xs font-bold text-green-700">已完成</span>' : ''}
+                                    <span class="text-xs ${isCompleted ? 'text-green-500' : 'text-gray-500'}">${periodLabel}${extraInfo}</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+            
+            const modal = document.getElementById('inspection-items-modal');
+            if (modal) modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeInspectionItemsModal() {
+            const modal = document.getElementById('inspection-items-modal');
+            if (modal) modal.classList.add('hidden');
         }
 
         function openInspectionSettingsModal(code) {
@@ -884,11 +1076,59 @@
             }
         }
 
+        function shouldShowItemForToday(item) {
+            const today = new Date();
+            const period = item?.period || 'daily';
+            
+            switch (period) {
+                case 'everytime':
+                    // 每次都显示
+                    return true;
+                    
+                case 'daily':
+                    // 每天都显示
+                    return true;
+                    
+                case 'weekly': {
+                    const targetDay = item?.dayOfWeek ?? 0; // 0 = 週日
+                    const todayDay = today.getDay();
+                    return todayDay === targetDay;
+                }
+                    
+                case 'biweekly': {
+                    const targetDay = item?.dayOfWeek ?? 0; // 0 = 週日
+                    const todayDay = today.getDay();
+                    
+                    // 计算当前周数，从1970年开始计算
+                    const startOfYear = new Date(today.getFullYear(), 0, 1);
+                    const weekNumber = Math.ceil((((today - startOfYear) / 86400000) + startOfYear.getDay() + 1) / 7);
+                    
+                    // 奇數週或偶數週才显示
+                    return todayDay === targetDay && (weekNumber % 2 === 1);
+                }
+                    
+                case 'monthly': {
+                    const targetDate = item?.dayOfMonth ?? 1;
+                    const todayDate = today.getDate();
+                    return todayDate === targetDate;
+                }
+                    
+                default:
+                    return true;
+            }
+        }
+
         function renderInspectionRunItems(items, checkedIds) {
             const listEl = document.getElementById('inspection-run-items');
             if (!listEl) return;
             const list = Array.isArray(items) ? items : [];
-            listEl.innerHTML = list.map(it => {
+            
+            let filteredList = list;
+            if (list.length === 1) {
+                filteredList = list.filter(it => shouldShowItemForToday(it));
+            }
+            
+            listEl.innerHTML = filteredList.map(it => {
                 const id = normalizeKey(it.id);
                 const text = normalizeKey(it.text);
                 const checked = checkedIds.has(id);
@@ -2059,7 +2299,7 @@
             if (!container) return;
 
             const map = (locationMap && typeof locationMap === 'object') ? locationMap : {};
-            const entries = Object.keys(map).map(code => {
+            let entries = Object.keys(map).map(code => {
                 const data = map[code];
                 let name = '';
                 if (data) {
@@ -2071,6 +2311,16 @@
                 }
                 return { code: normalizeKey(code), name: name };
             }).filter(x => x.code || x.name);
+
+            // 应用周期判断
+            const filteredEntries = entries.filter(entry => {
+                const items = getInspectionItemsForCode(entry.code);
+                if (items.length === 1) {
+                    return shouldShowItemForToday(items[0]);
+                }
+                return true; // 有多个项目或没有项目时，总是显示
+            });
+            entries = filteredEntries;
 
             if (dateEl) dateEl.textContent = formatDateLabel(selectedLogsDate || new Date());
 
@@ -2097,7 +2347,7 @@
                 const label = item.name || item.code;
                 const isVisited = (item.code && visited.has(item.code)) || (item.name && visited.has(item.name));
                 return `
-                    <div class="shrink-0 px-3 py-1 rounded-full border text-xs font-bold flex items-center gap-2 ${isVisited ? 'border-green-200 bg-green-100 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-700'}">
+                    <div onclick="openInspectionItemsModal('${escapeHtml(item.code)}')" class="shrink-0 px-3 py-1 rounded-full border text-xs font-bold flex items-center gap-2 cursor-pointer hover:opacity-80 transition ${isVisited ? 'border-green-200 bg-green-100 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-700'}">
                         <span class="truncate max-w-[160px]">${escapeHtml(label)}</span>
                     </div>
                 `;
@@ -2281,26 +2531,30 @@
                             name = normalizeKey(data.name || '');
                         }
                     }
-                    const period = data?.period || 'daily';
-                    const periodLabels = {
-                        'everytime': '每次',
-                        'daily': '每日',
-                        'weekly': '每週',
-                        'biweekly': '雙週',
-                        'monthly': '每月'
-                    };
-                    const dayLabels = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-                    let currentPeriodLabel = periodLabels[period] || '每日';
                     
-                    // 添加更详细的周期信息
-                    if (period === 'everytime' && data?.timesPerDay) {
-                        currentPeriodLabel += ` (${data.timesPerDay}次/天)`;
-                    } else if (period === 'weekly' && data?.dayOfWeek !== undefined) {
-                        currentPeriodLabel += ` (${dayLabels[data.dayOfWeek]})`;
-                    } else if (period === 'biweekly' && data?.dayOfWeek !== undefined) {
-                        currentPeriodLabel += ` (${dayLabels[data.dayOfWeek]})`;
-                    } else if (period === 'monthly' && data?.dayOfMonth) {
-                        currentPeriodLabel += ` (${data.dayOfMonth}日)`;
+                    // 获取检查项目的周期信息
+                    const items = getInspectionItemsForCode(code);
+                    let periodInfo = '';
+                    if (items.length === 1) {
+                        const item = items[0];
+                        const periodLabel = getPeriodLabel(item.period);
+                        let extraInfo = '';
+                        
+                        if (item.period === 'everytime' && item.timesPerDay) {
+                            extraInfo = ` (${item.timesPerDay}次/天)`;
+                        } else if (item.period === 'weekly' && item.dayOfWeek !== undefined) {
+                            const dayLabels = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                            extraInfo = ` (${dayLabels[item.dayOfWeek]})`;
+                        } else if (item.period === 'biweekly' && item.dayOfWeek !== undefined) {
+                            const dayLabels = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                            extraInfo = ` (${dayLabels[item.dayOfWeek]})`;
+                        } else if (item.period === 'monthly' && item.dayOfMonth) {
+                            extraInfo = ` (${item.dayOfMonth}日)`;
+                        }
+                        
+                        periodInfo = `<p class="text-xs text-gray-500">週期: ${periodLabel}${extraInfo}</p>`;
+                    } else if (items.length > 1) {
+                        periodInfo = `<p class="text-xs text-gray-500">多項檢查</p>`;
                     }
                     
                     return `
@@ -2308,10 +2562,10 @@
                     <div>
                         <p class="font-bold text-gray-700">${name}</p>
                         <p class="text-xs font-mono text-red-500">${code}</p>
+                        ${periodInfo}
                     </div>
                     ${canManageSettings ? `
                         <div class="flex items-center gap-2">
-                            <button onclick='openPeriodSettingsModal(${JSON.stringify(code)})' class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-lg font-bold text-gray-700 transition">${currentPeriodLabel}</button>
                             <button onclick='openInspectionSettingsModal(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
                             <button onclick='openEditMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                             <button onclick='openPrintMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="printer" size="16"></i></button>
