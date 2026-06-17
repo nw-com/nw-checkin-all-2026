@@ -8382,6 +8382,7 @@
             function: [
                 { key: 'log', label: '日誌' },
                 { key: 'patrol', label: '巡邏' },
+                { key: 'clean', label: '清潔' },
                 { key: 'supervise', label: '督勤' },
                 { key: 'training', label: '訓練' },
                 { key: 'download', label: '下載' },
@@ -10249,6 +10250,8 @@
             const [showOverviewPatrolModal, setShowOverviewPatrolModal] = useState(false);
             const [overviewPatrolCommunityId, setOverviewPatrolCommunityId] = useState('');
             const [overviewPatrolPage, setOverviewPatrolPage] = useState('patrol');
+            const [showOverviewCleanModal, setShowOverviewCleanModal] = useState(false);
+            const [overviewCleanCommunityId, setOverviewCleanCommunityId] = useState('');
             const [showMakeupEditModal, setShowMakeupEditModal] = useState(false);
             const [editingMakeupRequest, setEditingMakeupRequest] = useState(null);
             const [makeupEditForm, setMakeupEditForm] = useState({ startTime: '', endTime: '', locationId: '', reasonType: 'forgot', reasonRemark: '' });
@@ -10263,7 +10266,7 @@
             const [communityLeaveLoading, setCommunityLeaveLoading] = useState(false);
 
             useEffect(() => {
-                if (showOverviewScheduleModal || showOverviewPatrolModal) {
+                if (showOverviewScheduleModal || showOverviewPatrolModal || showOverviewCleanModal) {
                     const prevOverflow = document.body.style.overflow;
                     const prevMsOverflow = document.body.style.msOverflowStyle;
                     document.body.style.overflow = 'hidden';
@@ -10273,7 +10276,7 @@
                         document.body.style.msOverflowStyle = prevMsOverflow;
                     };
                 }
-            }, [showOverviewScheduleModal, showOverviewPatrolModal]);
+            }, [showOverviewScheduleModal, showOverviewPatrolModal, showOverviewCleanModal]);
 
             useEffect(() => {
                 if (!showQrModal || qrMode !== 'scan') return;
@@ -15453,6 +15456,7 @@
                                 <div className="flex gap-2">
                                     {hasSubPermission('function', 'log') && <button onClick={() => setFunctionSubtab('log')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'log' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>日誌</button>}
                                     {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>巡邏</button>}
+                                    {hasSubPermission('function', 'clean') && <button onClick={() => setFunctionSubtab('clean')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'clean' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>清潔</button>}
                                     {hasSubPermission('function', 'supervise') && <button onClick={() => setFunctionSubtab('supervise')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'supervise' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>督勤</button>}
                                     {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
@@ -23196,6 +23200,73 @@
                                             })()}
                                         </div>
                                     )}
+                                    {functionSubtab === 'clean' && hasSubPermission('function', 'clean') && (
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> 清潔管理
+                                            </h3>
+                                            {(function(){
+                                                if (!dbUser) return <div className="text-center py-8 text-gray-400">請先登入</div>;
+                                                
+                                                let myComms = [];
+                                                if (isSystemAdmin) {
+                                                    myComms = (communities || []);
+                                                } else {
+                                                    const ids = Array.from(new Set((dbUser.communityIds || []).map(x => String(x).trim()).filter(Boolean)));
+                                                    myComms = ids.map(id => (communities || []).find(c => String(c.id) === String(id))).filter(Boolean);
+                                                }
+                                                
+                                                if (myComms.length === 0) return <div className="text-center py-8 text-gray-400">無服務社區</div>;
+                                                const filteredComms = functionRegionFilter === '全部'
+                                                    ? myComms
+                                                    : myComms.filter(c => getRegionByCommunityId(c.id) === functionRegionFilter);
+                                                return (
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2">
+                                                            {['台北', '新北', '桃園'].map(r => (
+                                                                <button
+                                                                    key={r}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const next = functionRegionFilter === r ? '全部' : r;
+                                                                        setFunctionRegionFilter(next);
+                                                                        try { localStorage.setItem('function_region_filter', next); } catch {}
+                                                                    }}
+                                                                    className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionRegionFilter === r ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
+                                                                >
+                                                                    {r}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+
+                                                        {filteredComms.length === 0 ? (
+                                                            <div className="text-center py-8 text-gray-400 font-bold">無符合社區</div>
+                                                        ) : (
+                                                            <div className="grid grid-cols-5 gap-2">
+                                                                {filteredComms.map(c => {
+                                                            const name = c.name || '';
+                                                            const short = name.slice(0, 4);
+                                                            const top = short.slice(0, 2);
+                                                            const bottom = short.slice(2);
+                                                            const displayName = bottom ? <>{top}<br/>{bottom}</> : top || name;
+                                                            return (
+                                                                <div key={c.id} className="w-full aspect-square flex items-center justify-center">
+                                                                    <button
+                                                                        onClick={() => { setOverviewCleanCommunityId(String(c.id || '').trim()); setShowOverviewCleanModal(true); }}
+                                                                        className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                    >
+                                                                        {displayName}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
                                     {functionSubtab === 'training' && hasSubPermission('function', 'training') && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
@@ -27427,6 +27498,27 @@
                             <iframe
                                 title={overviewPatrolPage}
                                 src={`${overviewPatrolPage}.html?communityId=${encodeURIComponent(String(overviewPatrolCommunityId || '').trim())}`}
+                                className="w-full flex-1 border-0"
+                            />
+                        </div>
+                    )}
+
+                    {showOverviewCleanModal && overviewCleanCommunityId && (
+                        <div className="fixed inset-0 z-[95] bg-white flex flex-col overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                                <div className="font-bold text-gray-800 text-sm">
+                                    {(communities || []).find(c => String(c.id) === String(overviewCleanCommunityId))?.name || overviewCleanCommunityId}社區清潔
+                                </div>
+                                <button
+                                    onClick={() => { setShowOverviewCleanModal(false); setOverviewCleanCommunityId(''); }}
+                                    className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
+                                >
+                                    關閉
+                                </button>
+                            </div>
+                            <iframe
+                                title="clean"
+                                src={`clean.html?communityId=${encodeURIComponent(String(overviewCleanCommunityId || '').trim())}`}
                                 className="w-full flex-1 border-0"
                             />
                         </div>
