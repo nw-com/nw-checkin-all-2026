@@ -1,0 +1,2896 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人頁面</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+            height: 100vh;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="max-w-md mx-auto bg-gray-50 h-screen flex flex-col">
+
+    <!-- 頂部導覽 -->
+    <header id="page-header" class="bg-green-600 text-white p-4 shadow-lg sticky top-0 z-50">
+        <div class="flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i data-lucide="user"></i> <span id="page-title">個人頁面</span>
+            </h1>
+            <div id="connection-status" class="text-xs bg-green-500 px-2 py-1 rounded-full flex items-center gap-1">
+                <span class="w-2 h-2 bg-white rounded-full animate-pulse"></span> 線上
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區 -->
+    <main id="app-main" class="flex-1 p-4 overflow-y-auto" style="padding-bottom: 100px;">
+        
+        <!-- 視圖：我的資訊 -->
+        <div id="view-add" class="view-content">
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-4">
+                <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+                    <h2 class="font-bold text-gray-700">我的資訊</h2>
+                    <i data-lucide="user-circle" class="text-red-500"></i>
+                </div>
+                <div class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">人員姓名</label>
+                        <select id="penalty-name" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請選擇人員</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類別</label>
+                        <select id="penalty-category" onchange="updateTypeOptions()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請選擇類別</option>
+                            <option value="reward">獎勵</option>
+                            <option value="penalty">懲處</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類型</label>
+                        <select id="penalty-type" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請先選擇類別</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">統計類型</label>
+                        <select id="penalty-stat-type" onchange="updateStatSubTypeOptions()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                            <option value="">請選擇統計類型</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">統計子類型</label>
+                        <select id="penalty-stat-subtype" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                            <option value="">請選擇統計子類型（可選）</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">計量方式</label>
+                        <select id="penalty-unit" onchange="updateAmountLabel()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請選擇計量方式</option>
+                            <option value="points">點數</option>
+                            <option value="money">金額</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label id="penalty-amount-label" class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                        <input type="number" id="penalty-amount" placeholder="請輸入數值" 
+                               class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">事由說明</label>
+                        <textarea id="penalty-reason" rows="3" placeholder="請輸入詳細事由" 
+                                  class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">上傳圖片</label>
+                        <div id="penalty-image-upload" class="border-2 border-dashed border-gray-200 rounded-lg p-4">
+                            <input type="file" id="penalty-image-input" accept="image/*" multiple class="hidden">
+                            <label for="penalty-image-input" class="cursor-pointer flex flex-col items-center justify-center">
+                                <i data-lucide="upload" class="text-gray-400 mb-2"></i>
+                                <span class="text-sm text-gray-500">點擊上傳圖片</span>
+                                <span class="text-xs text-gray-400 mt-1">最多3張</span>
+                            </label>
+                            <div id="penalty-image-preview" class="grid grid-cols-3 gap-2 mt-4"></div>
+                        </div>
+                    </div>
+                    <button onclick="addPenalty()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-100 flex items-center justify-center gap-2">
+                        <i data-lucide="save" size="18"></i> 新增記錄
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 視圖：獎懲記錄 -->
+        <div id="view-records" class="view-content hidden">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center gap-2 min-w-0">
+                    <h2 class="font-bold text-gray-700 whitespace-nowrap">獎懲記錄</h2>
+                </div>
+                <div id="records-actions" class="flex items-center gap-3">
+                    <button id="share-btn" onclick="openShareModal()" class="text-xs text-gray-500 flex items-center gap-1">
+                        <i data-lucide="share-2" size="14"></i> 分享
+                    </button>
+                    <button onclick="clearRecords()" id="clear-records-btn" class="text-xs text-red-500 flex items-center gap-1">
+                        <i data-lucide="trash-2" size="14"></i> 清除
+                    </button>
+                </div>
+            </div>
+            <div id="records-date-nav" class="flex items-center justify-center gap-2 mb-4">
+                <button onclick="changeRecordsDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="chevron-left" size="16"></i>
+                </button>
+                <div id="records-date-label" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap"></div>
+                <button onclick="changeRecordsDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="chevron-right" size="16"></i>
+                </button>
+            </div>
+            <div id="records-container" class="space-y-3">
+                <div class="text-center py-10 text-gray-400">
+                    <i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i>
+                    <p>目前尚無罰扣記錄</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 視圖：統計報表 -->
+        <div id="view-stats" class="view-content hidden">
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                <div class="mb-4 space-y-3">
+                    <div id="filter-container" class="grid grid-cols-4 gap-2">
+                        <div id="filter-role-wrapper">
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">角色</label>
+                            <select id="filter-role" onchange="handleFilterChange('role')" class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition text-sm">
+                                <option value="">全部</option>
+                            </select>
+                        </div>
+                        <div id="filter-company-wrapper">
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">所屬公司</label>
+                            <select id="filter-company" onchange="handleFilterChange('company')" class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition text-sm">
+                                <option value="">全部</option>
+                            </select>
+                        </div>
+                        <div id="filter-community-wrapper">
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">服務社區</label>
+                            <select id="filter-community" onchange="handleFilterChange('community')" class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition text-sm">
+                                <option value="">全部</option>
+                            </select>
+                        </div>
+                        <div id="filter-name-wrapper">
+                            <label class="block text-xs font-bold text-gray-400 uppercase mb-1">姓名</label>
+                            <select id="filter-name" onchange="handleFilterChange('name')" class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition text-sm">
+                                <option value="">全部</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 人员列表（横向滚动） -->
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-2">快速選擇人員</label>
+                    <div id="user-list-horizontal" class="flex gap-2 overflow-x-auto pb-2"></div>
+                </div>
+                
+                <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <span id="selected-user-name" class="text-gray-500"></span>
+                    QAi評分
+                    <span class="text-green-600">100</span>
+                </h3>
+                <div id="type-stats" class="space-y-2"></div>
+                <button onclick="openAddTypeModal()" class="mt-4 w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-green-500 hover:text-green-500 transition">
+                    <i data-lucide="plus" size="18"></i>
+                    <span>新增類型</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 成功提示彈窗 -->
+    <div id="success-modal" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center hidden p-6 overflow-y-auto">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-xs text-center shadow-2xl animate-in zoom-in duration-300 my-auto">
+            <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="check-circle-2" size="48"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-1">新增成功！</h3>
+            <p class="text-gray-600 mb-4">罰扣記錄已保存</p>
+            <button onclick="closeModal()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-red-200">確定</button>
+        </div>
+    </div>
+
+    <!-- 編輯罰扣彈窗 -->
+    <div id="edit-modal" class="fixed inset-0 bg-black/50 z-[101] hidden p-4 flex items-center justify-center overflow-y-auto">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl my-4">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+                <div class="font-black text-gray-800 text-sm">編輯獎懲</div>
+                <button onclick="closeEditModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+                <input type="hidden" id="edit-id" value="">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">人員姓名</label>
+                    <select id="edit-name" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請選擇人員</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類別</label>
+                    <select id="edit-category" onchange="updateTypeOptions()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請選擇類別</option>
+                        <option value="reward">獎勵</option>
+                        <option value="penalty">懲處</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類型</label>
+                    <select id="edit-type" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請先選擇類別</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">統計類型</label>
+                    <select id="edit-stat-type" onchange="updateEditStatSubTypeOptions()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                        <option value="">請選擇統計類型</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">統計子類型</label>
+                    <select id="edit-stat-subtype" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                        <option value="">請選擇統計子類型（可選）</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">計量方式</label>
+                    <select id="edit-unit" onchange="updateAmountLabel()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請選擇計量方式</option>
+                        <option value="points">點數</option>
+                        <option value="money">金額</option>
+                    </select>
+                </div>
+                <div>
+                    <label id="edit-amount-label" class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                    <input type="number" id="edit-amount" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">事由說明</label>
+                    <textarea id="edit-reason" rows="3" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">上傳圖片</label>
+                    <div id="edit-image-upload" class="border-2 border-dashed border-gray-200 rounded-lg p-4">
+                        <input type="file" id="edit-image-input" accept="image/*" multiple class="hidden">
+                        <label for="edit-image-input" class="cursor-pointer flex flex-col items-center justify-center">
+                            <i data-lucide="upload" class="text-gray-400 mb-2"></i>
+                            <span class="text-sm text-gray-500">點擊上傳圖片</span>
+                            <span class="text-xs text-gray-400 mt-1">最多3張</span>
+                        </label>
+                        <div id="edit-image-preview" class="grid grid-cols-3 gap-2 mt-4"></div>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeEditModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveEdit()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 確認彈窗 -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black/50 z-[115] hidden p-6 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden my-auto">
+            <div class="px-5 py-4 border-b border-gray-100">
+                <div id="confirm-title" class="font-black text-gray-800 text-base"></div>
+                <div id="confirm-message" class="text-sm text-gray-600 mt-1 whitespace-pre-wrap"></div>
+            </div>
+            <div class="px-5 py-4 flex gap-2">
+                <button onclick="confirmModalCancel()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                <button onclick="confirmModalOk()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">確認</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分享彈窗 -->
+    <div id="share-modal" class="fixed inset-0 bg-black/50 z-[114] hidden p-6 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">分享獎懲記錄</div>
+                <button onclick="closeShareModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="px-5 py-4">
+                <div id="share-community-name" class="text-sm font-bold text-gray-800 mb-3"></div>
+                <div class="mt-3">
+                    <div class="text-xs font-bold text-gray-400 uppercase mb-1">說明</div>
+                    <div class="text-xs text-gray-500">此功能用於分享統計報表</div>
+                </div>
+            </div>
+            <div class="px-5 py-4 border-t border-gray-100">
+                <button onclick="closeShareModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 公告彈窗 -->
+    <div id="notice-modal" class="fixed inset-0 bg-black/50 z-[116] hidden p-4 flex items-start justify-center overflow-y-auto" style="padding-top: 10vh; padding-bottom: 10vh;">
+        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+                <div class="font-black text-gray-800 text-base">獎懲公告</div>
+                <button onclick="closeNoticeModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div id="notice-content" class="p-5 overflow-y-auto" style="max-height: 70vh;">
+                <!-- 公告內容將在這裡動態生成 -->
+            </div>
+            <div class="px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white space-y-2">
+                <button onclick="shareToLine()" class="w-full bg-green-500 text-white py-3 rounded-xl font-bold hover:bg-green-600 transition flex items-center justify-center gap-2">
+                    <i data-lucide="message-circle" size="18"></i>
+                    Line 分享
+                </button>
+                <button onclick="closeNoticeModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增類型彈窗 -->
+    <div id="add-type-modal" class="fixed inset-0 bg-black/50 z-[117] hidden p-4 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">新增類型</div>
+                <button onclick="closeAddTypeModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-5">
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">類型名稱</label>
+                    <input type="text" id="new-type-name" placeholder="請輸入類型名稱" 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeAddTypeModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveNewType()" class="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增子類型彈窗 -->
+    <div id="add-subtype-modal" class="fixed inset-0 bg-black/50 z-[118] hidden p-4 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">新增子類型</div>
+                <button onclick="closeAddSubTypeModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-5">
+                <div class="mb-2 text-sm text-gray-600">為「<span id="subtype-parent-name"></span>」新增子類型</div>
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">子類型名稱</label>
+                    <input type="text" id="new-subtype-name" placeholder="請輸入子類型名稱" 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                    <input type="number" id="new-subtype-value" placeholder="請輸入數值" step="1"
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition">
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeAddSubTypeModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveNewSubType()" class="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 編輯類型彈窗 -->
+    <div id="edit-type-modal" class="fixed inset-0 bg-black/50 z-[119] hidden p-4 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">編輯類型</div>
+                <button onclick="closeEditTypeModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-5">
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">類型名稱</label>
+                    <input type="text" id="edit-type-name" placeholder="請輸入類型名稱" 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                    <input type="number" id="edit-type-value" placeholder="請輸入數值" step="1"
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeEditTypeModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveEditType()" class="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 編輯子類型彈窗 -->
+    <div id="edit-subtype-modal" class="fixed inset-0 bg-black/50 z-[120] hidden p-4 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">編輯子類型</div>
+                <button onclick="closeEditSubTypeModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-5">
+                <div class="mb-2 text-sm text-gray-600">編輯「<span id="edit-subtype-parent-name"></span>」下的子類型</div>
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">子類型名稱</label>
+                    <input type="text" id="edit-subtype-name" placeholder="請輸入子類型名稱" 
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                    <input type="number" id="edit-subtype-value" placeholder="請輸入數值" step="1"
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeEditSubTypeModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveEditSubType()" class="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部導航 -->
+    <nav id="page-nav" class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-40">
+        <button onclick="switchView('add')" id="nav-add" class="flex flex-col items-center p-2 text-green-600">
+            <i data-lucide="user"></i>
+            <span class="text-xs mt-1">資訊</span>
+        </button>
+        <button onclick="switchView('records')" id="nav-records" class="flex flex-col items-center p-2 text-gray-400">
+            <i data-lucide="file-text"></i>
+            <span class="text-xs mt-1">文件</span>
+        </button>
+        <button onclick="switchView('stats')" id="nav-stats" class="flex flex-col items-center p-2 text-gray-400 hidden">
+            <i data-lucide="settings"></i>
+            <span class="text-xs mt-1">設定</span>
+        </button>
+    </nav>
+
+    <script>
+        lucide.createIcons();
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+
+        let fbUser = null;
+        let dbUser = null;
+        let selectedCommunityId = '';
+        let selectedCommunityName = '';
+        let db = null;
+        let settingsDocRef = null;
+        let recordsUnsub = null;
+        let settingsUnsub = null;
+        let usersUnsub = null;
+        let rolesUnsub = null;
+
+        let records = [];
+        let selectedRecordsDate = new Date();
+        let canManageSettings = false;
+        let pendingConfirmAction = null;
+        let isPublicView = false;
+        let editRecordId = null;
+        let communityUsers = [];
+        let roles = [];
+        let penaltyImages = []; // 存儲新增時的圖片
+        let editImages = []; // 存儲編輯時的圖片
+        let statTypes = ['出勤', '工作', '態度']; // 統計類型
+        let statSubTypes = {}; // 統計子類型 { 主類型: [子類型1, 子類型2] }
+        let statTypeValues = {}; // 統計類型數值 { 類型名: 數值 }
+        let statSubTypeValues = {}; // 統計子類型數值 { 類型名: { 子類型名: 數值 } }
+        let selectedUserName = ''; // 當前選擇的用戶
+        let userStatsData = {}; // 每個用戶的獨立設置 { 用戶名: { types, subTypes, typeValues, subTypeValues } }
+        let currentSettings = null; // 當前設置
+        
+        // 筛选相关变量
+        let allCommunities = []; // 所有社区列表
+        
+        // 定义角色类型和显示规则
+        const ROLES_HIDE_COMMUNITY = ['系統管理員', '人事', '物業', '幹部', '員工']; // 这些角色不显示服务社区
+        const ROLES_HIDE_COMPANY = ['總幹事', '秘書', '清潔', '機電', '保全']; // 这些角色不显示所属公司
+        const ROLES_TO_EXCLUDE = ['管理層']; // 这些角色不显示在筛选中
+        
+        // 根据角色更新筛选显示
+        function updateFilterVisibility() {
+            const roleValue = document.getElementById('filter-role')?.value || '';
+            const companyWrapper = document.getElementById('filter-company-wrapper');
+            const communityWrapper = document.getElementById('filter-community-wrapper');
+            const filterContainer = document.getElementById('filter-container');
+            
+            if (!roleValue) {
+                // 没有选择角色，显示所有筛选
+                if (companyWrapper) companyWrapper.style.display = 'block';
+                if (communityWrapper) communityWrapper.style.display = 'block';
+                if (filterContainer) filterContainer.className = 'grid grid-cols-4 gap-2';
+            } else if (ROLES_HIDE_COMMUNITY.includes(roleValue)) {
+                // 选择了需要隐藏服务社区的角色
+                if (companyWrapper) companyWrapper.style.display = 'block';
+                if (communityWrapper) communityWrapper.style.display = 'none';
+                if (filterContainer) filterContainer.className = 'grid grid-cols-3 gap-2';
+                
+                // 清空社区筛选值
+                const communitySelect = document.getElementById('filter-community');
+                if (communitySelect) communitySelect.value = '';
+            } else if (ROLES_HIDE_COMPANY.includes(roleValue)) {
+                // 选择了需要隐藏所属公司的角色
+                if (companyWrapper) companyWrapper.style.display = 'none';
+                if (communityWrapper) communityWrapper.style.display = 'block';
+                if (filterContainer) filterContainer.className = 'grid grid-cols-3 gap-2';
+                
+                // 清空公司筛选值
+                const companySelect = document.getElementById('filter-company');
+                if (companySelect) companySelect.value = '';
+            }
+        }
+        
+        // 获取符合当前筛选条件的用户
+        function getFilteredUsers() {
+            let users = [...communityUsers];
+            
+            // 社区筛选
+            const communityVal = document.getElementById('filter-community')?.value || '';
+            if (communityVal) {
+                users = users.filter(u => {
+                    // 首先查找匹配的社区
+                    const matchedCommunity = allCommunities.find(c => 
+                        (c.name || c.id || '') === communityVal
+                    );
+                    
+                    if (matchedCommunity) {
+                        const communityId = String(matchedCommunity.id).trim().toUpperCase();
+                        // 检查用户的 communityIds 是否包含这个社区ID
+                        const userCommunityIds = Array.isArray(u.communityIds) ? u.communityIds : 
+                            (u.communityId ? [u.communityId] : []);
+                        const hasMatchingId = userCommunityIds.some(id => 
+                            String(id).trim().toUpperCase() === communityId
+                        );
+                        if (hasMatchingId) {
+                            return true;
+                        }
+                    }
+                    
+                    // 也检查社区名称匹配
+                    const userCommunityName = u.communityName || u.community || '';
+                    return userCommunityName === communityVal;
+                });
+            }
+            
+            // 公司筛选
+            const companyVal = document.getElementById('filter-company')?.value || '';
+            if (companyVal) {
+                users = users.filter(u => (u.company || '') === companyVal);
+            }
+            
+            // 角色筛选
+            const roleVal = document.getElementById('filter-role')?.value || '';
+            if (roleVal) {
+                users = users.filter(u => {
+                    const userRoleId = u.role || '';
+                    // 检查硬编码的系统管理员角色
+                    if (roleVal === '系統管理員' && userRoleId === 'admin') {
+                        return true;
+                    }
+                    const roleObj = roles.find(r => r.id === userRoleId);
+                    const userRoleName = roleObj ? (roleObj.name || roleObj.id) : '';
+                    return userRoleName === roleVal;
+                });
+            }
+            
+            // 姓名筛选
+            const nameVal = document.getElementById('filter-name')?.value || '';
+            if (nameVal) {
+                users = users.filter(u => (u.name || u.email || '') === nameVal);
+            }
+            
+            // 去重，根据用户姓名
+            const seenNames = new Set();
+            const uniqueUsers = users.filter(user => {
+                const userName = user.name || user.email || '';
+                if (seenNames.has(userName)) return false;
+                seenNames.add(userName);
+                return true;
+            });
+            
+            return uniqueUsers;
+        }
+        
+        // 更新所有筛选选项，支持关联
+        function updateFilterOptions(preserveValues = true) {
+            // 保存当前选中的值
+            const currentCommunity = preserveValues ? document.getElementById('filter-community')?.value : '';
+            const currentCompany = preserveValues ? document.getElementById('filter-company')?.value : '';
+            const currentRole = preserveValues ? document.getElementById('filter-role')?.value : '';
+            const currentName = preserveValues ? document.getElementById('filter-name')?.value : '';
+            
+            // 更新公司筛选选项 - 从所有用户数据中提取
+            const companySelect = document.getElementById('filter-company');
+            if (companySelect) {
+                let optionsHtml = '<option value="">全部</option>';
+                const companies = [...new Set(
+                    communityUsers.map(u => u.company || '').filter(c => c)
+                )];
+                companies.sort();
+                companies.forEach(company => {
+                    optionsHtml += `<option value="${escapeHtml(company)}">${escapeHtml(company)}</option>`;
+                });
+                companySelect.innerHTML = optionsHtml;
+                if (currentCompany) companySelect.value = currentCompany;
+            }
+            
+            // 更新社区筛选选项 - 从 allCommunities 中获取所有社区
+            const communitySelect = document.getElementById('filter-community');
+            if (communitySelect) {
+                let optionsHtml = '<option value="">全部</option>';
+                const communityNames = [...new Set(
+                    allCommunities.map(c => c.name || c.id || '').filter(c => c)
+                )];
+                communityNames.sort();
+                communityNames.forEach(communityName => {
+                    optionsHtml += `<option value="${escapeHtml(communityName)}">${escapeHtml(communityName)}</option>`;
+                });
+                communitySelect.innerHTML = optionsHtml;
+                if (currentCommunity) communitySelect.value = currentCommunity;
+            }
+            
+            // 更新角色筛选选项 - 从所有角色中，排除管理层，并添加硬编码的系统管理员
+            const roleSelect = document.getElementById('filter-role');
+            if (roleSelect) {
+                let optionsHtml = '<option value="">全部</option>';
+                // 先添加硬编码的系统管理员角色
+                optionsHtml += '<option value="系統管理員">系統管理員</option>';
+                roles.forEach(role => {
+                    const roleName = role.name || role.id;
+                    // 排除管理层角色
+                    if (!ROLES_TO_EXCLUDE.includes(roleName) && roleName !== '系統管理員') {
+                        optionsHtml += `<option value="${escapeHtml(roleName)}">${escapeHtml(roleName)}</option>`;
+                    }
+                });
+                roleSelect.innerHTML = optionsHtml;
+                if (currentRole) roleSelect.value = currentRole;
+            }
+            
+            // 获取符合当前筛选条件的用户（用于姓名筛选）
+            const filteredUsers = getFilteredUsers();
+            
+            // 更新姓名筛选选项
+            const nameSelect = document.getElementById('filter-name');
+            if (nameSelect) {
+                let optionsHtml = '<option value="">全部</option>';
+                const names = [...new Set(
+                    filteredUsers.map(u => u.name || u.email || '').filter(n => n)
+                )];
+                names.sort();
+                names.forEach(name => {
+                    optionsHtml += `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+                });
+                nameSelect.innerHTML = optionsHtml;
+                if (currentName) nameSelect.value = currentName;
+            }
+            
+            // 更新筛选显示状态
+            updateFilterVisibility();
+        }
+        
+        // 处理筛选变更
+        function handleFilterChange(changedFilter) {
+            // 更新其他筛选选项
+            updateFilterOptions(true);
+            // 重新渲染人员列表
+            renderUserList();
+            // 重新渲染统计
+            renderStats();
+        }
+        
+        // 渲染人员列表（横向滚动）
+        function renderUserList() {
+            const userListEl = document.getElementById('user-list-horizontal');
+            if (!userListEl) return;
+            
+            const currentNameFilter = document.getElementById('filter-name')?.value || '';
+            const filteredUsers = getFilteredUsers();
+            
+            // 去重，根据用户姓名
+            const seenNames = new Set();
+            const uniqueUsers = filteredUsers.filter(user => {
+                const userName = user.name || user.email || '';
+                if (seenNames.has(userName)) return false;
+                seenNames.add(userName);
+                return true;
+            });
+            
+            // 添加"全部"选项
+            let html = `
+                <button onclick="selectUser('')" class="flex-shrink-0 px-4 py-2 rounded-full border ${!currentNameFilter ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'} transition whitespace-nowrap">
+                    <span class="text-sm font-medium ${!currentNameFilter ? 'text-green-600' : 'text-gray-700'}">全部</span>
+                </button>
+            `;
+            
+            // 添加用户列表
+            uniqueUsers.forEach(user => {
+                const userName = user.name || user.email || '';
+                const isSelected = userName === currentNameFilter;
+                // 处理角色显示，支持硬编码的系统管理员角色
+                let roleName = '';
+                const userRoleId = user.role || '';
+                if (userRoleId === 'admin') {
+                    roleName = '系統管理員';
+                } else {
+                    const roleObj = roles.find(r => r.id === userRoleId);
+                    roleName = roleObj?.name || '';
+                }
+                
+                html += `
+                    <button onclick="selectUser('${escapeHtml(userName)}')" class="flex-shrink-0 px-4 py-2 rounded-full border ${isSelected ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'} transition whitespace-nowrap">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium ${isSelected ? 'text-green-600' : 'text-gray-700'}">
+                                ${escapeHtml(userName)}
+                            </span>
+                            ${roleName ? `<span class="text-xs text-gray-400">${escapeHtml(roleName)}</span>` : ''}
+                        </div>
+                    </button>
+                `;
+            });
+            
+            userListEl.innerHTML = html;
+        }
+        
+        // 选择用户进行筛选
+        function selectUser(userName) {
+            // 保存当前用户的数据
+            if (selectedUserName && statTypes.length > 0) {
+                userStatsData[selectedUserName] = {
+                    types: [...statTypes],
+                    subTypes: { ...statSubTypes },
+                    typeValues: { ...statTypeValues },
+                    subTypeValues: { ...statSubTypeValues }
+                };
+            }
+            
+            // 设置新的选中用户
+            selectedUserName = userName || '';
+            
+            // 更新标题显示
+            const userNameEl = document.getElementById('selected-user-name');
+            if (userNameEl) {
+                userNameEl.textContent = selectedUserName ? selectedUserName + ' -' : '';
+            }
+            
+            // 加载新用户的数据，如果有的话
+            if (selectedUserName && userStatsData[selectedUserName]) {
+                const userData = userStatsData[selectedUserName];
+                statTypes = [...userData.types];
+                statSubTypes = { ...userData.subTypes };
+                statTypeValues = { ...userData.typeValues };
+                statSubTypeValues = { ...userData.subTypeValues };
+            } else {
+                // 如果没有该用户的数据，使用默认值
+                initDefaultStats();
+            }
+            
+            // 更新筛选和渲染
+            const nameSelect = document.getElementById('filter-name');
+            if (nameSelect) {
+                nameSelect.value = userName || '';
+                handleFilterChange('name');
+            }
+            
+            // 重新渲染统计
+            renderStats();
+        }
+        
+        // 初始化默认的统计设置
+        function initDefaultStats() {
+            statTypes = ['出勤', '工作'];
+            statTypeValues = { '出勤': 40, '工作': 60 };
+            statSubTypes = {
+                '出勤': ['上班打卡', '下班打卡', '無遲到', '無早退']
+            };
+            statSubTypeValues = {
+                '出勤': {
+                    '上班打卡': 10,
+                    '下班打卡': 10,
+                    '無遲到': 10,
+                    '無早退': 10
+                }
+            };
+        }
+        function adjustSubtypeValues(parentType, newSubTypeValues, parentValueParam, subTypesParam) {
+            const parentValue = parentValueParam !== undefined ? parentValueParam : statTypeValues[parentType];
+            if (parentValue === undefined) return newSubTypeValues;
+            
+            const subTypes = subTypesParam || statSubTypes[parentType] || [];
+            if (subTypes.length === 0) return newSubTypeValues;
+            
+            // 计算当前子类型数值总和
+            let currentTotal = 0;
+            const valuesToUse = { ...newSubTypeValues[parentType] };
+            subTypes.forEach(st => {
+                if (valuesToUse[st] !== undefined) {
+                    currentTotal += valuesToUse[st];
+                }
+            });
+            
+            // 如果总和已经等于父类型数值，直接返回
+            if (currentTotal === parentValue) return newSubTypeValues;
+            
+            // 如果总和不等于父类型数值，计算差值并调整
+            const diff = parentValue - currentTotal;
+            // 先尝试给第一个子类型调整
+            if (subTypes.length > 0) {
+                const firstSubType = subTypes[0];
+                if (valuesToUse[firstSubType] === undefined) {
+                    valuesToUse[firstSubType] = 0;
+                }
+                valuesToUse[firstSubType] += diff;
+                // 确保不为负数
+                if (valuesToUse[firstSubType] < 0) {
+                    valuesToUse[firstSubType] = 0;
+                }
+            }
+            
+            // 返回调整后的数值
+            return {
+                ...newSubTypeValues,
+                [parentType]: valuesToUse
+            };
+        }
+
+        function normalizeKey(v) {
+            return String(v || '').replace(/\uFEFF/g, '').trim();
+        }
+
+        function escapeHtml(s) {
+            return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // 圖片壓縮函數
+        function compressImage(file, maxWidth = 600, maxHeight = 600, quality = 0.5) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // 計算縮放比例
+                        if (width > height) {
+                            if (width > maxWidth) {
+                                height = Math.round((height * maxWidth) / width);
+                                width = maxWidth;
+                            }
+                        } else {
+                            if (height > maxHeight) {
+                                width = Math.round((width * maxHeight) / height);
+                                height = maxHeight;
+                            }
+                        }
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        resolve(compressedDataUrl);
+                    };
+                    img.onerror = reject;
+                };
+                reader.onerror = reject;
+            });
+        }
+
+        // 圖片上傳處理函數
+        function setupImageUpload(inputId, previewId, isEdit = false) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            
+            input.onchange = async (e) => {
+                const images = isEdit ? editImages : penaltyImages;
+                const files = Array.from(e.target.files);
+                const remainingSlots = 3 - images.length;
+                
+                if (files.length > remainingSlots) {
+                    alert(`最多只能上傳3張圖片，還可以上傳${remainingSlots}張`);
+                    files.splice(remainingSlots);
+                }
+                
+                for (const file of files) {
+                    if (file.type.startsWith('image/')) {
+                        try {
+                            // 檢查文件大小
+                            if (file.size > 5 * 1024 * 1024) { // 5MB
+                                alert('圖片大小不能超過5MB，請選擇較小的圖片');
+                                continue;
+                            }
+                            
+                            const compressedImage = await compressImage(file);
+                            images.push(compressedImage);
+                            renderImagePreview(previewId, isEdit);
+                        } catch (error) {
+                            console.error('圖片壓縮失敗:', error);
+                            alert('圖片處理失敗，請重試');
+                        }
+                    }
+                }
+                
+                input.value = ''; // 重置input
+            };
+        }
+
+        // 渲染圖片預覽
+        function renderImagePreview(previewId, isEdit = false) {
+            const preview = document.getElementById(previewId);
+            if (!preview) return;
+            
+            const images = isEdit ? editImages : penaltyImages;
+            const safeImages = images || [];
+            
+            preview.innerHTML = safeImages.map((img, index) => `
+                <div class="relative">
+                    <img src="${img}" class="w-full h-24 object-cover rounded-lg border border-gray-200">
+                    <button onclick="removeImage('${previewId}', ${index})" 
+                            class="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition">
+                        <i data-lucide="x" size="12"></i>
+                    </button>
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        // 移除圖片
+        function removeImage(previewId, index) {
+            if (previewId === 'penalty-image-preview') {
+                penaltyImages.splice(index, 1);
+                renderImagePreview(previewId, false);
+            } else if (previewId === 'edit-image-preview') {
+                editImages.splice(index, 1);
+                renderImagePreview(previewId, true);
+            }
+        }
+
+        // 重置圖片上傳區域
+        function resetImageUpload(previewId, isEdit = false) {
+            if (isEdit) {
+                editImages = [];
+            } else {
+                penaltyImages = [];
+            }
+            const preview = document.getElementById(previewId);
+            if (preview) preview.innerHTML = '';
+        }
+
+        function switchView(view) {
+            // 如果是設定頁面，檢查權限
+            if (view === 'stats' && !canManageSettings) {
+                alert('您沒有權限訪問設定頁面');
+                return;
+            }
+            
+            document.querySelectorAll('.view-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('#page-nav button').forEach(el => el.classList.remove('text-green-600'));
+            document.querySelectorAll('#page-nav button').forEach(el => el.classList.add('text-gray-400'));
+            
+            document.getElementById(`view-${view}`).classList.remove('hidden');
+            document.getElementById(`nav-${view}`).classList.remove('text-gray-400');
+            document.getElementById(`nav-${view}`).classList.add('text-green-600');
+
+            if (view === 'records') {
+                updateDateNavButtons();
+                renderRecords();
+            } else if (view === 'stats') {
+                // 切换到统计视图时加载所有用户
+                loadAllUsers();
+                updateFilterOptions(true);
+                renderUserList();
+                renderStats();
+            }
+        }
+
+        function formatDateLabel(d) {
+            if (!d) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const w = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+            return `${y}/${m}/${day} (週${w})`;
+        }
+
+        function formatYmd(d) {
+            if (!d) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function formatDateTime(d) {
+            if (!d) return '';
+            const date = d.toDate ? d.toDate() : new Date(d);
+            return date.toLocaleString('zh-TW');
+        }
+
+        function updateRecordsDateLabel() {
+            const el = document.getElementById('records-date-label');
+            if (el) el.textContent = formatDateLabel(selectedRecordsDate);
+        }
+
+        function changeRecordsDate(deltaDays) {
+            const next = new Date(selectedRecordsDate);
+            next.setDate(next.getDate() + (Number(deltaDays) || 0));
+            
+            // 获取今天的日期（去掉时间部分）
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // 检查是否是未来日期
+            const nextDateOnly = new Date(next);
+            nextDateOnly.setHours(0, 0, 0, 0);
+            
+            // 如果是未来日期，不允许选择
+            if (nextDateOnly > today) {
+                return;
+            }
+            
+            selectedRecordsDate = next;
+            updateRecordsDateLabel();
+            updateDateNavButtons();
+            subscribeRecordsForDate(selectedRecordsDate);
+            renderRecords();
+        }
+        
+        function updateDateNavButtons() {
+            // 获取今天的日期（去掉时间部分）
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // 检查当前选择日期是否是今天
+            const currentDateOnly = new Date(selectedRecordsDate);
+            currentDateOnly.setHours(0, 0, 0, 0);
+            
+            const rightBtn = document.querySelector('#records-date-nav button:last-child');
+            if (rightBtn) {
+                if (currentDateOnly >= today) {
+                    rightBtn.disabled = true;
+                    rightBtn.classList.add('opacity-30', 'cursor-not-allowed');
+                    rightBtn.classList.remove('hover:bg-gray-100');
+                } else {
+                    rightBtn.disabled = false;
+                    rightBtn.classList.remove('opacity-30', 'cursor-not-allowed');
+                    rightBtn.classList.add('hover:bg-gray-100');
+                }
+            }
+        }
+
+        function subscribeRecordsForDate(d) {
+            if (!settingsDocRef) return;
+            if (recordsUnsub) { try { recordsUnsub(); } catch {} recordsUnsub = null; }
+
+            const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+            const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0);
+            const startTs = firebase.firestore.Timestamp.fromDate(start);
+            const endTs = firebase.firestore.Timestamp.fromDate(end);
+
+            const recordsQuery = settingsDocRef
+                .collection('penalties')
+                .where('createdAt', '>=', startTs)
+                .where('createdAt', '<', endTs)
+                .orderBy('createdAt', 'desc')
+                .limit(200);
+
+            recordsUnsub = recordsQuery.onSnapshot((snapshot) => {
+                const list = [];
+                snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+                records = list;
+                updatePenaltyCount();
+                if (!document.getElementById('view-records')?.classList.contains('hidden')) renderRecords();
+            }, () => {
+                records = [];
+                updatePenaltyCount();
+                const container = document.getElementById('records-container');
+                if (container) {
+                    container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="alert-triangle" size="48" class="mx-auto mb-2 opacity-20"></i><p>無法讀取罰扣記錄</p></div>`;
+                    lucide.createIcons();
+                }
+            });
+        }
+
+        function updateTypeOptions() {
+            const category = document.getElementById('penalty-category')?.value;
+            const typeSelect = document.getElementById('penalty-type');
+            const editCategory = document.getElementById('edit-category')?.value;
+            const editTypeSelect = document.getElementById('edit-type');
+            
+            const rewardTypes = ['表現優異', '加班協助', '創新建議', '其他獎勵'];
+            const penaltyTypes = ['遲到', '早退', '曠職', '服裝不整', '睡崗', '其他懲處'];
+            
+            let options = '';
+            
+            if (category === 'reward') {
+                options = '<option value="">請選擇獎勵類型</option>' + 
+                    rewardTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            } else if (category === 'penalty') {
+                options = '<option value="">請選擇懲處類型</option>' + 
+                    penaltyTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            } else {
+                options = '<option value="">請先選擇類別</option>';
+            }
+            
+            if (typeSelect) {
+                typeSelect.innerHTML = options;
+            }
+            
+            if (editCategory) {
+                let editOptions = '';
+                if (editCategory === 'reward') {
+                    editOptions = '<option value="">請選擇獎勵類型</option>' + 
+                        rewardTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+                } else if (editCategory === 'penalty') {
+                    editOptions = '<option value="">請選擇懲處類型</option>' + 
+                        penaltyTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+                } else {
+                    editOptions = '<option value="">請先選擇類別</option>';
+                }
+                if (editTypeSelect) {
+                    editTypeSelect.innerHTML = editOptions;
+                }
+            }
+        }
+
+        function updateAmountLabel() {
+            const unitSelect = document.getElementById('penalty-unit');
+            const amountLabel = document.getElementById('penalty-amount-label');
+            const editUnitSelect = document.getElementById('edit-unit');
+            const editAmountLabel = document.getElementById('edit-amount-label');
+            
+            let labelText = '數值';
+            
+            if (unitSelect) {
+                const unit = unitSelect.value;
+                if (unit === 'points') {
+                    labelText = '點數';
+                } else if (unit === 'money') {
+                    labelText = '金額';
+                }
+                
+                if (amountLabel) {
+                    amountLabel.textContent = labelText;
+                }
+            }
+            
+            if (editUnitSelect) {
+                const editUnit = editUnitSelect.value;
+                let editLabelText = '數值';
+                
+                if (editUnit === 'points') {
+                    editLabelText = '點數';
+                } else if (editUnit === 'money') {
+                    editLabelText = '金額';
+                }
+                
+                if (editAmountLabel) {
+                    editAmountLabel.textContent = editLabelText;
+                }
+            }
+        }
+
+        function updatePenaltyCount() {
+            const countEl = document.getElementById('penalty-count');
+            if (countEl) countEl.textContent = records.length;
+        }
+
+        async function addPenalty() {
+            const name = normalizeKey(document.getElementById('penalty-name')?.value);
+            const category = normalizeKey(document.getElementById('penalty-category')?.value);
+            const type = normalizeKey(document.getElementById('penalty-type')?.value);
+            const statType = normalizeKey(document.getElementById('penalty-stat-type')?.value);
+            const statSubType = normalizeKey(document.getElementById('penalty-stat-subtype')?.value);
+            const unit = normalizeKey(document.getElementById('penalty-unit')?.value);
+            const amount = Number(document.getElementById('penalty-amount')?.value);
+            const reason = normalizeKey(document.getElementById('penalty-reason')?.value);
+
+            if (!name || !category || !type || !statType || !unit || !amount) {
+                alert('請填寫完整資訊');
+                return;
+            }
+
+            if (!settingsDocRef) return;
+
+            // 找到按鈕並顯示載入狀態
+            const button = document.querySelector('button[onclick="addPenalty()"]');
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 保存中...';
+            button.disabled = true;
+            lucide.createIcons();
+
+            try {
+                await settingsDocRef.collection('penalties').add({
+                    name: name,
+                    category: category,
+                    type: type,
+                    statType: statType,
+                    statSubType: statSubType,
+                    unit: unit,
+                    amount: amount,
+                    reason: reason,
+                    images: penaltyImages, // 保存圖片
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdBy: dbUser?.uid || 'anonymous'
+                });
+
+                document.getElementById('penalty-name').value = '';
+                document.getElementById('penalty-category').value = '';
+                document.getElementById('penalty-type').innerHTML = '<option value="">請先選擇類別</option>';
+                document.getElementById('penalty-stat-type').value = '';
+                document.getElementById('penalty-stat-subtype').innerHTML = '<option value="">請選擇統計子類型（可選）</option>';
+                document.getElementById('penalty-unit').value = '';
+                updateAmountLabel();
+                document.getElementById('penalty-amount').value = '';
+                document.getElementById('penalty-reason').value = '';
+                resetImageUpload('penalty-image-preview', false); // 重置圖片上傳區域
+
+                const modal = document.getElementById('success-modal');
+                if (modal) modal.classList.remove('hidden');
+            } catch (e) {
+                console.error('新增失敗:', e);
+                alert('新增失敗，請稍後再試。如果圖片較大，請嘗試刪除一些圖片。');
+            } finally {
+                // 恢復按鈕狀態
+                button.innerHTML = originalText;
+                button.disabled = false;
+                lucide.createIcons();
+            }
+        }
+
+        function renderRecords() {
+            const container = document.getElementById('records-container');
+            if (!container) return;
+
+            if (records.length === 0) {
+                container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i><p>目前尚無獎懲記錄</p></div>`;
+                return;
+            }
+
+            container.innerHTML = records.map(record => {
+                const name = escapeHtml(record.name || '');
+                const category = record.category || 'penalty';
+                const type = escapeHtml(record.type || '');
+                const unit = record.unit || 'money';
+                const amount = record.amount || 0;
+                const reason = escapeHtml(record.reason || '');
+                const time = formatDateTime(record.createdAt);
+                const images = record.images || [];
+                
+                // 查找人員詳細信息
+                const userInfo = communityUsers.find(u => u.name === name) || {};
+                
+                // 獲取用戶頭像
+                const userAvatar = userInfo.avatarUrl || userInfo.avatar || userInfo.photoURL || userInfo.photo || '';
+                
+                const isReward = category === 'reward';
+                const borderColor = isReward ? 'border-green-500' : 'border-red-500';
+                const badgeBg = isReward ? 'bg-green-100' : 'bg-red-100';
+                const badgeText = isReward ? 'text-green-600' : 'text-red-600';
+                const amountColor = isReward ? 'text-green-600' : 'text-red-600';
+                const amountPrefix = unit === 'money' ? '$' : '';
+                const unitLabel = unit === 'points' ? ' 點' : '';
+                const categoryLabel = isReward ? '獎勵' : '懲處';
+                
+                const imagesHtml = images.length > 0 ? `
+                    <div class="grid grid-cols-3 gap-2 mt-3">
+                        ${images.map(img => `
+                            <img src="${img}" class="w-full h-16 object-cover rounded-lg border border-gray-200">
+                        `).join('')}
+                    </div>
+                ` : '';
+                
+                const avatarHtml = userAvatar ? `
+                    <img src="${userAvatar}" class="w-10 h-10 rounded-full object-cover border-2 ${borderColor} flex-shrink-0">
+                ` : `
+                    <div class="w-10 h-10 ${badgeBg} rounded-full flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="user" class="${badgeText}" size="18"></i>
+                    </div>
+                `;
+                
+                return `
+                    <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 ${borderColor}">
+                        <div class="flex gap-3 items-start">
+                            ${avatarHtml}
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="font-bold text-gray-800">${name}</h4>
+                                    <span class="text-xs ${badgeBg} ${badgeText} px-2 py-0.5 rounded-full">${categoryLabel}</span>
+                                    <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">${type}</span>
+                                </div>
+                                <div class="text-xl font-black ${amountColor} mt-1">${amountPrefix}${amount.toLocaleString()}${unitLabel}</div>
+                                <p class="text-xs text-gray-500 mt-2">${reason}</p>
+                                ${imagesHtml}
+                                <p class="text-xs text-gray-400 mt-2">${time}</p>
+                            </div>
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                                <button onclick='openNoticeModal("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="file-text" size="16"></i></button>
+                                <button onclick='openEditModal("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                                <button onclick='deleteRecord("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        function openNoticeModal(id) {
+            const record = records.find(r => r.id === id);
+            if (!record) return;
+
+            const name = escapeHtml(record.name || '');
+            const category = record.category || 'penalty';
+            const type = escapeHtml(record.type || '');
+            const unit = record.unit || 'money';
+            const amount = record.amount || 0;
+            const reason = escapeHtml(record.reason || '');
+            const time = formatDateTime(record.createdAt);
+            const images = record.images || [];
+            
+            // 查找人員詳細信息
+            const userInfo = communityUsers.find(u => u.name === name) || {};
+            
+            // 獲取用戶頭像
+            const userAvatar = userInfo.avatarUrl || userInfo.avatar || userInfo.photoURL || userInfo.photo || '';
+            
+            // 獲取用戶職稱
+            let userTitle = '人員';
+            const userRoleId = userInfo.role || '';
+            const roleObj = roles.find(r => r.id === userRoleId);
+            if (roleObj && roleObj.name) {
+                userTitle = roleObj.name;
+            } else if (userInfo.title) {
+                userTitle = userInfo.title;
+            } else if (userInfo.position) {
+                userTitle = userInfo.position;
+            }
+            
+            const isReward = category === 'reward';
+            const categoryLabel = isReward ? '獎勵' : '懲處';
+            const amountPrefix = unit === 'money' ? '$' : '';
+            const unitLabel = unit === 'points' ? ' 點' : '';
+            const titleColor = isReward ? 'text-green-600' : 'text-red-600';
+            const titleBg = isReward ? 'bg-green-50' : 'bg-red-50';
+            const amountLabel = isReward ? (unit === 'points' ? '獎勵點數' : '獎勵金額') : (unit === 'points' ? '懲處點數' : '懲處金額');
+            
+            const imagesHtml = images.length > 0 ? `
+                <div class="py-3">
+                    <div class="text-sm font-bold text-gray-500 mb-2">照片</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        ${images.map(img => `
+                            <img src="${img}" class="w-full h-32 object-cover rounded-lg border border-gray-200">
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '';
+            
+            const contentHtml = `
+                <div class="flex flex-col items-center justify-center">
+                    <!-- 抬頭 -->
+                    <div class="w-full text-center mb-6">
+                        <div class="text-xl font-black text-gray-800 mb-2">西北保全股份有限公司</div>
+                        <div class="text-sm text-gray-500">${formatDateLabel(new Date())}</div>
+                    </div>
+                    
+                    <!-- 主要內容卡片 -->
+                    <div class="w-full bg-white border-2 ${isReward ? 'border-green-200' : 'border-red-200'} rounded-xl p-6 shadow-lg">
+                        <!-- 標題 -->
+                        <div class="text-center mb-6">
+                            <div class="inline-block ${titleBg} px-6 py-2 rounded-full">
+                                <span class="text-lg font-black ${titleColor}">${categoryLabel}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 人員資訊 -->
+                        <div class="mb-6">
+                            <div class="flex items-center gap-4 border-b border-gray-100 pb-4 mb-4">
+                                ${userAvatar ? `
+                                    <img src="${userAvatar}" class="w-16 h-16 rounded-full object-cover border-2 ${isReward ? 'border-green-200' : 'border-red-200'}">
+                                ` : `
+                                    <div class="w-16 h-16 ${isReward ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center">
+                                        <i data-lucide="user" class="${isReward ? 'text-green-600' : 'text-red-600'}" size="32"></i>
+                                    </div>
+                                `}
+                                <div class="flex-1">
+                                    <div class="text-lg font-bold text-gray-800">${name}</div>
+                                    <div class="text-sm text-gray-500">${userTitle}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 獎懲資訊 -->
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                                <span class="text-sm font-bold text-gray-500">類型</span>
+                                <span class="text-sm font-bold text-gray-800">${type}</span>
+                            </div>
+                            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                                <span class="text-sm font-bold text-gray-500">${amountLabel}</span>
+                                <span class="text-xl font-black ${titleColor}">${amountPrefix}${amount.toLocaleString()}${unitLabel}</span>
+                            </div>
+                            <div class="py-3">
+                                <div class="text-sm font-bold text-gray-500 mb-2">事由說明</div>
+                                <div class="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg">${reason}</div>
+                            </div>
+                            ${imagesHtml}
+                        </div>
+                        
+                        <!-- 時間 -->
+                        <div class="mt-6 pt-4 border-t border-gray-100 text-center">
+                            <div class="text-xs text-gray-400">建立時間</div>
+                            <div class="text-sm text-gray-600">${time}</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 頁尾 -->
+                    <div class="mt-6 text-center text-xs text-gray-400">
+                        此公告由系統自動產生
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('notice-content').innerHTML = contentHtml;
+            lucide.createIcons();
+            
+            const modal = document.getElementById('notice-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeNoticeModal() {
+            const modal = document.getElementById('notice-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        async function shareToLine() {
+            // 找到公告彈窗的主要內容容器（不含按鈕區域）
+            const noticeModal = document.getElementById('notice-modal');
+            const modalContent = noticeModal.querySelector('.bg-white');
+            
+            try {
+                // 顯示載入狀態
+                const button = document.querySelector('button[onclick="shareToLine()"]');
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 處理中...';
+                button.disabled = true;
+                lucide.createIcons();
+                
+                // 先隱藏按鈕區域以便截圖
+                const buttonArea = modalContent.querySelector('.sticky.bottom-0');
+                const originalButtonDisplay = buttonArea.style.display;
+                buttonArea.style.display = 'none';
+                
+                // 使用html2canvas截圖
+                const canvas = await html2canvas(modalContent, {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff',
+                    logging: false
+                });
+                
+                // 恢復按鈕區域顯示
+                buttonArea.style.display = originalButtonDisplay;
+                
+                // 將canvas轉換為圖片
+                const imageData = canvas.toDataURL('image/png');
+                
+                // 檢查是否支持 Web Share API
+                const canShare = 'share' in navigator && 'canShare' in navigator;
+                
+                // 創建分享按鈕的 HTML
+                let shareButtonsHtml = '';
+                
+                if (canShare) {
+                    shareButtonsHtml = `
+                        <button onclick="shareViaWebShare('${imageData}')" class="w-full bg-green-500 text-white py-3 rounded-xl font-bold hover:bg-green-600 transition flex items-center justify-center gap-2 mb-2">
+                            <i data-lucide="share-2" size="18"></i>
+                            分享到 Line
+                        </button>
+                    `;
+                }
+                
+                shareButtonsHtml += `
+                    <a href="${imageData}" download="獎懲公告.png" class="w-full bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition flex items-center justify-center gap-2">
+                        <i data-lucide="download" size="18"></i>
+                        下載圖片
+                    </a>
+                `;
+                
+                // 創建一個臨時彈窗顯示圖片並提供分享選項
+                const shareModalHtml = `
+                    <div id="share-modal" class="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 overflow-y-auto" onclick="closeShareModal()">
+                        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl my-auto overflow-hidden" onclick="event.stopPropagation()">
+                            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <div class="font-black text-gray-800 text-base">分享圖片</div>
+                                <button onclick="closeShareModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <i data-lucide="x" size="18"></i>
+                                </button>
+                            </div>
+                            <div class="p-4">
+                                <img src="${imageData}" class="w-full rounded-lg border border-gray-200 mb-4" alt="獎懲公告" />
+                                <p class="text-sm text-gray-500 text-center mb-4">${canShare ? '點擊下方按鈕分享到 Line' : '長按圖片保存後分享到 Line'}</p>
+                            </div>
+                            <div class="px-5 py-4 border-t border-gray-100 space-y-2">
+                                ${shareButtonsHtml}
+                                <button onclick="closeShareModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // 添加到頁面
+                document.body.insertAdjacentHTML('beforeend', shareModalHtml);
+                lucide.createIcons();
+                
+                // 恢復按鈕狀態
+                button.innerHTML = originalText;
+                button.disabled = false;
+                lucide.createIcons();
+                
+            } catch (error) {
+                console.error('截圖失敗:', error);
+                alert('截圖失敗，請稍後重試！');
+                
+                // 恢復按鈕狀態
+                const button = document.querySelector('button[onclick="shareToLine()"]');
+                if (button) {
+                    button.innerHTML = '<i data-lucide="message-circle" size="18"></i> Line 分享';
+                    button.disabled = false;
+                    lucide.createIcons();
+                }
+            }
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('share-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        async function shareViaWebShare(imageData) {
+            try {
+                // 將 base64 圖片轉換為 Blob
+                const response = await fetch(imageData);
+                const blob = await response.blob();
+                
+                // 創建 File 對象
+                const file = new File([blob], '獎懲公告.png', { type: 'image/png' });
+                
+                // 使用 Web Share API 分享
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        title: '獎懲公告',
+                        text: '西北保全股份有限公司 獎懲公告',
+                        files: [file]
+                    });
+                    closeShareModal();
+                } else {
+                    // 如果不支持分享文件，只分享文字
+                    await navigator.share({
+                        title: '獎懲公告',
+                        text: '西北保全股份有限公司 獎懲公告'
+                    });
+                }
+            } catch (error) {
+                console.error('分享失敗:', error);
+                if (error.name !== 'AbortError') {
+                    alert('分享失敗，請嘗試下載圖片後手動分享');
+                }
+            }
+        }
+
+        function openEditModal(id) {
+            const record = records.find(r => r.id === id);
+            if (!record) return;
+
+            editRecordId = id;
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-name').value = record.name || '';
+            document.getElementById('edit-category').value = record.category || 'penalty';
+            
+            updateTypeOptions();
+            updateStatTypeOptions();
+            
+            setTimeout(() => {
+                document.getElementById('edit-type').value = record.type || '';
+                document.getElementById('edit-stat-type').value = record.statType || '';
+                updateEditStatSubTypeOptions();
+                setTimeout(() => {
+                    document.getElementById('edit-stat-subtype').value = record.statSubType || '';
+                }, 30);
+            }, 50);
+            
+            document.getElementById('edit-unit').value = record.unit || 'money';
+            updateAmountLabel();
+            document.getElementById('edit-amount').value = record.amount || 0;
+            document.getElementById('edit-reason').value = record.reason || '';
+            
+            // 加載圖片
+            editImages = [...(record.images || [])];
+            renderImagePreview('edit-image-preview', true);
+
+            const modal = document.getElementById('edit-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById('edit-modal');
+            if (modal) modal.classList.add('hidden');
+            editRecordId = null;
+            resetImageUpload('edit-image-preview', true); // 重置圖片上傳區域
+        }
+
+        async function saveEdit() {
+            if (!editRecordId || !settingsDocRef) return;
+
+            const name = normalizeKey(document.getElementById('edit-name')?.value);
+            const category = normalizeKey(document.getElementById('edit-category')?.value);
+            const type = normalizeKey(document.getElementById('edit-type')?.value);
+            const statType = normalizeKey(document.getElementById('edit-stat-type')?.value);
+            const statSubType = normalizeKey(document.getElementById('edit-stat-subtype')?.value);
+            const unit = normalizeKey(document.getElementById('edit-unit')?.value);
+            const amount = Number(document.getElementById('edit-amount')?.value);
+            const reason = normalizeKey(document.getElementById('edit-reason')?.value);
+
+            if (!name || !category || !type || !statType || !unit || !amount) {
+                alert('請填寫完整資訊');
+                return;
+            }
+
+            // 找到按鈕並顯示載入狀態
+            const button = document.querySelector('button[onclick="saveEdit()"]');
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 保存中...';
+            button.disabled = true;
+            lucide.createIcons();
+
+            try {
+                await settingsDocRef.collection('penalties').doc(editRecordId).update({
+                    name: name,
+                    category: category,
+                    type: type,
+                    statType: statType,
+                    statSubType: statSubType,
+                    unit: unit,
+                    amount: amount,
+                    reason: reason,
+                    images: editImages, // 保存圖片
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                closeEditModal();
+            } catch (e) {
+                console.error('儲存失敗:', e);
+                alert('儲存失敗，請稍後再試。如果圖片較大，請嘗試刪除一些圖片。');
+            } finally {
+                // 恢復按鈕狀態
+                button.innerHTML = originalText;
+                button.disabled = false;
+                lucide.createIcons();
+            }
+        }
+
+        function deleteRecord(id) {
+            openConfirmModal('確認刪除', '確定要刪除此獎懲記錄嗎？', async () => {
+                if (!settingsDocRef) return;
+                try {
+                    await settingsDocRef.collection('penalties').doc(id).delete();
+                } catch (e) {
+                    alert('刪除失敗，請稍後再試');
+                }
+            });
+        }
+
+        function clearRecords() {
+            openConfirmModal('確認清除', '確定要清除今日所有獎懲記錄嗎？', async () => {
+                if (!settingsDocRef) return;
+                try {
+                    for (const record of records) {
+                        await settingsDocRef.collection('penalties').doc(record.id).delete();
+                    }
+                } catch (e) {
+                    alert('清除失敗，請稍後再試');
+                }
+            });
+        }
+
+        async function renderStats() {
+            const typeStatsEl = document.getElementById('type-stats');
+
+            if (!settingsDocRef) return;
+            
+            // 获取符合筛选条件的用户
+            const filteredUsers = getFilteredUsers();
+            const filteredUserNames = new Set(filteredUsers.map(u => u.name || u.email || ''));
+
+            try {
+                const snapshot = await settingsDocRef.collection('penalties').orderBy('createdAt', 'desc').limit(500).get();
+                const allRecords = [];
+                snapshot.forEach(doc => allRecords.push({ id: doc.id, ...doc.data() }));
+                
+                // 根据筛选条件过滤记录
+                let filteredRecords = allRecords.filter(r => {
+                    const userName = r.name || '';
+                    return filteredUserNames.size === 0 || filteredUserNames.has(userName);
+                });
+
+                // 初始化每個類型的計數
+                const typeCounts = {};
+                statTypes.forEach(type => {
+                    typeCounts[type] = 0;
+                });
+                
+                // 統計每個類型的記錄數
+                filteredRecords.forEach(r => {
+                    const type = r.statType || r.type || '其他';
+                    if (typeCounts.hasOwnProperty(type)) {
+                        typeCounts[type] = (typeCounts[type] || 0) + 1;
+                    }
+                });
+
+                if (typeStatsEl) {
+                    typeStatsEl.innerHTML = statTypes.map(type => {
+                        const subTypes = statSubTypes[type] || [];
+                        const count = typeCounts[type] || 0;
+                        let typeValue;
+                        if (statTypeValues[type] !== undefined) {
+                            typeValue = statTypeValues[type];
+                        } else {
+                            typeValue = Math.round(100 / statTypes.length);
+                        }
+                        // 计算该类型下子类型数值总和
+                        let subTypeTotalValue = 0;
+                        if (statSubTypeValues[type]) {
+                            subTypeTotalValue = Object.values(statSubTypeValues[type]).reduce((sum, val) => sum + (val || 0), 0);
+                        }
+                        return `
+                            <div class="border-b border-gray-100 last:border-b-0">
+                                <div class="flex items-center justify-between py-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-gray-700 text-sm font-medium">${escapeHtml(type)}</span>
+                                        <span class="text-green-600 text-sm font-bold">${typeValue}</span>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <button onclick="openAddSubTypeModal('${escapeHtml(type)}')" class="p-1 rounded-full hover:bg-green-100 text-gray-400 hover:text-green-600 transition">
+                                            <i data-lucide="plus" size="16"></i>
+                                        </button>
+                                        <button onclick="openEditTypeModal('${escapeHtml(type)}')" class="p-1 rounded-full hover:bg-blue-100 text-gray-400 hover:text-blue-600 transition">
+                                            <i data-lucide="pencil" size="16"></i>
+                                        </button>
+                                        <button onclick="confirmDeleteType('${escapeHtml(type)}')" class="p-1 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-600 transition">
+                                            <i data-lucide="trash-2" size="16"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                ${subTypes.length > 0 ? `
+                                    <div class="pl-4 pb-2 space-y-1">
+                                        ${subTypes.map(subType => {
+                                            const subValue = statSubTypeValues[type]?.[subType];
+                                            return `
+                                                <div class="flex items-center justify-between py-1">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="text-gray-500 text-xs">${escapeHtml(subType)}</span>
+                                                        ${subValue !== undefined ? `<span class="text-green-500 text-xs font-bold">${subValue}</span>` : ''}
+                                                    </div>
+                                                    <div class="flex items-center gap-1">
+                                                        <button onclick="openEditSubTypeModal('${escapeHtml(type)}', '${escapeHtml(subType)}')" class="p-0.5 rounded-full hover:bg-blue-100 text-gray-400 hover:text-blue-600 transition">
+                                                            <i data-lucide="pencil" size="12"></i>
+                                                        </button>
+                                                        <button onclick="confirmDeleteSubType('${escapeHtml(type)}', '${escapeHtml(subType)}')" class="p-0.5 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-600 transition">
+                                                            <i data-lucide="trash-2" size="12"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    }).join('');
+                    lucide.createIcons();
+                }
+            } catch (e) {
+                console.error(e);
+                if (typeStatsEl) typeStatsEl.innerHTML = '<p class="text-gray-400 text-sm">無法載入統計</p>';
+            }
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('success-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function openConfirmModal(title, message, action) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            pendingConfirmAction = action;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+
+        function confirmModalCancel() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            pendingConfirmAction = null;
+        }
+
+        function confirmDeleteType(typeName) {
+            openConfirmModal(
+                '確認刪除',
+                `確定要刪除類型「${typeName}」嗎？\n\n此操作不會刪除已有的記錄，只是從類型列表中移除。`,
+                async () => {
+                    await deleteType(typeName);
+                }
+            );
+        }
+
+        let currentParentType = ''; // 當前正在添加子類型的父類型
+        let currentEditType = ''; // 當前正在編輯的類型
+        let currentEditSubType = ''; // 當前正在編輯的子類型
+
+        function openEditTypeModal(typeName) {
+            currentEditType = typeName;
+            const modal = document.getElementById('edit-type-modal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                const nameInput = document.getElementById('edit-type-name');
+                const valueInput = document.getElementById('edit-type-value');
+                if (nameInput) {
+                    nameInput.value = typeName;
+                }
+                if (valueInput) {
+                    // 获取当前显示的数值，优先从statTypeValues获取，否则计算默认值
+                    let currentValue;
+                    if (statTypeValues[typeName] !== undefined) {
+                        currentValue = statTypeValues[typeName];
+                    } else {
+                        const defaultVal = statTypes.length > 0 ? (100 / statTypes.length) : 0;
+                        currentValue = Math.round(defaultVal);
+                    }
+                    valueInput.value = currentValue;
+                    if (nameInput) {
+                        nameInput.focus();
+                    }
+                }
+            }
+        }
+
+        function closeEditTypeModal() {
+            const modal = document.getElementById('edit-type-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+            currentEditType = '';
+        }
+
+        async function saveEditType() {
+            const nameInput = document.getElementById('edit-type-name');
+            const valueInput = document.getElementById('edit-type-value');
+            const newTypeName = normalizeKey(nameInput?.value);
+            const newValue = valueInput?.value !== '' ? parseInt(valueInput?.value) : undefined;
+            
+            if (!newTypeName) {
+                alert('請輸入類型名稱');
+                return;
+            }
+            
+            if (!settingsDocRef) {
+                alert('無法保存，請重新選擇社區');
+                return;
+            }
+            
+            if (newTypeName !== currentEditType && statTypes.includes(newTypeName)) {
+                alert('此類型已存在');
+                return;
+            }
+            
+            try {
+                const newTypes = statTypes.map(t => t === currentEditType ? newTypeName : t);
+                const newSubTypes = { ...statSubTypes };
+                if (newSubTypes.hasOwnProperty(currentEditType)) {
+                    newSubTypes[newTypeName] = newSubTypes[currentEditType];
+                    delete newSubTypes[currentEditType];
+                }
+                
+                // 处理类型数值
+                const newTypeValues = { ...statTypeValues };
+                if (newTypeName !== currentEditType) {
+                    if (newTypeValues.hasOwnProperty(currentEditType)) {
+                        newTypeValues[newTypeName] = newTypeValues[currentEditType];
+                        delete newTypeValues[currentEditType];
+                    }
+                }
+                if (newValue !== undefined) {
+                    newTypeValues[newTypeName] = newValue;
+                }
+                
+                // 处理子类型数值
+                let newSubTypeValues = { ...statSubTypeValues };
+                if (newTypeName !== currentEditType) {
+                    if (newSubTypeValues.hasOwnProperty(currentEditType)) {
+                        newSubTypeValues[newTypeName] = newSubTypeValues[currentEditType];
+                        delete newSubTypeValues[currentEditType];
+                    }
+                }
+                
+                // 计算当前总数值并调整
+                let totalValue = 0;
+                const typesWithValues = [];
+                
+                for (const type of newTypes) {
+                    let typeVal;
+                    if (newTypeValues[type] !== undefined) {
+                        typeVal = newTypeValues[type];
+                    } else {
+                        typeVal = Math.round(100 / newTypes.length);
+                    }
+                    typesWithValues.push({ type, val: typeVal });
+                    totalValue += typeVal;
+                }
+                
+                // 如果总数值不等于100，调整最后一个类型的数值
+                if (totalValue !== 100 && typesWithValues.length > 0) {
+                    const lastType = typesWithValues[typesWithValues.length - 1].type;
+                    let adjustment = 100 - totalValue;
+                    let newLastVal = typesWithValues[typesWithValues.length - 1].val + adjustment;
+                    
+                    // 确保调整后的数值不为负数
+                    if (newLastVal < 0) {
+                        adjustment = -typesWithValues[typesWithValues.length - 1].val;
+                        newLastVal = 0;
+                    }
+                    
+                    newTypeValues[lastType] = newLastVal;
+                }
+                
+                // 调整当前编辑类型的子类型数值，确保总和等于父类型数值
+                newSubTypeValues = adjustSubtypeValues(
+                    newTypeName, 
+                    newSubTypeValues, 
+                    newTypeValues[newTypeName],
+                    newSubTypes[newTypeName]
+                );
+                
+                // 更新当前用户数据
+                if (selectedUserName) {
+                    userStatsData[selectedUserName] = {
+                        types: newTypes,
+                        subTypes: newSubTypes,
+                        typeValues: newTypeValues,
+                        subTypeValues: newSubTypeValues
+                    };
+                }
+                
+                await settingsDocRef.set({ 
+                    userStatsData: userStatsData
+                }, { merge: true });
+                
+                // 更新已有记录
+                if (newTypeName !== currentEditType) {
+                    const snapshot = await settingsDocRef.collection('penalties')
+                        .where('statType', '==', currentEditType)
+                        .get();
+                    
+                    for (const doc of snapshot.docs) {
+                        await doc.ref.update({ statType: newTypeName });
+                    }
+                }
+                
+                closeEditTypeModal();
+            } catch (e) {
+                console.error(e);
+                alert('保存失敗，請稍後再試');
+            }
+        }
+
+        function openEditSubTypeModal(parentType, subTypeName) {
+            currentParentType = parentType;
+            currentEditSubType = subTypeName;
+            const modal = document.getElementById('edit-subtype-modal');
+            if (modal) {
+                document.getElementById('edit-subtype-parent-name').textContent = parentType;
+                modal.classList.remove('hidden');
+                const nameInput = document.getElementById('edit-subtype-name');
+                const valueInput = document.getElementById('edit-subtype-value');
+                if (nameInput) {
+                    nameInput.value = subTypeName;
+                    nameInput.focus();
+                }
+                if (valueInput) {
+                    // 加载当前子类型的数值
+                    const currentValue = statSubTypeValues[parentType]?.[subTypeName];
+                    valueInput.value = currentValue !== undefined ? currentValue : '';
+                }
+            }
+        }
+
+        function closeEditSubTypeModal() {
+            const modal = document.getElementById('edit-subtype-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+            currentParentType = '';
+            currentEditSubType = '';
+        }
+
+        async function saveEditSubType() {
+            const nameInput = document.getElementById('edit-subtype-name');
+            const valueInput = document.getElementById('edit-subtype-value');
+            const newSubTypeName = normalizeKey(nameInput?.value);
+            const newValue = valueInput?.value !== '' ? parseInt(valueInput?.value) : undefined;
+            
+            if (!newSubTypeName) {
+                alert('請輸入子類型名稱');
+                return;
+            }
+            
+            if (!settingsDocRef) {
+                alert('無法保存，請重新選擇社區');
+                return;
+            }
+            
+            const currentSubTypes = statSubTypes[currentParentType] || [];
+            if (newSubTypeName !== currentEditSubType && currentSubTypes.includes(newSubTypeName)) {
+                alert('此子類型已存在');
+                return;
+            }
+            
+            try {
+                const newSubTypes = { ...statSubTypes };
+                newSubTypes[currentParentType] = currentSubTypes.map(t => t === currentEditSubType ? newSubTypeName : t);
+                
+                // 处理子类型数值
+                let newSubTypeValues = { ...statSubTypeValues };
+                if (!newSubTypeValues[currentParentType]) {
+                    newSubTypeValues[currentParentType] = {};
+                }
+                // 如果子类型名称改变了，复制旧值到新名称下，并删除旧名称
+                if (newSubTypeName !== currentEditSubType) {
+                    if (newSubTypeValues[currentParentType].hasOwnProperty(currentEditSubType)) {
+                        newSubTypeValues[currentParentType][newSubTypeName] = newSubTypeValues[currentParentType][currentEditSubType];
+                        delete newSubTypeValues[currentParentType][currentEditSubType];
+                    }
+                }
+                // 更新数值
+                if (newValue !== undefined) {
+                    newSubTypeValues[currentParentType][newSubTypeName] = newValue;
+                }
+                
+                // 调整子类型数值，确保总和等于父类型数值
+                newSubTypeValues = adjustSubtypeValues(currentParentType, newSubTypeValues);
+                
+                // 更新当前用户数据
+                if (selectedUserName) {
+                    userStatsData[selectedUserName] = {
+                        types: [...statTypes],
+                        subTypes: newSubTypes,
+                        typeValues: { ...statTypeValues },
+                        subTypeValues: newSubTypeValues
+                    };
+                }
+                
+                await settingsDocRef.set({ 
+                    userStatsData: userStatsData
+                }, { merge: true });
+                
+                // 更新已有记录
+                if (newSubTypeName !== currentEditSubType) {
+                    const snapshot = await settingsDocRef.collection('penalties')
+                        .where('statType', '==', currentParentType)
+                        .where('statSubType', '==', currentEditSubType)
+                        .get();
+                    
+                    for (const doc of snapshot.docs) {
+                        await doc.ref.update({ statSubType: newSubTypeName });
+                    }
+                }
+                
+                closeEditSubTypeModal();
+            } catch (e) {
+                console.error(e);
+                alert('保存失敗，請稍後再試');
+            }
+        }
+
+        async function deleteType(typeName) {
+            if (!settingsDocRef) {
+                alert('無法刪除，請重新選擇社區');
+                return;
+            }
+            
+            try {
+                const newTypes = statTypes.filter(t => t !== typeName);
+                const newSubTypes = { ...statSubTypes };
+                delete newSubTypes[typeName];
+                
+                const newTypeValues = { ...statTypeValues };
+                delete newTypeValues[typeName];
+                
+                const newSubTypeValues = { ...statSubTypeValues };
+                delete newSubTypeValues[typeName];
+                
+                // 更新当前用户数据
+                if (selectedUserName) {
+                    userStatsData[selectedUserName] = {
+                        types: newTypes,
+                        subTypes: newSubTypes,
+                        typeValues: newTypeValues,
+                        subTypeValues: newSubTypeValues
+                    };
+                }
+                
+                // 完整更新整个对象
+                await settingsDocRef.update({
+                    userStatsData: userStatsData
+                });
+            } catch (e) {
+                console.error(e);
+                alert('刪除失敗，請稍後再試');
+            }
+        }
+
+        function openAddSubTypeModal(parentType) {
+            currentParentType = parentType;
+            const modal = document.getElementById('add-subtype-modal');
+            if (modal) {
+                document.getElementById('subtype-parent-name').textContent = parentType;
+                modal.classList.remove('hidden');
+                const nameInput = document.getElementById('new-subtype-name');
+                const valueInput = document.getElementById('new-subtype-value');
+                if (nameInput) {
+                    nameInput.value = '';
+                    nameInput.focus();
+                }
+                if (valueInput) {
+                    valueInput.value = '';
+                }
+            }
+        }
+
+        function closeAddSubTypeModal() {
+            const modal = document.getElementById('add-subtype-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+            currentParentType = '';
+        }
+
+        async function saveNewSubType() {
+            const nameInput = document.getElementById('new-subtype-name');
+            const valueInput = document.getElementById('new-subtype-value');
+            const newSubTypeName = normalizeKey(nameInput?.value);
+            const newValue = valueInput?.value !== '' ? parseInt(valueInput?.value) : undefined;
+            
+            if (!newSubTypeName) {
+                alert('請輸入子類型名稱');
+                return;
+            }
+            
+            if (!settingsDocRef) {
+                alert('無法保存，請重新選擇社區');
+                return;
+            }
+            
+            const currentSubTypes = statSubTypes[currentParentType] || [];
+            if (currentSubTypes.includes(newSubTypeName)) {
+                alert('此子類型已存在');
+                return;
+            }
+            
+            try {
+                const newSubTypes = { ...statSubTypes };
+                newSubTypes[currentParentType] = [...currentSubTypes, newSubTypeName];
+                
+                // 处理子类型数值
+                let newSubTypeValues = { ...statSubTypeValues };
+                if (!newSubTypeValues[currentParentType]) {
+                    newSubTypeValues[currentParentType] = {};
+                }
+                if (newValue !== undefined) {
+                    newSubTypeValues[currentParentType][newSubTypeName] = newValue;
+                }
+                
+                // 调整子类型数值，确保总和等于父类型数值
+                newSubTypeValues = adjustSubtypeValues(currentParentType, newSubTypeValues);
+                
+                // 更新当前用户数据
+                if (selectedUserName) {
+                    userStatsData[selectedUserName] = {
+                        types: [...statTypes],
+                        subTypes: newSubTypes,
+                        typeValues: { ...statTypeValues },
+                        subTypeValues: newSubTypeValues
+                    };
+                }
+                
+                await settingsDocRef.set({ 
+                    userStatsData: userStatsData
+                }, { merge: true });
+                closeAddSubTypeModal();
+            } catch (e) {
+                console.error(e);
+                alert('保存失敗，請稍後再試');
+            }
+        }
+
+        function confirmDeleteSubType(parentType, subTypeName) {
+            openConfirmModal(
+                '確認刪除',
+                `確定要刪除「${parentType}」下的子類型「${subTypeName}」嗎？\n\n此操作不會刪除已有的記錄。`,
+                async () => {
+                    await deleteSubType(parentType, subTypeName);
+                }
+            );
+        }
+
+        async function deleteSubType(parentType, subTypeName) {
+            if (!settingsDocRef) {
+                alert('無法刪除，請重新選擇社區');
+                return;
+            }
+            
+            try {
+                const newSubTypes = { ...statSubTypes };
+                const currentSubTypes = newSubTypes[parentType] || [];
+                newSubTypes[parentType] = currentSubTypes.filter(t => t !== subTypeName);
+                
+                if (newSubTypes[parentType].length === 0) {
+                    delete newSubTypes[parentType];
+                }
+                
+                // 处理子类型数值的删除
+                let newSubTypeValues = { ...statSubTypeValues };
+                if (newSubTypeValues[parentType]) {
+                    delete newSubTypeValues[parentType][subTypeName];
+                    // 如果该类型下没有子类型数值了，删除该类型的子类型数值对象
+                    if (Object.keys(newSubTypeValues[parentType]).length === 0) {
+                        delete newSubTypeValues[parentType];
+                    }
+                }
+                
+                // 调整剩余子类型数值，确保总和等于父类型数值
+                if (newSubTypes[parentType] && newSubTypes[parentType].length > 0) {
+                    newSubTypeValues = adjustSubtypeValues(
+                        parentType, 
+                        newSubTypeValues,
+                        undefined,
+                        newSubTypes[parentType]
+                    );
+                }
+                
+                // 更新当前用户数据
+                if (selectedUserName) {
+                    userStatsData[selectedUserName] = {
+                        types: [...statTypes],
+                        subTypes: newSubTypes,
+                        typeValues: { ...statTypeValues },
+                        subTypeValues: newSubTypeValues
+                    };
+                }
+                
+                // 完整更新整个对象
+                await settingsDocRef.update({
+                    userStatsData: userStatsData
+                });
+            } catch (e) {
+                console.error(e);
+                alert('刪除失敗，請稍後再試');
+            }
+        }
+
+        function openAddTypeModal() {
+            const modal = document.getElementById('add-type-modal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                const input = document.getElementById('new-type-name');
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                }
+            }
+        }
+
+        function closeAddTypeModal() {
+            const modal = document.getElementById('add-type-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        }
+
+        async function saveNewType() {
+            const input = document.getElementById('new-type-name');
+            const newTypeName = normalizeKey(input?.value);
+            
+            if (!newTypeName) {
+                alert('請輸入類型名稱');
+                return;
+            }
+            
+            if (!settingsDocRef) {
+                alert('無法保存，請重新選擇社區');
+                return;
+            }
+            
+            if (statTypes.includes(newTypeName)) {
+                alert('該類型已存在');
+                return;
+            }
+            
+            try {
+                const newTypes = [...statTypes, newTypeName];
+                const newTypeValues = { ...statTypeValues };
+                
+                // 计算新类型的初始值，从现有类型中平均分享
+                const numTypes = newTypes.length;
+                const baseVal = Math.floor(100 / numTypes);
+                const remainder = 100 - (baseVal * numTypes);
+                
+                // 为所有类型设置基础值
+                for (let i = 0; i < newTypes.length; i++) {
+                    newTypeValues[newTypes[i]] = baseVal + (i < remainder ? 1 : 0);
+                }
+                
+                // 更新当前用户数据
+                if (selectedUserName) {
+                    userStatsData[selectedUserName] = {
+                        types: newTypes,
+                        subTypes: { ...statSubTypes },
+                        typeValues: newTypeValues,
+                        subTypeValues: { ...statSubTypeValues }
+                    };
+                }
+                
+                await settingsDocRef.set({ 
+                    userStatsData: userStatsData
+                }, { merge: true });
+                closeAddTypeModal();
+                updateStatTypeOptions();
+            } catch (e) {
+                console.error(e);
+                alert('保存失敗，請稍後再試');
+            }
+        }
+
+        function updateStatTypeOptions() {
+            const statTypeSelect = document.getElementById('penalty-stat-type');
+            const editStatTypeSelect = document.getElementById('edit-stat-type');
+            
+            const options = '<option value="">請選擇統計類型</option>' + 
+                statTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            
+            if (statTypeSelect) {
+                statTypeSelect.innerHTML = options;
+            }
+            
+            if (editStatTypeSelect) {
+                editStatTypeSelect.innerHTML = options;
+            }
+        }
+
+        function updateStatSubTypeOptions() {
+            const statTypeSelect = document.getElementById('penalty-stat-type');
+            const statSubTypeSelect = document.getElementById('penalty-stat-subtype');
+            
+            if (!statTypeSelect || !statSubTypeSelect) return;
+            
+            const selectedType = statTypeSelect.value;
+            const subTypes = statSubTypes[selectedType] || [];
+            
+            const options = '<option value="">請選擇統計子類型（可選）</option>' + 
+                subTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            
+            statSubTypeSelect.innerHTML = options;
+        }
+
+        function updateEditStatSubTypeOptions() {
+            const statTypeSelect = document.getElementById('edit-stat-type');
+            const statSubTypeSelect = document.getElementById('edit-stat-subtype');
+            
+            if (!statTypeSelect || !statSubTypeSelect) return;
+            
+            const selectedType = statTypeSelect.value;
+            const subTypes = statSubTypes[selectedType] || [];
+            
+            const options = '<option value="">請選擇統計子類型（可選）</option>' + 
+                subTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            
+            statSubTypeSelect.innerHTML = options;
+        }
+
+        async function confirmModalOk() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            if (pendingConfirmAction) {
+                await pendingConfirmAction();
+            }
+            pendingConfirmAction = null;
+        }
+
+        function openShareModal() {
+            document.getElementById('share-modal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        function hideAppChrome() {
+            const header = document.getElementById('page-header');
+            const nav = document.getElementById('page-nav');
+            if (header) header.classList.add('hidden');
+            if (nav) nav.classList.add('hidden');
+        }
+
+        function showAppChrome() {
+            const header = document.getElementById('page-header');
+            const nav = document.getElementById('page-nav');
+            if (header) header.classList.remove('hidden');
+            if (nav) nav.classList.toggle('hidden', !!isPublicView);
+            
+            // 設置圖片上傳功能
+            setupImageUpload('penalty-image-input', 'penalty-image-preview', false);
+            setupImageUpload('edit-image-input', 'edit-image-preview', true);
+        }
+
+        function renderAuthScreen(msg) {
+            hideAppChrome();
+            const main = document.getElementById('app-main');
+            if (!main) return;
+            main.innerHTML = `
+                <div class="mt-10 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <div class="text-lg font-black text-gray-800 mb-2">需要登入</div>
+                    <div class="text-sm text-gray-500 mb-5">${msg || '請先登入後才能檢視罰扣頁面。'}</div>
+                    <a href="./" class="inline-flex items-center justify-center w-full bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl py-3 transition-colors">前往登入</a>
+                </div>
+            `;
+        }
+
+        function renderErrorScreen(msg) {
+            hideAppChrome();
+            const main = document.getElementById('app-main');
+            if (!main) return;
+            main.innerHTML = `
+                <div class="mt-10 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <div class="text-lg font-black text-gray-800 mb-2">無法載入</div>
+                    <div class="text-sm text-gray-500 mb-5">${msg || '發生錯誤'}</div>
+                    <a href="./" class="inline-flex items-center justify-center w-full bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl py-3 transition-colors">返回</a>
+                </div>
+            `;
+        }
+
+        function initFirebaseCompat() {
+            if (!window.FIREBASE_CONFIG) throw new Error('缺少 firebase-config.js');
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps || firebase.apps.length === 0) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            return {
+                auth: firebase.auth(),
+                db: firebase.firestore()
+            };
+        }
+
+        async function loadDbUserByEmail(db, email) {
+            const snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users')
+                .where('email', '==', String(email || '').trim())
+                .limit(1)
+                .get();
+            if (snap.empty) return null;
+            const doc = snap.docs[0];
+            return { id: doc.id, ...doc.data() };
+        }
+
+        async function resolveRoleName(db, user) {
+            const roleId = String(user?.role || '').trim();
+            if (!roleId) return '';
+            if (roleId === 'admin') return '系統管理員';
+            if (roleId === 'manager') return '管理層';
+            if (roleId === 'hr') return '人事';
+            if (roleId === 'property') return '物業';
+            if (roleId === 'cadre') return '幹部';
+            try {
+                const snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles').doc(roleId).get();
+                return snap.exists ? String((snap.data() || {}).name || '').trim() : '';
+            } catch {
+                return '';
+            }
+        }
+
+        function computeCanManage(roleId, roleName) {
+            const key = String(roleId || '').trim().toLowerCase();
+            const name = String(roleName || '').trim();
+            // 只有系統管理員才有權限顯示設定
+            if (key === 'admin') return true;
+            if (name.includes('系統管理員')) return true;
+            return false;
+        }
+
+        function updateNavVisibility() {
+            const navStats = document.getElementById('nav-stats');
+            if (navStats) {
+                if (canManageSettings) {
+                    navStats.classList.remove('hidden');
+                } else {
+                    navStats.classList.add('hidden');
+                    // 如果當前在設定頁面，自動切換到資訊頁面
+                    const viewStats = document.getElementById('view-stats');
+                    if (viewStats && !viewStats.classList.contains('hidden')) {
+                        switchView('add');
+                    }
+                }
+            }
+        }
+
+        function resolveAllowedCommunityIds(u) {
+            if (!u) return [];
+            if (String(u.role || '') === 'admin') return ['*'];
+            const ids = Array.isArray(u.communityIds) ? u.communityIds : [];
+            if (u.communityId) ids.push(u.communityId);
+            return Array.from(new Set(ids.map(x => String(x).trim().toUpperCase()).filter(Boolean)));
+        }
+
+        function getRequestedCommunityId() {
+            const params = new URLSearchParams(window.location.search || '');
+            return String(params.get('communityId') || '').trim().toUpperCase();
+        }
+
+        function getIsPublicMode() {
+            const params = new URLSearchParams(window.location.search || '');
+            return String(params.get('public') || '') === '1';
+        }
+
+        function setPageTitle() {
+            const el = document.getElementById('page-title');
+            const userName = dbUser?.name || fbUser?.displayName || '使用者';
+            if (el) el.textContent = `QAi個人資訊 ${userName}`;
+            document.title = `QAi個人資訊 ${userName}`;
+        }
+
+        function loadRoles() {
+            if (rolesUnsub) { try { rolesUnsub(); } catch {} rolesUnsub = null; }
+            
+            const rolesRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles');
+            
+            rolesUnsub = rolesRef.onSnapshot(snapshot => {
+                const loadedRoles = [];
+                snapshot.forEach(doc => {
+                    loadedRoles.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+                roles = loadedRoles;
+                if (selectedCommunityId) {
+                    updateUserSelectOptions();
+                }
+                // 检查是否在统计视图
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    updateFilterOptions(true);
+                    renderUserList();
+                }
+            }, error => {
+                console.error('Error loading roles:', error);
+                roles = [];
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    updateFilterOptions(true);
+                    renderUserList();
+                }
+            });
+        }
+
+        function loadCommunityUsers(commId) {
+            if (usersUnsub) { try { usersUnsub(); } catch {} usersUnsub = null; }
+            
+            const usersRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users');
+            
+            usersUnsub = usersRef.onSnapshot(snapshot => {
+                const users = [];
+                snapshot.forEach(doc => {
+                    const userData = doc.data();
+                    const userCommunityIds = Array.isArray(userData.communityIds) 
+                        ? userData.communityIds 
+                        : (userData.communityId ? [userData.communityId] : []);
+                    
+                    const hasAccessToCommunity = userCommunityIds.includes(commId) || 
+                        userCommunityIds.some(id => String(id).trim().toUpperCase() === String(commId).trim().toUpperCase());
+                    
+                    // 如果是系统管理员或者有访问权限，并且状态是在職
+                    if ((hasAccessToCommunity || String(userData.role || '').trim() === 'admin') && userData.status === '在職') {
+                        users.push({
+                            id: doc.id,
+                            name: userData.name || userData.email || '',
+                            role: userData.role || '',
+                            ...userData
+                        });
+                    }
+                });
+                
+                communityUsers = users;
+                updateUserSelectOptions();
+                // 检查是否在统计视图
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    updateFilterOptions(true);
+                    renderUserList();
+                }
+            }, error => {
+                console.error('Error loading users:', error);
+                communityUsers = [];
+                updateUserSelectOptions();
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    updateFilterOptions(true);
+                    renderUserList();
+                }
+            });
+        }
+
+        function loadAllUsers() {
+            if (usersUnsub) { try { usersUnsub(); } catch {} usersUnsub = null; }
+            
+            const usersRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users');
+            
+            usersUnsub = usersRef.onSnapshot(snapshot => {
+                const users = [];
+                snapshot.forEach(doc => {
+                    const userData = doc.data();
+                    if (userData.status === '在職') {
+                        users.push({
+                            id: doc.id,
+                            name: userData.name || userData.email || '',
+                            role: userData.role || '',
+                            ...userData
+                        });
+                    }
+                });
+                
+                communityUsers = users;
+                updateUserSelectOptions();
+                // 检查是否在统计视图
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    updateFilterOptions(true);
+                    renderUserList();
+                }
+            }, error => {
+                console.error('Error loading users:', error);
+                communityUsers = [];
+                updateUserSelectOptions();
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    updateFilterOptions(true);
+                    renderUserList();
+                }
+            });
+        }
+
+        function updateUserSelectOptions() {
+            const penaltyNameSelect = document.getElementById('penalty-name');
+            const editNameSelect = document.getElementById('edit-name');
+            
+            if (!penaltyNameSelect && !editNameSelect) return;
+            
+            const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+            
+            const filteredUsers = communityUsers.filter(user => {
+                const userRoleId = user.role || '';
+                const roleObj = roles.find(r => r.id === userRoleId);
+                const roleName = roleObj ? roleObj.name : '';
+                return targetRoleNames.includes(roleName);
+            });
+            
+            const optionsHtml = '<option value="">請選擇人員</option>' + 
+                filteredUsers.map(user => {
+                    const displayName = user.name || user.email || '';
+                    return `<option value="${escapeHtml(displayName)}">${escapeHtml(displayName)}</option>`;
+                }).join('');
+            
+            if (penaltyNameSelect) {
+                penaltyNameSelect.innerHTML = optionsHtml;
+            }
+            
+            if (editNameSelect) {
+                const currentValue = editNameSelect.value;
+                editNameSelect.innerHTML = optionsHtml;
+                editNameSelect.value = currentValue;
+            }
+        }
+        
+
+
+        function selectCommunity(commId, commName) {
+            selectedCommunityId = commId;
+            selectedCommunityName = commName;
+            selectedRecordsDate = new Date(); // 重置為當日日期
+            setPageTitle();
+            
+            if (settingsUnsub) { try { settingsUnsub(); } catch {} settingsUnsub = null; }
+            settingsDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('community_penalties').doc(commId);
+            
+            // 訂閱設置文檔
+            settingsUnsub = settingsDocRef.onSnapshot((doc) => {
+                const data = doc.data();
+                currentSettings = data;
+                
+                // 加载用户统计数据
+                if (data && typeof data.userStatsData === 'object' && data.userStatsData !== null) {
+                    userStatsData = data.userStatsData;
+                } else {
+                    userStatsData = {};
+                }
+                
+                // 如果有选中的用户，加载该用户的数据；否则初始化默认数据
+                if (selectedUserName && userStatsData[selectedUserName]) {
+                    const userData = userStatsData[selectedUserName];
+                    statTypes = [...userData.types];
+                    statSubTypes = { ...userData.subTypes };
+                    statTypeValues = { ...userData.typeValues };
+                    statSubTypeValues = { ...userData.subTypeValues };
+                } else {
+                    // 没有选中用户或没有该用户数据，使用默认值
+                    initDefaultStats();
+                }
+                
+                updateStatTypeOptions();
+                if (!document.getElementById('view-stats')?.classList.contains('hidden')) {
+                    renderStats();
+                }
+            }, () => {
+                userStatsData = {};
+                initDefaultStats();
+                updateStatTypeOptions();
+            });
+            
+            loadRoles();
+            loadCommunityUsers(commId);
+            updateRecordsDateLabel();
+            updateDateNavButtons();
+            subscribeRecordsForDate(selectedRecordsDate);
+        }
+
+        function renderCommunitySelector(communities, allowedIds) {
+            const main = document.getElementById('app-main');
+            if (!main) return;
+
+            const canAccessAny = allowedIds.includes('*') || allowedIds.length > 0;
+            if (!canAccessAny) {
+                main.innerHTML = `
+                    <div class="mt-10 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                        <div class="text-lg font-black text-gray-800 mb-2">無訪問權限</div>
+                        <div class="text-sm text-gray-500 mb-5">您的帳號尚未被分配任何社區。</div>
+                        <a href="./" class="inline-flex items-center justify-center w-full bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl py-3 transition-colors">返回</a>
+                    </div>
+                `;
+                return;
+            }
+
+            const allowedCommunities = communities.filter(c => allowedIds.includes('*') || allowedIds.includes(String(c.id).trim().toUpperCase()));
+
+            main.innerHTML = `
+                <div class="space-y-3">
+                    <h2 class="font-bold text-gray-800 text-lg">選擇社區</h2>
+                    ${allowedCommunities.map(c => `
+                        <button onclick='selectCommunity("${String(c.id)}", "${escapeHtml(String(c.name || c.id))}")' class="w-full bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:border-red-300 hover:bg-red-50 transition flex items-center justify-between group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-600">
+                                    <i data-lucide="building-2" size="20"></i>
+                                </div>
+                                <div class="text-left">
+                                    <div class="font-bold text-gray-800">${escapeHtml(String(c.name || c.id))}</div>
+                                    <div class="text-xs text-gray-500">ID: ${escapeHtml(String(c.id))}</div>
+                                </div>
+                            </div>
+                            <i data-lucide="chevron-right" size="20" class="text-gray-400 group-hover:text-red-500 transition"></i>
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+
+            lucide.createIcons();
+        }
+
+        async function init() {
+            try {
+                isPublicView = getIsPublicMode();
+                
+                const { auth, db: firestore } = initFirebaseCompat();
+                db = firestore;
+                
+                auth.onAuthStateChanged(async user => {
+                    fbUser = user;
+                    
+                    if (!user && !isPublicView) {
+                        renderAuthScreen();
+                        return;
+                    }
+
+                    if (user) {
+                        dbUser = await loadDbUserByEmail(db, user.email);
+                        const roleName = await resolveRoleName(db, dbUser);
+                        canManageSettings = computeCanManage(dbUser?.role, roleName);
+                        updateNavVisibility();
+                        setPageTitle(); // 更新頁面標題顯示用戶姓名
+                    }
+
+                    showAppChrome();
+
+                    const communitiesSnap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities').get();
+                    const communities = [];
+                    communitiesSnap.forEach(doc => communities.push({ id: doc.id, ...doc.data() }));
+                    
+                    // 保存所有社区到变量
+                    allCommunities = communities;
+
+                    if (communities.length === 0) {
+                        renderErrorScreen('尚未設定任何社區，請先至總覽頁建立社區。');
+                        return;
+                    }
+
+                    const allowedIds = dbUser ? resolveAllowedCommunityIds(dbUser) : ['*'];
+                    const requestedCommunityId = getRequestedCommunityId();
+
+                    if (requestedCommunityId) {
+                        const target = communities.find(c => String(c.id).trim().toUpperCase() === requestedCommunityId);
+                        if (target) {
+                            selectCommunity(String(target.id), String(target.name || target.id));
+                            return;
+                        }
+                    }
+
+                    // 直接選擇第一個有權限訪問的社區
+                    const allowedCommunities = communities.filter(c => allowedIds.includes('*') || allowedIds.includes(String(c.id).trim().toUpperCase()));
+                    if (allowedCommunities.length > 0) {
+                        selectCommunity(String(allowedCommunities[0].id), String(allowedCommunities[0].name || allowedCommunities[0].id));
+                        return;
+                    }
+
+                    // 如果沒有權限訪問任何社區，顯示錯誤
+                    renderErrorScreen('您沒有權限訪問任何社區。');
+                });
+            } catch (e) {
+                console.error(e);
+                renderErrorScreen('初始化失敗，請重新整理頁面。');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
