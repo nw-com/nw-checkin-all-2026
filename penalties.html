@@ -856,7 +856,7 @@
             const unitLabel = unit === 'points' ? ' 點' : '';
             const titleColor = isReward ? 'text-green-600' : 'text-red-600';
             const titleBg = isReward ? 'bg-green-50' : 'bg-red-50';
-            const amountLabel = unit === 'points' ? '點數' : '金額';
+            const amountLabel = isReward ? (unit === 'points' ? '獎勵點數' : '獎勵金額') : (unit === 'points' ? '懲處點數' : '懲處金額');
             
             const imagesHtml = images.length > 0 ? `
                 <div class="py-3">
@@ -873,7 +873,7 @@
                 <div class="flex flex-col items-center justify-center">
                     <!-- 抬頭 -->
                     <div class="w-full text-center mb-6">
-                        <div class="text-xl font-black text-gray-800 mb-2">${selectedCommunityName || '獎懲公告'}</div>
+                        <div class="text-xl font-black text-gray-800 mb-2">西北保全股份有限公司</div>
                         <div class="text-sm text-gray-500">${formatDateLabel(new Date())}</div>
                     </div>
                     
@@ -979,19 +979,58 @@
                 // 將canvas轉換為圖片
                 const imageData = canvas.toDataURL('image/png');
                 
+                // 檢查是否支持 Web Share API
+                const canShare = 'share' in navigator && 'canShare' in navigator;
+                
+                // 創建分享按鈕的 HTML
+                let shareButtonsHtml = '';
+                
+                if (canShare) {
+                    shareButtonsHtml = `
+                        <button onclick="shareViaWebShare('${imageData}')" class="w-full bg-green-500 text-white py-3 rounded-xl font-bold hover:bg-green-600 transition flex items-center justify-center gap-2 mb-2">
+                            <i data-lucide="share-2" size="18"></i>
+                            分享到 Line
+                        </button>
+                    `;
+                }
+                
+                shareButtonsHtml += `
+                    <a href="${imageData}" download="獎懲公告.png" class="w-full bg-blue-500 text-white py-3 rounded-xl font-bold hover:bg-blue-600 transition flex items-center justify-center gap-2">
+                        <i data-lucide="download" size="18"></i>
+                        下載圖片
+                    </a>
+                `;
+                
+                // 創建一個臨時彈窗顯示圖片並提供分享選項
+                const shareModalHtml = `
+                    <div id="share-modal" class="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 overflow-y-auto" onclick="closeShareModal()">
+                        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl my-auto overflow-hidden" onclick="event.stopPropagation()">
+                            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <div class="font-black text-gray-800 text-base">分享圖片</div>
+                                <button onclick="closeShareModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <i data-lucide="x" size="18"></i>
+                                </button>
+                            </div>
+                            <div class="p-4">
+                                <img src="${imageData}" class="w-full rounded-lg border border-gray-200 mb-4" alt="獎懲公告" />
+                                <p class="text-sm text-gray-500 text-center mb-4">${canShare ? '點擊下方按鈕分享到 Line' : '長按圖片保存後分享到 Line'}</p>
+                            </div>
+                            <div class="px-5 py-4 border-t border-gray-100 space-y-2">
+                                ${shareButtonsHtml}
+                                <button onclick="closeShareModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // 添加到頁面
+                document.body.insertAdjacentHTML('beforeend', shareModalHtml);
+                lucide.createIcons();
+                
                 // 恢復按鈕狀態
                 button.innerHTML = originalText;
                 button.disabled = false;
                 lucide.createIcons();
-                
-                // 創建下載連結
-                const link = document.createElement('a');
-                link.download = '獎懲公告.png';
-                link.href = imageData;
-                link.click();
-                
-                // 顯示提示
-                alert('圖片已下載，請手動分享到 Line！');
                 
             } catch (error) {
                 console.error('截圖失敗:', error);
@@ -1003,6 +1042,45 @@
                     button.innerHTML = '<i data-lucide="message-circle" size="18"></i> Line 分享';
                     button.disabled = false;
                     lucide.createIcons();
+                }
+            }
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('share-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        async function shareViaWebShare(imageData) {
+            try {
+                // 將 base64 圖片轉換為 Blob
+                const response = await fetch(imageData);
+                const blob = await response.blob();
+                
+                // 創建 File 對象
+                const file = new File([blob], '獎懲公告.png', { type: 'image/png' });
+                
+                // 使用 Web Share API 分享
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        title: '獎懲公告',
+                        text: '西北保全股份有限公司 獎懲公告',
+                        files: [file]
+                    });
+                    closeShareModal();
+                } else {
+                    // 如果不支持分享文件，只分享文字
+                    await navigator.share({
+                        title: '獎懲公告',
+                        text: '西北保全股份有限公司 獎懲公告'
+                    });
+                }
+            } catch (error) {
+                console.error('分享失敗:', error);
+                if (error.name !== 'AbortError') {
+                    alert('分享失敗，請嘗試下載圖片後手動分享');
                 }
             }
         }
@@ -1289,8 +1367,8 @@
 
         function setPageTitle() {
             const el = document.getElementById('page-title');
-            if (el) el.textContent = selectedCommunityName ? `${selectedCommunityName} 獎懲` : '智慧獎懲系統';
-            document.title = selectedCommunityName ? `${selectedCommunityName} 獎懲` : '獎懲管理系統';
+            if (el) el.textContent = '西北保全股份有限公司 獎懲';
+            document.title = '西北保全股份有限公司 獎懲';
         }
 
         function loadRoles() {
