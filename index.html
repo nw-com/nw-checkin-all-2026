@@ -8383,6 +8383,7 @@
                 { key: 'log', label: '日誌' },
                 { key: 'patrol', label: '巡邏' },
                 { key: 'clean', label: '清潔' },
+                { key: 'penalty', label: '獎懲' },
                 { key: 'supervise', label: '督勤' },
                 { key: 'training', label: '訓練' },
                 { key: 'download', label: '下載' },
@@ -10252,6 +10253,8 @@
             const [overviewPatrolPage, setOverviewPatrolPage] = useState('patrol');
             const [showOverviewCleanModal, setShowOverviewCleanModal] = useState(false);
             const [overviewCleanCommunityId, setOverviewCleanCommunityId] = useState('');
+            const [showOverviewPenaltyModal, setShowOverviewPenaltyModal] = useState(false);
+            const [overviewPenaltyCommunityId, setOverviewPenaltyCommunityId] = useState('');
             const [showMakeupEditModal, setShowMakeupEditModal] = useState(false);
             const [editingMakeupRequest, setEditingMakeupRequest] = useState(null);
             const [makeupEditForm, setMakeupEditForm] = useState({ startTime: '', endTime: '', locationId: '', reasonType: 'forgot', reasonRemark: '' });
@@ -10266,7 +10269,7 @@
             const [communityLeaveLoading, setCommunityLeaveLoading] = useState(false);
 
             useEffect(() => {
-                if (showOverviewScheduleModal || showOverviewPatrolModal || showOverviewCleanModal) {
+                if (showOverviewScheduleModal || showOverviewPatrolModal || showOverviewCleanModal || showOverviewPenaltyModal) {
                     const prevOverflow = document.body.style.overflow;
                     const prevMsOverflow = document.body.style.msOverflowStyle;
                     document.body.style.overflow = 'hidden';
@@ -10276,7 +10279,7 @@
                         document.body.style.msOverflowStyle = prevMsOverflow;
                     };
                 }
-            }, [showOverviewScheduleModal, showOverviewPatrolModal, showOverviewCleanModal]);
+            }, [showOverviewScheduleModal, showOverviewPatrolModal, showOverviewCleanModal, showOverviewPenaltyModal]);
 
             useEffect(() => {
                 if (!showQrModal || qrMode !== 'scan') return;
@@ -15458,6 +15461,7 @@
                                     {hasSubPermission('function', 'patrol') && <button onClick={() => setFunctionSubtab('patrol')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'patrol' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>巡邏</button>}
                                     {hasSubPermission('function', 'clean') && <button onClick={() => setFunctionSubtab('clean')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'clean' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>清潔</button>}
                                     {hasSubPermission('function', 'supervise') && <button onClick={() => setFunctionSubtab('supervise')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'supervise' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>督勤</button>}
+                                    {hasSubPermission('function', 'penalty') && <button onClick={() => setFunctionSubtab('penalty')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'penalty' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>獎懲</button>}
                                     {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
                                     {(hasSubPermission('function', 'tools') || hasSubPermission('function', 'download')) && <button onClick={() => setFunctionSubtab('tools')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'tools' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>工具</button>}
@@ -23131,10 +23135,10 @@
                                             })()}
                                         </div>
                                     )}
-                                    {((functionSubtab === 'patrol' && hasSubPermission('function', 'patrol')) || (functionSubtab === 'supervise' && hasSubPermission('function', 'supervise'))) && (
+                                    {((functionSubtab === 'patrol' && hasSubPermission('function', 'patrol')) || (functionSubtab === 'supervise' && hasSubPermission('function', 'supervise')) || (functionSubtab === 'penalty' && hasSubPermission('function', 'penalty'))) && (
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> {functionSubtab === 'supervise' ? '督勤紀錄' : '巡邏管理'}
+                                                <Briefcase className="w-5 h-5 mr-2 text-red-600" /> {functionSubtab === 'supervise' ? '督勤紀錄' : functionSubtab === 'penalty' ? '獎懲管理' : '巡邏管理'}
                                             </h3>
                                             {(function(){
                                                 if (!dbUser) return <div className="text-center py-8 text-gray-400">請先登入</div>;
@@ -23185,7 +23189,16 @@
                                                             return (
                                                                 <div key={c.id} className="w-full aspect-square flex items-center justify-center">
                                                                     <button
-                                                                        onClick={() => { setOverviewPatrolPage(functionSubtab === 'supervise' ? 'check' : 'patrol'); setOverviewPatrolCommunityId(String(c.id || '').trim()); setShowOverviewPatrolModal(true); }}
+                                                                        onClick={() => { 
+                                                                            if (functionSubtab === 'penalty') {
+                                                                                setOverviewPenaltyCommunityId(String(c.id || '').trim()); 
+                                                                                setShowOverviewPenaltyModal(true); 
+                                                                            } else {
+                                                                                setOverviewPatrolPage(functionSubtab === 'supervise' ? 'check' : 'patrol'); 
+                                                                                setOverviewPatrolCommunityId(String(c.id || '').trim()); 
+                                                                                setShowOverviewPatrolModal(true); 
+                                                                            }
+                                                                        }}
                                                                         className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
                                                                     >
                                                                         {displayName}
@@ -27519,6 +27532,27 @@
                             <iframe
                                 title="clean"
                                 src={`clean.html?communityId=${encodeURIComponent(String(overviewCleanCommunityId || '').trim())}`}
+                                className="w-full flex-1 border-0"
+                            />
+                        </div>
+                    )}
+
+                    {showOverviewPenaltyModal && overviewPenaltyCommunityId && (
+                        <div className="fixed inset-0 z-[95] bg-white flex flex-col overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                                <div className="font-bold text-gray-800 text-sm">
+                                    {(communities || []).find(c => String(c.id) === String(overviewPenaltyCommunityId))?.name || overviewPenaltyCommunityId}社區獎懲
+                                </div>
+                                <button
+                                    onClick={() => { setShowOverviewPenaltyModal(false); setOverviewPenaltyCommunityId(''); }}
+                                    className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
+                                >
+                                    關閉
+                                </button>
+                            </div>
+                            <iframe
+                                title="penalty"
+                                src={`penalties.html?communityId=${encodeURIComponent(String(overviewPenaltyCommunityId || '').trim())}`}
                                 className="w-full flex-1 border-0"
                             />
                         </div>

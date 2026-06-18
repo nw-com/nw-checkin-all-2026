@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>罰扣管理系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+            height: 100vh;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="max-w-md mx-auto bg-gray-50 h-screen flex flex-col">
+
+    <!-- 頂部導覽 -->
+    <header id="page-header" class="bg-red-700 text-white p-4 shadow-lg sticky top-0 z-50">
+        <div class="flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i data-lucide="alert-triangle"></i> <span id="page-title">智慧罰扣系統</span>
+            </h1>
+            <div id="connection-status" class="text-xs bg-red-600 px-2 py-1 rounded-full flex items-center gap-1">
+                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> 線上
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區 -->
+    <main id="app-main" class="flex-1 p-4 overflow-y-auto" style="padding-bottom: 100px;">
+        
+        <!-- 視圖：新增獎懲 -->
+        <div id="view-add" class="view-content">
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-4">
+                <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+                    <h2 class="font-bold text-gray-700">新增獎懲</h2>
+                    <i data-lucide="plus-circle" class="text-red-500"></i>
+                </div>
+                <div class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">人員姓名</label>
+                        <select id="penalty-name" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請選擇人員</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類別</label>
+                        <select id="penalty-category" onchange="updateTypeOptions()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請選擇類別</option>
+                            <option value="reward">獎勵</option>
+                            <option value="penalty">懲處</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類型</label>
+                        <select id="penalty-type" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請先選擇類別</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">計量方式</label>
+                        <select id="penalty-unit" onchange="updateAmountLabel()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                            <option value="">請選擇計量方式</option>
+                            <option value="points">點數</option>
+                            <option value="money">金額</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label id="penalty-amount-label" class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                        <input type="number" id="penalty-amount" placeholder="請輸入數值" 
+                               class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">事由說明</label>
+                        <textarea id="penalty-reason" rows="3" placeholder="請輸入詳細事由" 
+                                  class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">上傳圖片</label>
+                        <div id="penalty-image-upload" class="border-2 border-dashed border-gray-200 rounded-lg p-4">
+                            <input type="file" id="penalty-image-input" accept="image/*" multiple class="hidden">
+                            <label for="penalty-image-input" class="cursor-pointer flex flex-col items-center justify-center">
+                                <i data-lucide="upload" class="text-gray-400 mb-2"></i>
+                                <span class="text-sm text-gray-500">點擊上傳圖片</span>
+                                <span class="text-xs text-gray-400 mt-1">最多3張</span>
+                            </label>
+                            <div id="penalty-image-preview" class="grid grid-cols-3 gap-2 mt-4"></div>
+                        </div>
+                    </div>
+                    <button onclick="addPenalty()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-100 flex items-center justify-center gap-2">
+                        <i data-lucide="save" size="18"></i> 新增記錄
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 視圖：獎懲記錄 -->
+        <div id="view-records" class="view-content hidden">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center gap-2 min-w-0">
+                    <h2 class="font-bold text-gray-700 whitespace-nowrap">獎懲記錄</h2>
+                </div>
+                <div id="records-actions" class="flex items-center gap-3">
+                    <button id="share-btn" onclick="openShareModal()" class="text-xs text-gray-500 flex items-center gap-1">
+                        <i data-lucide="share-2" size="14"></i> 分享
+                    </button>
+                    <button onclick="clearRecords()" id="clear-records-btn" class="text-xs text-red-500 flex items-center gap-1">
+                        <i data-lucide="trash-2" size="14"></i> 清除
+                    </button>
+                </div>
+            </div>
+            <div id="records-date-nav" class="flex items-center justify-center gap-2 mb-4">
+                <button onclick="changeRecordsDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="chevron-left" size="16"></i>
+                </button>
+                <div id="records-date-label" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap"></div>
+                <button onclick="changeRecordsDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="chevron-right" size="16"></i>
+                </button>
+            </div>
+            <div id="records-container" class="space-y-3">
+                <div class="text-center py-10 text-gray-400">
+                    <i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i>
+                    <p>目前尚無罰扣記錄</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 視圖：統計報表 -->
+        <div id="view-stats" class="view-content hidden">
+            <h2 class="font-bold text-gray-700 mb-4">統計報表</h2>
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="text-center p-4 bg-green-50 rounded-xl">
+                        <div id="total-rewards" class="text-3xl font-black text-green-600">0</div>
+                        <div class="text-xs text-gray-500 mt-1">總獎勵筆數</div>
+                    </div>
+                    <div class="text-center p-4 bg-red-50 rounded-xl">
+                        <div id="total-penalties" class="text-3xl font-black text-red-600">0</div>
+                        <div class="text-xs text-gray-500 mt-1">總懲處筆數</div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                <h3 class="font-bold text-gray-700 mb-3">獎懲類型分布</h3>
+                <div id="type-stats" class="space-y-2">
+                    <p class="text-gray-400 text-sm">尚無數據</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 成功提示彈窗 -->
+    <div id="success-modal" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center hidden p-6 overflow-y-auto">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-xs text-center shadow-2xl animate-in zoom-in duration-300 my-auto">
+            <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="check-circle-2" size="48"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-1">新增成功！</h3>
+            <p class="text-gray-600 mb-4">罰扣記錄已保存</p>
+            <button onclick="closeModal()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-red-200">確定</button>
+        </div>
+    </div>
+
+    <!-- 編輯罰扣彈窗 -->
+    <div id="edit-modal" class="fixed inset-0 bg-black/50 z-[101] hidden p-4 flex items-center justify-center overflow-y-auto">
+        <div class="w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl my-4">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+                <div class="font-black text-gray-800 text-sm">編輯獎懲</div>
+                <button onclick="closeEditModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+                <input type="hidden" id="edit-id" value="">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">人員姓名</label>
+                    <select id="edit-name" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請選擇人員</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類別</label>
+                    <select id="edit-category" onchange="updateTypeOptions()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請選擇類別</option>
+                        <option value="reward">獎勵</option>
+                        <option value="penalty">懲處</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">獎懲類型</label>
+                    <select id="edit-type" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請先選擇類別</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">計量方式</label>
+                    <select id="edit-unit" onchange="updateAmountLabel()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                        <option value="">請選擇計量方式</option>
+                        <option value="points">點數</option>
+                        <option value="money">金額</option>
+                    </select>
+                </div>
+                <div>
+                    <label id="edit-amount-label" class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
+                    <input type="number" id="edit-amount" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">事由說明</label>
+                    <textarea id="edit-reason" rows="3" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">上傳圖片</label>
+                    <div id="edit-image-upload" class="border-2 border-dashed border-gray-200 rounded-lg p-4">
+                        <input type="file" id="edit-image-input" accept="image/*" multiple class="hidden">
+                        <label for="edit-image-input" class="cursor-pointer flex flex-col items-center justify-center">
+                            <i data-lucide="upload" class="text-gray-400 mb-2"></i>
+                            <span class="text-sm text-gray-500">點擊上傳圖片</span>
+                            <span class="text-xs text-gray-400 mt-1">最多3張</span>
+                        </label>
+                        <div id="edit-image-preview" class="grid grid-cols-3 gap-2 mt-4"></div>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeEditModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    <button onclick="saveEdit()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 確認彈窗 -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black/50 z-[115] hidden p-6 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden my-auto">
+            <div class="px-5 py-4 border-b border-gray-100">
+                <div id="confirm-title" class="font-black text-gray-800 text-base"></div>
+                <div id="confirm-message" class="text-sm text-gray-600 mt-1 whitespace-pre-wrap"></div>
+            </div>
+            <div class="px-5 py-4 flex gap-2">
+                <button onclick="confirmModalCancel()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                <button onclick="confirmModalOk()" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition">確認</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分享彈窗 -->
+    <div id="share-modal" class="fixed inset-0 bg-black/50 z-[114] hidden p-6 flex items-center justify-center overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-black text-gray-800 text-base">分享獎懲記錄</div>
+                <button onclick="closeShareModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="px-5 py-4">
+                <div id="share-community-name" class="text-sm font-bold text-gray-800 mb-3"></div>
+                <div class="mt-3">
+                    <div class="text-xs font-bold text-gray-400 uppercase mb-1">說明</div>
+                    <div class="text-xs text-gray-500">此功能用於分享統計報表</div>
+                </div>
+            </div>
+            <div class="px-5 py-4 border-t border-gray-100">
+                <button onclick="closeShareModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 公告彈窗 -->
+    <div id="notice-modal" class="fixed inset-0 bg-black/50 z-[116] hidden p-4 flex items-start justify-center overflow-y-auto" style="padding-top: 10vh; padding-bottom: 10vh;">
+        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden my-auto">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+                <div class="font-black text-gray-800 text-base">獎懲公告</div>
+                <button onclick="closeNoticeModal()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div id="notice-content" class="p-5 overflow-y-auto" style="max-height: 70vh;">
+                <!-- 公告內容將在這裡動態生成 -->
+            </div>
+            <div class="px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white space-y-2">
+                <button onclick="shareToLine()" class="w-full bg-green-500 text-white py-3 rounded-xl font-bold hover:bg-green-600 transition flex items-center justify-center gap-2">
+                    <i data-lucide="message-circle" size="18"></i>
+                    Line 分享
+                </button>
+                <button onclick="closeNoticeModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部導航 -->
+    <nav id="page-nav" class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-40">
+        <button onclick="switchView('add')" id="nav-add" class="flex flex-col items-center p-2 text-red-600">
+            <i data-lucide="plus-circle"></i>
+            <span class="text-xs mt-1">新增</span>
+        </button>
+        <button onclick="switchView('records')" id="nav-records" class="flex flex-col items-center p-2 text-gray-400">
+            <i data-lucide="history"></i>
+            <span class="text-xs mt-1">記錄</span>
+        </button>
+        <button onclick="switchView('stats')" id="nav-stats" class="flex flex-col items-center p-2 text-gray-400">
+            <i data-lucide="bar-chart-3"></i>
+            <span class="text-xs mt-1">統計</span>
+        </button>
+    </nav>
+
+    <script>
+        lucide.createIcons();
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+
+        let fbUser = null;
+        let dbUser = null;
+        let selectedCommunityId = '';
+        let selectedCommunityName = '';
+        let db = null;
+        let settingsDocRef = null;
+        let recordsUnsub = null;
+        let settingsUnsub = null;
+        let usersUnsub = null;
+        let rolesUnsub = null;
+
+        let records = [];
+        let selectedRecordsDate = new Date();
+        let canManageSettings = false;
+        let pendingConfirmAction = null;
+        let isPublicView = false;
+        let editRecordId = null;
+        let communityUsers = [];
+        let roles = [];
+        let penaltyImages = []; // 存儲新增時的圖片
+        let editImages = []; // 存儲編輯時的圖片
+
+        function normalizeKey(v) {
+            return String(v || '').replace(/\uFEFF/g, '').trim();
+        }
+
+        function escapeHtml(s) {
+            return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // 圖片壓縮函數
+        function compressImage(file, maxWidth = 600, maxHeight = 600, quality = 0.5) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // 計算縮放比例
+                        if (width > height) {
+                            if (width > maxWidth) {
+                                height = Math.round((height * maxWidth) / width);
+                                width = maxWidth;
+                            }
+                        } else {
+                            if (height > maxHeight) {
+                                width = Math.round((width * maxHeight) / height);
+                                height = maxHeight;
+                            }
+                        }
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        resolve(compressedDataUrl);
+                    };
+                    img.onerror = reject;
+                };
+                reader.onerror = reject;
+            });
+        }
+
+        // 圖片上傳處理函數
+        function setupImageUpload(inputId, previewId, isEdit = false) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            
+            input.onchange = async (e) => {
+                const images = isEdit ? editImages : penaltyImages;
+                const files = Array.from(e.target.files);
+                const remainingSlots = 3 - images.length;
+                
+                if (files.length > remainingSlots) {
+                    alert(`最多只能上傳3張圖片，還可以上傳${remainingSlots}張`);
+                    files.splice(remainingSlots);
+                }
+                
+                for (const file of files) {
+                    if (file.type.startsWith('image/')) {
+                        try {
+                            // 檢查文件大小
+                            if (file.size > 5 * 1024 * 1024) { // 5MB
+                                alert('圖片大小不能超過5MB，請選擇較小的圖片');
+                                continue;
+                            }
+                            
+                            const compressedImage = await compressImage(file);
+                            images.push(compressedImage);
+                            renderImagePreview(previewId, isEdit);
+                        } catch (error) {
+                            console.error('圖片壓縮失敗:', error);
+                            alert('圖片處理失敗，請重試');
+                        }
+                    }
+                }
+                
+                input.value = ''; // 重置input
+            };
+        }
+
+        // 渲染圖片預覽
+        function renderImagePreview(previewId, isEdit = false) {
+            const preview = document.getElementById(previewId);
+            if (!preview) return;
+            
+            const images = isEdit ? editImages : penaltyImages;
+            const safeImages = images || [];
+            
+            preview.innerHTML = safeImages.map((img, index) => `
+                <div class="relative">
+                    <img src="${img}" class="w-full h-24 object-cover rounded-lg border border-gray-200">
+                    <button onclick="removeImage('${previewId}', ${index})" 
+                            class="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition">
+                        <i data-lucide="x" size="12"></i>
+                    </button>
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        // 移除圖片
+        function removeImage(previewId, index) {
+            if (previewId === 'penalty-image-preview') {
+                penaltyImages.splice(index, 1);
+                renderImagePreview(previewId, false);
+            } else if (previewId === 'edit-image-preview') {
+                editImages.splice(index, 1);
+                renderImagePreview(previewId, true);
+            }
+        }
+
+        // 重置圖片上傳區域
+        function resetImageUpload(previewId, isEdit = false) {
+            if (isEdit) {
+                editImages = [];
+            } else {
+                penaltyImages = [];
+            }
+            const preview = document.getElementById(previewId);
+            if (preview) preview.innerHTML = '';
+        }
+
+        function switchView(view) {
+            document.querySelectorAll('.view-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('#page-nav button').forEach(el => el.classList.remove('text-red-600'));
+            document.querySelectorAll('#page-nav button').forEach(el => el.classList.add('text-gray-400'));
+            
+            document.getElementById(`view-${view}`).classList.remove('hidden');
+            document.getElementById(`nav-${view}`).classList.remove('text-gray-400');
+            document.getElementById(`nav-${view}`).classList.add('text-red-600');
+
+            if (view === 'records') {
+                updateDateNavButtons();
+                renderRecords();
+            } else if (view === 'stats') {
+                renderStats();
+            }
+        }
+
+        function formatDateLabel(d) {
+            if (!d) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const w = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+            return `${y}/${m}/${day} (週${w})`;
+        }
+
+        function formatYmd(d) {
+            if (!d) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function formatDateTime(d) {
+            if (!d) return '';
+            const date = d.toDate ? d.toDate() : new Date(d);
+            return date.toLocaleString('zh-TW');
+        }
+
+        function updateRecordsDateLabel() {
+            const el = document.getElementById('records-date-label');
+            if (el) el.textContent = formatDateLabel(selectedRecordsDate);
+        }
+
+        function changeRecordsDate(deltaDays) {
+            const next = new Date(selectedRecordsDate);
+            next.setDate(next.getDate() + (Number(deltaDays) || 0));
+            
+            // 获取今天的日期（去掉时间部分）
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // 检查是否是未来日期
+            const nextDateOnly = new Date(next);
+            nextDateOnly.setHours(0, 0, 0, 0);
+            
+            // 如果是未来日期，不允许选择
+            if (nextDateOnly > today) {
+                return;
+            }
+            
+            selectedRecordsDate = next;
+            updateRecordsDateLabel();
+            updateDateNavButtons();
+            subscribeRecordsForDate(selectedRecordsDate);
+            renderRecords();
+        }
+        
+        function updateDateNavButtons() {
+            // 获取今天的日期（去掉时间部分）
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // 检查当前选择日期是否是今天
+            const currentDateOnly = new Date(selectedRecordsDate);
+            currentDateOnly.setHours(0, 0, 0, 0);
+            
+            const rightBtn = document.querySelector('#records-date-nav button:last-child');
+            if (rightBtn) {
+                if (currentDateOnly >= today) {
+                    rightBtn.disabled = true;
+                    rightBtn.classList.add('opacity-30', 'cursor-not-allowed');
+                    rightBtn.classList.remove('hover:bg-gray-100');
+                } else {
+                    rightBtn.disabled = false;
+                    rightBtn.classList.remove('opacity-30', 'cursor-not-allowed');
+                    rightBtn.classList.add('hover:bg-gray-100');
+                }
+            }
+        }
+
+        function subscribeRecordsForDate(d) {
+            if (!settingsDocRef) return;
+            if (recordsUnsub) { try { recordsUnsub(); } catch {} recordsUnsub = null; }
+
+            const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+            const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0);
+            const startTs = firebase.firestore.Timestamp.fromDate(start);
+            const endTs = firebase.firestore.Timestamp.fromDate(end);
+
+            const recordsQuery = settingsDocRef
+                .collection('penalties')
+                .where('createdAt', '>=', startTs)
+                .where('createdAt', '<', endTs)
+                .orderBy('createdAt', 'desc')
+                .limit(200);
+
+            recordsUnsub = recordsQuery.onSnapshot((snapshot) => {
+                const list = [];
+                snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+                records = list;
+                updatePenaltyCount();
+                if (!document.getElementById('view-records')?.classList.contains('hidden')) renderRecords();
+            }, () => {
+                records = [];
+                updatePenaltyCount();
+                const container = document.getElementById('records-container');
+                if (container) {
+                    container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="alert-triangle" size="48" class="mx-auto mb-2 opacity-20"></i><p>無法讀取罰扣記錄</p></div>`;
+                    lucide.createIcons();
+                }
+            });
+        }
+
+        function updateTypeOptions() {
+            const category = document.getElementById('penalty-category')?.value;
+            const typeSelect = document.getElementById('penalty-type');
+            const editCategory = document.getElementById('edit-category')?.value;
+            const editTypeSelect = document.getElementById('edit-type');
+            
+            const rewardTypes = ['表現優異', '加班協助', '創新建議', '其他獎勵'];
+            const penaltyTypes = ['遲到', '早退', '曠職', '服裝不整', '睡崗', '其他懲處'];
+            
+            let options = '';
+            
+            if (category === 'reward') {
+                options = '<option value="">請選擇獎勵類型</option>' + 
+                    rewardTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            } else if (category === 'penalty') {
+                options = '<option value="">請選擇懲處類型</option>' + 
+                    penaltyTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+            } else {
+                options = '<option value="">請先選擇類別</option>';
+            }
+            
+            if (typeSelect) {
+                typeSelect.innerHTML = options;
+            }
+            
+            if (editCategory) {
+                let editOptions = '';
+                if (editCategory === 'reward') {
+                    editOptions = '<option value="">請選擇獎勵類型</option>' + 
+                        rewardTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+                } else if (editCategory === 'penalty') {
+                    editOptions = '<option value="">請選擇懲處類型</option>' + 
+                        penaltyTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+                } else {
+                    editOptions = '<option value="">請先選擇類別</option>';
+                }
+                if (editTypeSelect) {
+                    editTypeSelect.innerHTML = editOptions;
+                }
+            }
+        }
+
+        function updateAmountLabel() {
+            const unitSelect = document.getElementById('penalty-unit');
+            const amountLabel = document.getElementById('penalty-amount-label');
+            const editUnitSelect = document.getElementById('edit-unit');
+            const editAmountLabel = document.getElementById('edit-amount-label');
+            
+            let labelText = '數值';
+            
+            if (unitSelect) {
+                const unit = unitSelect.value;
+                if (unit === 'points') {
+                    labelText = '點數';
+                } else if (unit === 'money') {
+                    labelText = '金額';
+                }
+                
+                if (amountLabel) {
+                    amountLabel.textContent = labelText;
+                }
+            }
+            
+            if (editUnitSelect) {
+                const editUnit = editUnitSelect.value;
+                let editLabelText = '數值';
+                
+                if (editUnit === 'points') {
+                    editLabelText = '點數';
+                } else if (editUnit === 'money') {
+                    editLabelText = '金額';
+                }
+                
+                if (editAmountLabel) {
+                    editAmountLabel.textContent = editLabelText;
+                }
+            }
+        }
+
+        function updatePenaltyCount() {
+            const countEl = document.getElementById('penalty-count');
+            if (countEl) countEl.textContent = records.length;
+        }
+
+        async function addPenalty() {
+            const name = normalizeKey(document.getElementById('penalty-name')?.value);
+            const category = normalizeKey(document.getElementById('penalty-category')?.value);
+            const type = normalizeKey(document.getElementById('penalty-type')?.value);
+            const unit = normalizeKey(document.getElementById('penalty-unit')?.value);
+            const amount = Number(document.getElementById('penalty-amount')?.value);
+            const reason = normalizeKey(document.getElementById('penalty-reason')?.value);
+
+            if (!name || !category || !type || !unit || !amount) {
+                alert('請填寫完整資訊');
+                return;
+            }
+
+            if (!settingsDocRef) return;
+
+            // 找到按鈕並顯示載入狀態
+            const button = document.querySelector('button[onclick="addPenalty()"]');
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 保存中...';
+            button.disabled = true;
+            lucide.createIcons();
+
+            try {
+                await settingsDocRef.collection('penalties').add({
+                    name: name,
+                    category: category,
+                    type: type,
+                    unit: unit,
+                    amount: amount,
+                    reason: reason,
+                    images: penaltyImages, // 保存圖片
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdBy: dbUser?.uid || 'anonymous'
+                });
+
+                document.getElementById('penalty-name').value = '';
+                document.getElementById('penalty-category').value = '';
+                document.getElementById('penalty-type').innerHTML = '<option value="">請先選擇類別</option>';
+                document.getElementById('penalty-unit').value = '';
+                updateAmountLabel();
+                document.getElementById('penalty-amount').value = '';
+                document.getElementById('penalty-reason').value = '';
+                resetImageUpload('penalty-image-preview', false); // 重置圖片上傳區域
+
+                const modal = document.getElementById('success-modal');
+                if (modal) modal.classList.remove('hidden');
+            } catch (e) {
+                console.error('新增失敗:', e);
+                alert('新增失敗，請稍後再試。如果圖片較大，請嘗試刪除一些圖片。');
+            } finally {
+                // 恢復按鈕狀態
+                button.innerHTML = originalText;
+                button.disabled = false;
+                lucide.createIcons();
+            }
+        }
+
+        function renderRecords() {
+            const container = document.getElementById('records-container');
+            if (!container) return;
+
+            if (records.length === 0) {
+                container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i><p>目前尚無獎懲記錄</p></div>`;
+                return;
+            }
+
+            container.innerHTML = records.map(record => {
+                const name = escapeHtml(record.name || '');
+                const category = record.category || 'penalty';
+                const type = escapeHtml(record.type || '');
+                const unit = record.unit || 'money';
+                const amount = record.amount || 0;
+                const reason = escapeHtml(record.reason || '');
+                const time = formatDateTime(record.createdAt);
+                const images = record.images || [];
+                
+                // 查找人員詳細信息
+                const userInfo = communityUsers.find(u => u.name === name) || {};
+                
+                // 獲取用戶頭像
+                const userAvatar = userInfo.avatarUrl || userInfo.avatar || userInfo.photoURL || userInfo.photo || '';
+                
+                const isReward = category === 'reward';
+                const borderColor = isReward ? 'border-green-500' : 'border-red-500';
+                const badgeBg = isReward ? 'bg-green-100' : 'bg-red-100';
+                const badgeText = isReward ? 'text-green-600' : 'text-red-600';
+                const amountColor = isReward ? 'text-green-600' : 'text-red-600';
+                const amountPrefix = unit === 'money' ? '$' : '';
+                const unitLabel = unit === 'points' ? ' 點' : '';
+                const categoryLabel = isReward ? '獎勵' : '懲處';
+                
+                const imagesHtml = images.length > 0 ? `
+                    <div class="grid grid-cols-3 gap-2 mt-3">
+                        ${images.map(img => `
+                            <img src="${img}" class="w-full h-16 object-cover rounded-lg border border-gray-200">
+                        `).join('')}
+                    </div>
+                ` : '';
+                
+                const avatarHtml = userAvatar ? `
+                    <img src="${userAvatar}" class="w-10 h-10 rounded-full object-cover border-2 ${borderColor} flex-shrink-0">
+                ` : `
+                    <div class="w-10 h-10 ${badgeBg} rounded-full flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="user" class="${badgeText}" size="18"></i>
+                    </div>
+                `;
+                
+                return `
+                    <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 ${borderColor}">
+                        <div class="flex gap-3 items-start">
+                            ${avatarHtml}
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="font-bold text-gray-800">${name}</h4>
+                                    <span class="text-xs ${badgeBg} ${badgeText} px-2 py-0.5 rounded-full">${categoryLabel}</span>
+                                    <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">${type}</span>
+                                </div>
+                                <div class="text-xl font-black ${amountColor} mt-1">${amountPrefix}${amount.toLocaleString()}${unitLabel}</div>
+                                <p class="text-xs text-gray-500 mt-2">${reason}</p>
+                                ${imagesHtml}
+                                <p class="text-xs text-gray-400 mt-2">${time}</p>
+                            </div>
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                                <button onclick='openNoticeModal("${record.id}")' class="text-gray-400 hover:text-blue-500 p-1"><i data-lucide="file-text" size="16"></i></button>
+                                <button onclick='openEditModal("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                                <button onclick='deleteRecord("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        function openNoticeModal(id) {
+            const record = records.find(r => r.id === id);
+            if (!record) return;
+
+            const name = escapeHtml(record.name || '');
+            const category = record.category || 'penalty';
+            const type = escapeHtml(record.type || '');
+            const unit = record.unit || 'money';
+            const amount = record.amount || 0;
+            const reason = escapeHtml(record.reason || '');
+            const time = formatDateTime(record.createdAt);
+            const images = record.images || [];
+            
+            // 查找人員詳細信息
+            const userInfo = communityUsers.find(u => u.name === name) || {};
+            
+            // 獲取用戶頭像
+            const userAvatar = userInfo.avatarUrl || userInfo.avatar || userInfo.photoURL || userInfo.photo || '';
+            
+            // 獲取用戶職稱
+            let userTitle = '人員';
+            const userRoleId = userInfo.role || '';
+            const roleObj = roles.find(r => r.id === userRoleId);
+            if (roleObj && roleObj.name) {
+                userTitle = roleObj.name;
+            } else if (userInfo.title) {
+                userTitle = userInfo.title;
+            } else if (userInfo.position) {
+                userTitle = userInfo.position;
+            }
+            
+            const isReward = category === 'reward';
+            const categoryLabel = isReward ? '獎勵' : '懲處';
+            const amountPrefix = unit === 'money' ? '$' : '';
+            const unitLabel = unit === 'points' ? ' 點' : '';
+            const titleColor = isReward ? 'text-green-600' : 'text-red-600';
+            const titleBg = isReward ? 'bg-green-50' : 'bg-red-50';
+            const amountLabel = unit === 'points' ? '點數' : '金額';
+            
+            const imagesHtml = images.length > 0 ? `
+                <div class="py-3">
+                    <div class="text-sm font-bold text-gray-500 mb-2">照片</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        ${images.map(img => `
+                            <img src="${img}" class="w-full h-32 object-cover rounded-lg border border-gray-200">
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '';
+            
+            const contentHtml = `
+                <div class="flex flex-col items-center justify-center">
+                    <!-- 抬頭 -->
+                    <div class="w-full text-center mb-6">
+                        <div class="text-xl font-black text-gray-800 mb-2">${selectedCommunityName || '獎懲公告'}</div>
+                        <div class="text-sm text-gray-500">${formatDateLabel(new Date())}</div>
+                    </div>
+                    
+                    <!-- 主要內容卡片 -->
+                    <div class="w-full bg-white border-2 ${isReward ? 'border-green-200' : 'border-red-200'} rounded-xl p-6 shadow-lg">
+                        <!-- 標題 -->
+                        <div class="text-center mb-6">
+                            <div class="inline-block ${titleBg} px-6 py-2 rounded-full">
+                                <span class="text-lg font-black ${titleColor}">${categoryLabel}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 人員資訊 -->
+                        <div class="mb-6">
+                            <div class="flex items-center gap-4 border-b border-gray-100 pb-4 mb-4">
+                                ${userAvatar ? `
+                                    <img src="${userAvatar}" class="w-16 h-16 rounded-full object-cover border-2 ${isReward ? 'border-green-200' : 'border-red-200'}">
+                                ` : `
+                                    <div class="w-16 h-16 ${isReward ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center">
+                                        <i data-lucide="user" class="${isReward ? 'text-green-600' : 'text-red-600'}" size="32"></i>
+                                    </div>
+                                `}
+                                <div class="flex-1">
+                                    <div class="text-lg font-bold text-gray-800">${name}</div>
+                                    <div class="text-sm text-gray-500">${userTitle}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 獎懲資訊 -->
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                                <span class="text-sm font-bold text-gray-500">類型</span>
+                                <span class="text-sm font-bold text-gray-800">${type}</span>
+                            </div>
+                            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                                <span class="text-sm font-bold text-gray-500">${amountLabel}</span>
+                                <span class="text-xl font-black ${titleColor}">${amountPrefix}${amount.toLocaleString()}${unitLabel}</span>
+                            </div>
+                            <div class="py-3">
+                                <div class="text-sm font-bold text-gray-500 mb-2">事由說明</div>
+                                <div class="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg">${reason}</div>
+                            </div>
+                            ${imagesHtml}
+                        </div>
+                        
+                        <!-- 時間 -->
+                        <div class="mt-6 pt-4 border-t border-gray-100 text-center">
+                            <div class="text-xs text-gray-400">建立時間</div>
+                            <div class="text-sm text-gray-600">${time}</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 頁尾 -->
+                    <div class="mt-6 text-center text-xs text-gray-400">
+                        此公告由系統自動產生
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('notice-content').innerHTML = contentHtml;
+            lucide.createIcons();
+            
+            const modal = document.getElementById('notice-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeNoticeModal() {
+            const modal = document.getElementById('notice-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        async function shareToLine() {
+            // 找到公告彈窗的主要內容容器（不含按鈕區域）
+            const noticeModal = document.getElementById('notice-modal');
+            const modalContent = noticeModal.querySelector('.bg-white');
+            
+            try {
+                // 顯示載入狀態
+                const button = document.querySelector('button[onclick="shareToLine()"]');
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 處理中...';
+                button.disabled = true;
+                lucide.createIcons();
+                
+                // 先隱藏按鈕區域以便截圖
+                const buttonArea = modalContent.querySelector('.sticky.bottom-0');
+                const originalButtonDisplay = buttonArea.style.display;
+                buttonArea.style.display = 'none';
+                
+                // 使用html2canvas截圖
+                const canvas = await html2canvas(modalContent, {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff',
+                    logging: false
+                });
+                
+                // 恢復按鈕區域顯示
+                buttonArea.style.display = originalButtonDisplay;
+                
+                // 將canvas轉換為圖片
+                const imageData = canvas.toDataURL('image/png');
+                
+                // 恢復按鈕狀態
+                button.innerHTML = originalText;
+                button.disabled = false;
+                lucide.createIcons();
+                
+                // 創建下載連結
+                const link = document.createElement('a');
+                link.download = '獎懲公告.png';
+                link.href = imageData;
+                link.click();
+                
+                // 顯示提示
+                alert('圖片已下載，請手動分享到 Line！');
+                
+            } catch (error) {
+                console.error('截圖失敗:', error);
+                alert('截圖失敗，請稍後重試！');
+                
+                // 恢復按鈕狀態
+                const button = document.querySelector('button[onclick="shareToLine()"]');
+                if (button) {
+                    button.innerHTML = '<i data-lucide="message-circle" size="18"></i> Line 分享';
+                    button.disabled = false;
+                    lucide.createIcons();
+                }
+            }
+        }
+
+        function openEditModal(id) {
+            const record = records.find(r => r.id === id);
+            if (!record) return;
+
+            editRecordId = id;
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-name').value = record.name || '';
+            document.getElementById('edit-category').value = record.category || 'penalty';
+            
+            updateTypeOptions();
+            
+            setTimeout(() => {
+                document.getElementById('edit-type').value = record.type || '';
+            }, 50);
+            
+            document.getElementById('edit-unit').value = record.unit || 'money';
+            updateAmountLabel();
+            document.getElementById('edit-amount').value = record.amount || 0;
+            document.getElementById('edit-reason').value = record.reason || '';
+            
+            // 加載圖片
+            editImages = [...(record.images || [])];
+            renderImagePreview('edit-image-preview', true);
+
+            const modal = document.getElementById('edit-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById('edit-modal');
+            if (modal) modal.classList.add('hidden');
+            editRecordId = null;
+            resetImageUpload('edit-image-preview', true); // 重置圖片上傳區域
+        }
+
+        async function saveEdit() {
+            if (!editRecordId || !settingsDocRef) return;
+
+            const name = normalizeKey(document.getElementById('edit-name')?.value);
+            const category = normalizeKey(document.getElementById('edit-category')?.value);
+            const type = normalizeKey(document.getElementById('edit-type')?.value);
+            const unit = normalizeKey(document.getElementById('edit-unit')?.value);
+            const amount = Number(document.getElementById('edit-amount')?.value);
+            const reason = normalizeKey(document.getElementById('edit-reason')?.value);
+
+            if (!name || !category || !type || !unit || !amount) {
+                alert('請填寫完整資訊');
+                return;
+            }
+
+            // 找到按鈕並顯示載入狀態
+            const button = document.querySelector('button[onclick="saveEdit()"]');
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 保存中...';
+            button.disabled = true;
+            lucide.createIcons();
+
+            try {
+                await settingsDocRef.collection('penalties').doc(editRecordId).update({
+                    name: name,
+                    category: category,
+                    type: type,
+                    unit: unit,
+                    amount: amount,
+                    reason: reason,
+                    images: editImages, // 保存圖片
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                closeEditModal();
+            } catch (e) {
+                console.error('儲存失敗:', e);
+                alert('儲存失敗，請稍後再試。如果圖片較大，請嘗試刪除一些圖片。');
+            } finally {
+                // 恢復按鈕狀態
+                button.innerHTML = originalText;
+                button.disabled = false;
+                lucide.createIcons();
+            }
+        }
+
+        function deleteRecord(id) {
+            openConfirmModal('確認刪除', '確定要刪除此獎懲記錄嗎？', async () => {
+                if (!settingsDocRef) return;
+                try {
+                    await settingsDocRef.collection('penalties').doc(id).delete();
+                } catch (e) {
+                    alert('刪除失敗，請稍後再試');
+                }
+            });
+        }
+
+        function clearRecords() {
+            openConfirmModal('確認清除', '確定要清除今日所有獎懲記錄嗎？', async () => {
+                if (!settingsDocRef) return;
+                try {
+                    for (const record of records) {
+                        await settingsDocRef.collection('penalties').doc(record.id).delete();
+                    }
+                } catch (e) {
+                    alert('清除失敗，請稍後再試');
+                }
+            });
+        }
+
+        async function renderStats() {
+            const totalRewardsEl = document.getElementById('total-rewards');
+            const totalPenaltiesEl = document.getElementById('total-penalties');
+            const typeStatsEl = document.getElementById('type-stats');
+
+            if (!settingsDocRef) return;
+
+            try {
+                const snapshot = await settingsDocRef.collection('penalties').orderBy('createdAt', 'desc').limit(500).get();
+                const allRecords = [];
+                snapshot.forEach(doc => allRecords.push({ id: doc.id, ...doc.data() }));
+
+                const rewardCount = allRecords.filter(r => r.category === 'reward').length;
+                const penaltyCount = allRecords.filter(r => r.category !== 'reward').length;
+
+                if (totalRewardsEl) totalRewardsEl.textContent = rewardCount;
+                if (totalPenaltiesEl) totalPenaltiesEl.textContent = penaltyCount;
+
+                const typeCounts = {};
+                allRecords.forEach(r => {
+                    const type = r.type || '其他';
+                    typeCounts[type] = (typeCounts[type] || 0) + 1;
+                });
+
+                if (typeStatsEl) {
+                    if (Object.keys(typeCounts).length === 0) {
+                        typeStatsEl.innerHTML = '<p class="text-gray-400 text-sm">尚無數據</p>';
+                    } else {
+                        typeStatsEl.innerHTML = Object.entries(typeCounts)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([type, count]) => `
+                                <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
+                                    <span class="text-gray-700 text-sm">${escapeHtml(type)}</span>
+                                    <span class="font-bold text-gray-800">${count} 筆</span>
+                                </div>
+                            `).join('');
+                    }
+                }
+            } catch (e) {
+                if (totalRewardsEl) totalRewardsEl.textContent = '0';
+                if (totalPenaltiesEl) totalPenaltiesEl.textContent = '0';
+                if (typeStatsEl) typeStatsEl.innerHTML = '<p class="text-gray-400 text-sm">無法載入統計</p>';
+            }
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('success-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function openConfirmModal(title, message, action) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            pendingConfirmAction = action;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+
+        function confirmModalCancel() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            pendingConfirmAction = null;
+        }
+
+        async function confirmModalOk() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            if (pendingConfirmAction) {
+                await pendingConfirmAction();
+            }
+            pendingConfirmAction = null;
+        }
+
+        function openShareModal() {
+            document.getElementById('share-modal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        function hideAppChrome() {
+            const header = document.getElementById('page-header');
+            const nav = document.getElementById('page-nav');
+            if (header) header.classList.add('hidden');
+            if (nav) nav.classList.add('hidden');
+        }
+
+        function showAppChrome() {
+            const header = document.getElementById('page-header');
+            const nav = document.getElementById('page-nav');
+            if (header) header.classList.remove('hidden');
+            if (nav) nav.classList.toggle('hidden', !!isPublicView);
+            
+            // 設置圖片上傳功能
+            setupImageUpload('penalty-image-input', 'penalty-image-preview', false);
+            setupImageUpload('edit-image-input', 'edit-image-preview', true);
+        }
+
+        function renderAuthScreen(msg) {
+            hideAppChrome();
+            const main = document.getElementById('app-main');
+            if (!main) return;
+            main.innerHTML = `
+                <div class="mt-10 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <div class="text-lg font-black text-gray-800 mb-2">需要登入</div>
+                    <div class="text-sm text-gray-500 mb-5">${msg || '請先登入後才能檢視罰扣頁面。'}</div>
+                    <a href="./" class="inline-flex items-center justify-center w-full bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl py-3 transition-colors">前往登入</a>
+                </div>
+            `;
+        }
+
+        function renderErrorScreen(msg) {
+            hideAppChrome();
+            const main = document.getElementById('app-main');
+            if (!main) return;
+            main.innerHTML = `
+                <div class="mt-10 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <div class="text-lg font-black text-gray-800 mb-2">無法載入</div>
+                    <div class="text-sm text-gray-500 mb-5">${msg || '發生錯誤'}</div>
+                    <a href="./" class="inline-flex items-center justify-center w-full bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl py-3 transition-colors">返回</a>
+                </div>
+            `;
+        }
+
+        function initFirebaseCompat() {
+            if (!window.FIREBASE_CONFIG) throw new Error('缺少 firebase-config.js');
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps || firebase.apps.length === 0) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            return {
+                auth: firebase.auth(),
+                db: firebase.firestore()
+            };
+        }
+
+        async function loadDbUserByEmail(db, email) {
+            const snap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users')
+                .where('email', '==', String(email || '').trim())
+                .limit(1)
+                .get();
+            if (snap.empty) return null;
+            const doc = snap.docs[0];
+            return { id: doc.id, ...doc.data() };
+        }
+
+        function computeCanManage(roleId, roleName) {
+            const key = String(roleId || '').trim().toLowerCase();
+            const name = String(roleName || '').trim();
+            if (['admin', 'manager', 'hr', 'property', 'cadre'].includes(key)) return true;
+            if (!name) return false;
+            if (name.includes('系統管理員')) return true;
+            if (name.includes('管理')) return true;
+            if (name.includes('人事')) return true;
+            if (name.includes('物業')) return true;
+            if (name.includes('幹部')) return true;
+            return false;
+        }
+
+        function resolveAllowedCommunityIds(u) {
+            if (!u) return [];
+            if (String(u.role || '') === 'admin') return ['*'];
+            const ids = Array.isArray(u.communityIds) ? u.communityIds : [];
+            if (u.communityId) ids.push(u.communityId);
+            return Array.from(new Set(ids.map(x => String(x).trim().toUpperCase()).filter(Boolean)));
+        }
+
+        function getRequestedCommunityId() {
+            const params = new URLSearchParams(window.location.search || '');
+            return String(params.get('communityId') || '').trim().toUpperCase();
+        }
+
+        function getIsPublicMode() {
+            const params = new URLSearchParams(window.location.search || '');
+            return String(params.get('public') || '') === '1';
+        }
+
+        function setPageTitle() {
+            const el = document.getElementById('page-title');
+            if (el) el.textContent = selectedCommunityName ? `${selectedCommunityName} 獎懲` : '智慧獎懲系統';
+            document.title = selectedCommunityName ? `${selectedCommunityName} 獎懲` : '獎懲管理系統';
+        }
+
+        function loadRoles() {
+            if (rolesUnsub) { try { rolesUnsub(); } catch {} rolesUnsub = null; }
+            
+            const rolesRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles');
+            
+            rolesUnsub = rolesRef.onSnapshot(snapshot => {
+                const loadedRoles = [];
+                snapshot.forEach(doc => {
+                    loadedRoles.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+                roles = loadedRoles;
+                if (selectedCommunityId) {
+                    updateUserSelectOptions();
+                }
+            }, error => {
+                console.error('Error loading roles:', error);
+                roles = [];
+            });
+        }
+
+        function loadCommunityUsers(commId) {
+            if (usersUnsub) { try { usersUnsub(); } catch {} usersUnsub = null; }
+            
+            const usersRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users');
+            
+            usersUnsub = usersRef.onSnapshot(snapshot => {
+                const users = [];
+                snapshot.forEach(doc => {
+                    const userData = doc.data();
+                    const userCommunityIds = Array.isArray(userData.communityIds) 
+                        ? userData.communityIds 
+                        : (userData.communityId ? [userData.communityId] : []);
+                    
+                    const hasAccessToCommunity = userCommunityIds.includes(commId) || 
+                        userCommunityIds.some(id => String(id).trim().toUpperCase() === String(commId).trim().toUpperCase());
+                    
+                    if (hasAccessToCommunity && userData.status === '在職') {
+                        users.push({
+                            id: doc.id,
+                            name: userData.name || userData.email || '',
+                            role: userData.role || '',
+                            ...userData
+                        });
+                    }
+                });
+                
+                communityUsers = users;
+                updateUserSelectOptions();
+            }, error => {
+                console.error('Error loading users:', error);
+                communityUsers = [];
+                updateUserSelectOptions();
+            });
+        }
+
+        function updateUserSelectOptions() {
+            const penaltyNameSelect = document.getElementById('penalty-name');
+            const editNameSelect = document.getElementById('edit-name');
+            
+            if (!penaltyNameSelect && !editNameSelect) return;
+            
+            const targetRoleNames = ['總幹事', '秘書', '清潔', '機電', '保全'];
+            
+            const filteredUsers = communityUsers.filter(user => {
+                const userRoleId = user.role || '';
+                const roleObj = roles.find(r => r.id === userRoleId);
+                const roleName = roleObj ? roleObj.name : '';
+                return targetRoleNames.includes(roleName);
+            });
+            
+            const optionsHtml = '<option value="">請選擇人員</option>' + 
+                filteredUsers.map(user => {
+                    const displayName = user.name || user.email || '';
+                    return `<option value="${escapeHtml(displayName)}">${escapeHtml(displayName)}</option>`;
+                }).join('');
+            
+            if (penaltyNameSelect) {
+                penaltyNameSelect.innerHTML = optionsHtml;
+            }
+            
+            if (editNameSelect) {
+                const currentValue = editNameSelect.value;
+                editNameSelect.innerHTML = optionsHtml;
+                editNameSelect.value = currentValue;
+            }
+        }
+
+        function selectCommunity(commId, commName) {
+            selectedCommunityId = commId;
+            selectedCommunityName = commName;
+            selectedRecordsDate = new Date(); // 重置為當日日期
+            setPageTitle();
+            
+            if (settingsUnsub) { try { settingsUnsub(); } catch {} settingsUnsub = null; }
+            settingsDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('community_penalties').doc(commId);
+            
+            loadRoles();
+            loadCommunityUsers(commId);
+            updateRecordsDateLabel();
+            updateDateNavButtons();
+            subscribeRecordsForDate(selectedRecordsDate);
+        }
+
+        function renderCommunitySelector(communities, allowedIds) {
+            const main = document.getElementById('app-main');
+            if (!main) return;
+
+            const canAccessAny = allowedIds.includes('*') || allowedIds.length > 0;
+            if (!canAccessAny) {
+                main.innerHTML = `
+                    <div class="mt-10 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                        <div class="text-lg font-black text-gray-800 mb-2">無訪問權限</div>
+                        <div class="text-sm text-gray-500 mb-5">您的帳號尚未被分配任何社區。</div>
+                        <a href="./" class="inline-flex items-center justify-center w-full bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl py-3 transition-colors">返回</a>
+                    </div>
+                `;
+                return;
+            }
+
+            const allowedCommunities = communities.filter(c => allowedIds.includes('*') || allowedIds.includes(String(c.id).trim().toUpperCase()));
+
+            main.innerHTML = `
+                <div class="space-y-3">
+                    <h2 class="font-bold text-gray-800 text-lg">選擇社區</h2>
+                    ${allowedCommunities.map(c => `
+                        <button onclick='selectCommunity("${String(c.id)}", "${escapeHtml(String(c.name || c.id))}")' class="w-full bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:border-red-300 hover:bg-red-50 transition flex items-center justify-between group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-600">
+                                    <i data-lucide="building-2" size="20"></i>
+                                </div>
+                                <div class="text-left">
+                                    <div class="font-bold text-gray-800">${escapeHtml(String(c.name || c.id))}</div>
+                                    <div class="text-xs text-gray-500">ID: ${escapeHtml(String(c.id))}</div>
+                                </div>
+                            </div>
+                            <i data-lucide="chevron-right" size="20" class="text-gray-400 group-hover:text-red-500 transition"></i>
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+
+            lucide.createIcons();
+        }
+
+        async function init() {
+            try {
+                isPublicView = getIsPublicMode();
+                
+                const { auth, db: firestore } = initFirebaseCompat();
+                db = firestore;
+                
+                auth.onAuthStateChanged(async user => {
+                    fbUser = user;
+                    
+                    if (!user && !isPublicView) {
+                        renderAuthScreen();
+                        return;
+                    }
+
+                    if (user) {
+                        dbUser = await loadDbUserByEmail(db, user.email);
+                        const roleName = '';
+                        canManageSettings = computeCanManage(dbUser?.role, roleName);
+                    }
+
+                    showAppChrome();
+
+                    const communitiesSnap = await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities').get();
+                    const communities = [];
+                    communitiesSnap.forEach(doc => communities.push({ id: doc.id, ...doc.data() }));
+
+                    if (communities.length === 0) {
+                        renderErrorScreen('尚未設定任何社區，請先至總覽頁建立社區。');
+                        return;
+                    }
+
+                    const allowedIds = dbUser ? resolveAllowedCommunityIds(dbUser) : ['*'];
+                    const requestedCommunityId = getRequestedCommunityId();
+
+                    if (requestedCommunityId) {
+                        const target = communities.find(c => String(c.id).trim().toUpperCase() === requestedCommunityId);
+                        if (target) {
+                            selectCommunity(String(target.id), String(target.name || target.id));
+                            return;
+                        }
+                    }
+
+                    // 直接選擇第一個有權限訪問的社區
+                    const allowedCommunities = communities.filter(c => allowedIds.includes('*') || allowedIds.includes(String(c.id).trim().toUpperCase()));
+                    if (allowedCommunities.length > 0) {
+                        selectCommunity(String(allowedCommunities[0].id), String(allowedCommunities[0].name || allowedCommunities[0].id));
+                        return;
+                    }
+
+                    // 如果沒有權限訪問任何社區，顯示錯誤
+                    renderErrorScreen('您沒有權限訪問任何社區。');
+                });
+            } catch (e) {
+                console.error(e);
+                renderErrorScreen('初始化失敗，請重新整理頁面。');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
