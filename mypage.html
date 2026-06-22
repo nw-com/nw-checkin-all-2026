@@ -912,10 +912,6 @@
             const imgEl = document.getElementById('my-avatar-img');
             const fallbackEl = document.getElementById('my-avatar-fallback');
             if (!nameEl || !scoreEl) return;
-            
-            if (!Array.isArray(myQaiAvailableDateKeys) || myQaiAvailableDateKeys.length === 0) {
-                myQaiAvailableDateKeys = [formatYmd(new Date())];
-            }
 
             selectedMyQaiDate.setHours(0, 0, 0, 0);
             updateMyQaiDateLabel();
@@ -1243,8 +1239,16 @@
             return new Date(raw);
         }
 
+        function getScoredScheduleForDate(dateKey, scheduleItems = []) {
+            return scheduleItems.find(r =>
+                String(r.date || '').trim() === dateKey &&
+                ['work', 'duty', 'card'].includes(String(r.type || '').trim())
+            ) || null;
+        }
+
         function getAttendanceScoresForDate(dateKey, attendanceItems = [], scheduleItems = []) {
-            const schedule = scheduleItems.find(r => String(r.date || '').trim() === dateKey && ['work', 'duty', 'card'].includes(String(r.type || '').trim()));
+            const schedule = getScoredScheduleForDate(dateKey, scheduleItems);
+            if (!schedule) return null;
             const rows = attendanceItems
                 .filter(r => {
                     const logicDate = String(r.logicDate || '').trim();
@@ -1293,8 +1297,10 @@
         }
 
         function computeDailyScoreForDate(dateKey, penaltyItems = [], attendanceItems = [], scheduleItems = []) {
+            const schedule = getScoredScheduleForDate(dateKey, scheduleItems);
+            if (!schedule) return null;
             const attendanceScores = getAttendanceScoresForDate(dateKey, attendanceItems, scheduleItems);
-            const attendanceTotal = Object.values(attendanceScores).reduce((sum, val) => sum + Number(val || 0), 0);
+            const attendanceTotal = attendanceScores ? Object.values(attendanceScores).reduce((sum, val) => sum + Number(val || 0), 0) : 0;
             const myNameKey = normalizeKey(dbUser?.name || fbUser?.displayName || '');
             const myDayRecords = penaltyItems.filter(r => {
                 if (!myNameKey) return false;
@@ -1665,10 +1671,12 @@
 
             const dateKeys = Array.from(dateKeySet).sort((a, b) => b.localeCompare(a));
 
-            const rows = dateKeys.map(dateKey => ({
-                dateKey,
-                score: computeDailyScoreForDate(dateKey, records, recordAttendance, recordSchedules)
-            }));
+            const rows = dateKeys
+                .map(dateKey => ({
+                    dateKey,
+                    score: computeDailyScoreForDate(dateKey, records, recordAttendance, recordSchedules)
+                }))
+                .filter(row => row.score !== null);
 
             if (rows.length === 0) {
                 container.innerHTML = `<div class="text-center py-10 text-gray-400"><i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i><p>目前尚無評分紀錄</p></div>`;
@@ -2114,32 +2122,19 @@
 
                 const todayKey = formatYmd(new Date());
                 const myNameKey = normalizeKey(dbUser?.name || fbUser?.displayName || '');
-                const availableDateKeySet = new Set([todayKey]);
+                const availableDateKeySet = new Set();
                 scheduleRecords.forEach(r => {
                     const dateKey = String(r.date || '').trim();
-                    if (dateKey && parseYmdToDate(dateKey) <= parseYmdToDate(todayKey)) {
+                    if (
+                        dateKey &&
+                        ['work', 'duty', 'card'].includes(String(r.type || '').trim()) &&
+                        parseYmdToDate(dateKey) <= parseYmdToDate(todayKey)
+                    ) {
                         availableDateKeySet.add(dateKey);
                     }
                 });
-                attendanceRecords.forEach(r => {
-                    const logicDate = String(r.logicDate || '').trim();
-                    if (logicDate) {
-                        if (parseYmdToDate(logicDate) <= parseYmdToDate(todayKey)) {
-                            availableDateKeySet.add(logicDate);
-                        }
-                        return;
-                    }
-                    const raw = r.timestamp || r.createdAt;
-                    if (!raw) return;
-                    const d = raw.toDate ? raw.toDate() : new Date(raw.seconds ? raw.seconds * 1000 : raw);
-                    if (!d || Number.isNaN(d.getTime())) return;
-                    availableDateKeySet.add(formatYmd(d));
-                });
                 myQaiAvailableDateKeys = Array.from(availableDateKeySet).sort();
-                if (myQaiAvailableDateKeys.length === 0) {
-                    myQaiAvailableDateKeys = [todayKey];
-                }
-                if (!myQaiAvailableDateKeys.includes(formatYmd(selectedMyQaiDate))) {
+                if (myQaiAvailableDateKeys.length > 0 && !myQaiAvailableDateKeys.includes(formatYmd(selectedMyQaiDate))) {
                     selectedMyQaiDate = parseYmdToDate(myQaiAvailableDateKeys[myQaiAvailableDateKeys.length - 1]);
                 }
                 updateMyQaiDateLabel();
@@ -2225,7 +2220,7 @@
                     }).join('');
 
                 const mySelectedDateKey = formatYmd(selectedMyQaiDate);
-                const mySchedule = scheduleRecords.find(r => String(r.date || '').trim() === mySelectedDateKey && ['work', 'duty', 'card'].includes(String(r.type || '').trim()));
+                const mySchedule = getScoredScheduleForDate(mySelectedDateKey, scheduleRecords);
                 const getRecordDate = (raw) => {
                     if (!raw) return null;
                     if (raw.toDate) return raw.toDate();
@@ -2321,7 +2316,7 @@
                     return sum + (Number(value) || 0);
                 }, 0);
                 const baseAttendanceTypeValue = statTypeValues['出勤'] !== undefined ? Number(statTypeValues['出勤'] || 0) : 0;
-                const myDailyScore = (myBaseTotal - baseAttendanceTypeValue) + attendanceTypeScore + myDeltaTotal;
+                const myDailyScore = mySchedule ? ((myBaseTotal - baseAttendanceTypeValue) + attendanceTypeScore + myDeltaTotal) : null;
 
                 const myHtml = statTypes.map(type => {
                         const isAttendanceType = type === '出勤';
@@ -2366,7 +2361,11 @@
                     }).join('');
 
                 if (typeStatsEl) typeStatsEl.innerHTML = html;
-                if (myTypeStatsEl) myTypeStatsEl.innerHTML = myHtml;
+                if (myTypeStatsEl) {
+                    myTypeStatsEl.innerHTML = mySchedule
+                        ? myHtml
+                        : '<div class="text-center py-6 text-sm text-gray-400">此日期非上班日或值班日，不顯示評分</div>';
+                }
 
                 const score = computeQaiScoreFromCurrentStats();
                 if (statsScoreEl) {
@@ -2374,8 +2373,15 @@
                     setQaiScoreColor(statsScoreEl, score);
                 }
                 if (myScoreEl) {
-                    myScoreEl.textContent = String(myDailyScore);
-                    setQaiScoreColor(myScoreEl, myDailyScore);
+                    if (myDailyScore === null) {
+                        myScoreEl.textContent = '--';
+                        myScoreEl.classList.remove('text-green-600', 'text-yellow-600', 'text-red-600');
+                        myScoreEl.classList.add('text-gray-400');
+                    } else {
+                        myScoreEl.classList.remove('text-gray-400');
+                        myScoreEl.textContent = String(myDailyScore);
+                        setQaiScoreColor(myScoreEl, myDailyScore);
+                    }
                 }
 
                 const prefix = selectedUserName ? selectedUserName + ' -' : '';
