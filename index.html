@@ -29,6 +29,252 @@
             console.error=function(){ if(s(arguments)) return; e.apply(console,arguments); };
         })();
     </script>
+
+    <script>
+        (function () {
+            try {
+                var params = new URLSearchParams(window.location.search || '');
+                if (String(params.get('dbg') || '') !== '1') return;
+                var sessionId = 'admin-login-fails';
+                var runId = 'pre-fix';
+                var dbgHost = String(params.get('dbgHost') || '').trim() || '192.168.1.108';
+                var port = parseInt(String(params.get('dbgPort') || '7780'), 10) || 7780;
+                var apiUrl = 'http://' + dbgHost + ':' + port + '/event';
+                function maskEmail(v) {
+                    try {
+                        var s = String(v || '');
+                        var at = s.indexOf('@');
+                        if (at <= 1) return s ? ('*' + s.slice(at)) : '';
+                        return s.slice(0, 1) + '***' + s.slice(at);
+                    } catch (_) { return ''; }
+                }
+                function maskPhone(v) {
+                    try {
+                        var s = String(v || '');
+                        var digits = s.replace(/[^0-9]/g, '');
+                        if (digits.length <= 4) return digits;
+                        return digits.slice(0, 2) + '*****' + digits.slice(-2);
+                    } catch (_) { return ''; }
+                }
+                function scrubData(data) {
+                    try {
+                        if (!data || typeof data !== 'object') return data;
+                        var d = JSON.parse(JSON.stringify(data));
+                        if (d.email) d.email = maskEmail(d.email);
+                        if (d.identifier) d.identifier = maskPhone(d.identifier);
+                        return d;
+                    } catch (_) { return data; }
+                }
+                function send(hypothesisId, msg, data) {
+                    try {
+                        try {
+                            var key = 'dbg_admin_login_fails';
+                            var buf = [];
+                            try { buf = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (_) { buf = []; }
+                            buf.push({ hypothesisId: hypothesisId, msg: msg, ts: Date.now(), data: scrubData(data || {}) });
+                            if (buf.length > 200) buf = buf.slice(buf.length - 200);
+                            try { localStorage.setItem(key, JSON.stringify(buf)); } catch (_) {}
+                        } catch (_) {}
+                        fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            keepalive: true,
+                            body: JSON.stringify({
+                                sessionId: sessionId,
+                                runId: runId,
+                                hypothesisId: hypothesisId,
+                                msg: msg,
+                                ts: Date.now(),
+                                data: scrubData(data || {})
+                            })
+                        }).catch(function () {});
+                    } catch (_) {}
+                }
+                window.__dbgSend = send;
+                (function () {
+                    function fmtTs(t) {
+                        try {
+                            var d = new Date(t || 0);
+                            var hh = String(d.getHours()).padStart(2, '0');
+                            var mm = String(d.getMinutes()).padStart(2, '0');
+                            var ss = String(d.getSeconds()).padStart(2, '0');
+                            return hh + ':' + mm + ':' + ss;
+                        } catch (_) { return ''; }
+                    }
+                    function readBuf() {
+                        try { return JSON.parse(localStorage.getItem('dbg_admin_login_fails') || '[]') || []; } catch (_) { return []; }
+                    }
+                    function render() {
+                        try {
+                            var panel = document.getElementById('dbg-panel');
+                            if (!panel) return;
+                            var pre = document.getElementById('dbg-panel-pre');
+                            var buf = readBuf();
+                            var lines = buf.map(function (e) {
+                                return '[' + fmtTs(e.ts) + '][' + String(e.hypothesisId || '') + '] ' + String(e.msg || '') + ' ' + JSON.stringify(e.data || {});
+                            });
+                            pre.textContent = lines.join('\n');
+                        } catch (_) {}
+                    }
+                    function toggle(open) {
+                        var panel = document.getElementById('dbg-panel');
+                        if (!panel) return;
+                        if (open) panel.style.display = 'block';
+                        else panel.style.display = 'none';
+                    }
+                    function init() {
+                        try {
+                            if (document.getElementById('dbg-panel')) return;
+                            var wrap = document.createElement('div');
+                            wrap.id = 'dbg-panel';
+                            wrap.style.position = 'fixed';
+                            wrap.style.left = '12px';
+                            wrap.style.right = '12px';
+                            wrap.style.bottom = '12px';
+                            wrap.style.zIndex = '99999';
+                            wrap.style.background = 'rgba(15, 23, 42, 0.92)';
+                            wrap.style.color = '#e2e8f0';
+                            wrap.style.borderRadius = '14px';
+                            wrap.style.padding = '10px';
+                            wrap.style.display = 'none';
+                            wrap.style.fontSize = '12px';
+                            wrap.style.lineHeight = '1.35';
+                            var bar = document.createElement('div');
+                            bar.style.display = 'flex';
+                            bar.style.gap = '8px';
+                            bar.style.alignItems = 'center';
+                            bar.style.marginBottom = '8px';
+                            var title = document.createElement('div');
+                            title.textContent = 'DBG(admin-login-fails)';
+                            title.style.fontWeight = '700';
+                            title.style.flex = '1';
+                            var btnCopy = document.createElement('button');
+                            btnCopy.type = 'button';
+                            btnCopy.textContent = '複製';
+                            btnCopy.style.padding = '6px 10px';
+                            btnCopy.style.borderRadius = '10px';
+                            btnCopy.style.background = '#334155';
+                            btnCopy.style.color = '#e2e8f0';
+                            btnCopy.style.fontWeight = '700';
+                            btnCopy.style.border = '0';
+                            btnCopy.onclick = function () {
+                                try {
+                                    var text = (document.getElementById('dbg-panel-pre') || {}).textContent || '';
+                                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                                        navigator.clipboard.writeText(text);
+                                    } else {
+                                        prompt('複製以下內容', text);
+                                    }
+                                } catch (_) {}
+                            };
+                            var btnClose = document.createElement('button');
+                            btnClose.type = 'button';
+                            btnClose.textContent = '關閉';
+                            btnClose.style.padding = '6px 10px';
+                            btnClose.style.borderRadius = '10px';
+                            btnClose.style.background = '#334155';
+                            btnClose.style.color = '#e2e8f0';
+                            btnClose.style.fontWeight = '700';
+                            btnClose.style.border = '0';
+                            btnClose.onclick = function () { toggle(false); };
+                            bar.appendChild(title);
+                            bar.appendChild(btnCopy);
+                            bar.appendChild(btnClose);
+                            var pre = document.createElement('pre');
+                            pre.id = 'dbg-panel-pre';
+                            pre.style.whiteSpace = 'pre-wrap';
+                            pre.style.wordBreak = 'break-word';
+                            pre.style.maxHeight = '42vh';
+                            pre.style.overflow = 'auto';
+                            pre.style.margin = '0';
+                            pre.style.padding = '8px';
+                            pre.style.borderRadius = '12px';
+                            pre.style.background = 'rgba(2, 6, 23, 0.5)';
+                            wrap.appendChild(bar);
+                            wrap.appendChild(pre);
+                            document.body.appendChild(wrap);
+                            var fab = document.createElement('button');
+                            fab.type = 'button';
+                            fab.id = 'dbg-fab';
+                            fab.textContent = 'DBG';
+                            fab.style.position = 'fixed';
+                            fab.style.right = '12px';
+                            fab.style.bottom = '12px';
+                            fab.style.zIndex = '99998';
+                            fab.style.background = 'rgba(15, 23, 42, 0.75)';
+                            fab.style.color = '#e2e8f0';
+                            fab.style.border = '0';
+                            fab.style.borderRadius = '999px';
+                            fab.style.padding = '10px 12px';
+                            fab.style.fontWeight = '800';
+                            fab.onclick = function () { toggle(true); render(); };
+                            document.body.appendChild(fab);
+                            render();
+                            setInterval(render, 800);
+                        } catch (_) {}
+                    }
+                    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+                    else init();
+                })();
+                window.addEventListener('error', function (ev) {
+                    send('D', 'window.error', {
+                        message: String(ev && ev.message || ''),
+                        filename: String(ev && ev.filename || ''),
+                        lineno: ev && ev.lineno,
+                        colno: ev && ev.colno,
+                        stack: ev && ev.error && ev.error.stack ? String(ev.error.stack) : ''
+                    });
+                });
+                window.addEventListener('unhandledrejection', function (ev) {
+                    var r = ev && ev.reason;
+                    send('D', 'unhandledrejection', {
+                        reason: String(r || ''),
+                        stack: r && r.stack ? String(r.stack) : ''
+                    });
+                });
+                send('C', 'page-load', {
+                    href: String(window.location.href || ''),
+                    ua: String(navigator.userAgent || ''),
+                    vw: window.innerWidth,
+                    vh: window.innerHeight,
+                    dpr: window.devicePixelRatio,
+                    sw: !!(navigator && navigator.serviceWorker),
+                    swController: !!(navigator && navigator.serviceWorker && navigator.serviceWorker.controller)
+                });
+                setTimeout(function () {
+                    try {
+                        var cfg = window.FIREBASE_CONFIG || null;
+                        send('C', 'firebase-config', {
+                            projectId: cfg && cfg.projectId ? String(cfg.projectId) : '',
+                            authDomain: cfg && cfg.authDomain ? String(cfg.authDomain) : '',
+                            appId: (typeof __app_id !== 'undefined' && __app_id) ? String(__app_id) : ''
+                        });
+                        if (navigator && navigator.serviceWorker) {
+                            var c = navigator.serviceWorker.controller;
+                            send('C', 'sw.controller', { scriptURL: c && c.scriptURL ? String(c.scriptURL) : '', state: c && c.state ? String(c.state) : '' });
+                            navigator.serviceWorker.getRegistration().then(function (r) {
+                                if (!r) return;
+                                send('C', 'sw.registration', {
+                                    scope: String(r.scope || ''),
+                                    active: r.active && r.active.scriptURL ? String(r.active.scriptURL) : '',
+                                    waiting: r.waiting && r.waiting.scriptURL ? String(r.waiting.scriptURL) : '',
+                                    installing: r.installing && r.installing.scriptURL ? String(r.installing.scriptURL) : ''
+                                });
+                            }).catch(function () {});
+                        }
+                    } catch (_) {}
+                }, 1200);
+                if (navigator && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                    navigator.serviceWorker.getRegistrations().then(function (regs) {
+                        send('C', 'sw.registrations', {
+                            count: regs.length,
+                            scopes: regs.map(function (r) { return String(r && r.scope || ''); })
+                        });
+                    }).catch(function () {});
+                }
+            } catch (_) {}
+        })();
+    </script>
     
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone@7.23.8/babel.min.js"></script>
@@ -308,7 +554,36 @@
         } from 'lucide-react';
 
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(() => {});
+            const registerSw = async () => {
+                try {
+                    const reg = await navigator.serviceWorker.register('./sw.js');
+                    try { await reg.update(); } catch (_) {}
+                    const postSkipWaiting = (r) => {
+                        try {
+                            if (r && r.waiting) r.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        } catch (_) {}
+                    };
+                    if (reg && reg.waiting) postSkipWaiting(reg);
+                    try {
+                        reg.addEventListener('updatefound', () => {
+                            const installing = reg.installing;
+                            if (!installing) return;
+                            installing.addEventListener('statechange', () => {
+                                if (installing.state === 'installed') postSkipWaiting(reg);
+                            });
+                        });
+                    } catch (_) {}
+                    let reloaded = false;
+                    try {
+                        navigator.serviceWorker.addEventListener('controllerchange', () => {
+                            if (reloaded) return;
+                            reloaded = true;
+                            location.reload();
+                        });
+                    } catch (_) {}
+                } catch (_) {}
+            };
+            registerSw();
         }
 
         // --- Firebase Configuration ---
@@ -12459,25 +12734,31 @@
                 const initAuth = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            if (window.__dbgSend) window.__dbgSend('A', 'auth.init.customToken.start', {});
                             await signInWithCustomToken(auth, __initial_auth_token);
+                            if (window.__dbgSend) window.__dbgSend('A', 'auth.init.customToken.ok', {});
                         }
                     } catch (e) {
+                        if (window.__dbgSend) window.__dbgSend('A', 'auth.init.customToken.err', { code: e && e.code, message: e && e.message });
                         console.error("Auth init error", e);
                     }
                 };
                 initAuth();
                 const unsubscribe = onAuthStateChanged(auth, (u) => {
+                    if (window.__dbgSend) window.__dbgSend('A', 'auth.state', { uid: u && u.uid, email: u && u.email });
                     setUser(u);
                     setLoading(false);
                     clearTimeout(timer);
                     if (u) {
                         (async () => {
                             try {
+                                if (window.__dbgSend) window.__dbgSend('B', 'dbUser.lookup.start', { email: u.email || '' });
                                 const q = query(
                                     collection(db, 'artifacts', appId, 'public', 'data', 'users'),
                                     where('email', '==', u.email || '')
                                 );
                                 const snap = await getDocs(q);
+                                if (window.__dbgSend) window.__dbgSend('B', 'dbUser.lookup.ok', { empty: snap.empty, size: snap.size });
                                 if (!snap.empty) {
                                     const preferredDoc = snap.docs.find(d => {
                                         const data = d.data() || {};
@@ -12508,6 +12789,7 @@
                                                 if (!mounted) return;
                                                 setDbUser(null);
                                                 setView('login');
+                                                if (window.__dbgSend) window.__dbgSend('B', 'dbUser.blocked.resigned', { userDocId: userSnap.id });
                                                 return;
                                             }
                                         }
@@ -12515,11 +12797,14 @@
                                         data.communityName = comm ? comm.name : (data.communityId === 'SYSTEM' ? '總部系統' : '未分配');
                                         setDbUser(data);
                                         setView('dashboard');
+                                        if (window.__dbgSend) window.__dbgSend('B', 'dbUser.snapshot.ok', { userDocId: userSnap.id, role: data.role, status: data.status });
                                     });
                                 } else {
                                     setView('dashboard');
+                                    if (window.__dbgSend) window.__dbgSend('B', 'dbUser.lookup.empty', {});
                                 }
-                            } catch {
+                            } catch (e) {
+                                if (window.__dbgSend) window.__dbgSend('B', 'dbUser.lookup.err', { code: e && e.code, message: e && e.message });
                                 setView('dashboard');
                             }
                         })();
@@ -13167,8 +13452,10 @@
                 const delays = [500, 1000, 2000];
                 while (true) {
                     try {
+                        if (window.__dbgSend) window.__dbgSend('A', 'auth.signIn.start', { email: email });
                         return await signInWithEmailAndPassword(auth, email, password);
                     } catch (e) {
+                        if (window.__dbgSend) window.__dbgSend('A', 'auth.signIn.err', { code: e && e.code, message: e && e.message });
                         if (e && e.code === 'auth/network-request-failed' && i < delays.length) {
                             await new Promise(r => setTimeout(r, delays[i++]));
                             continue;
@@ -13183,6 +13470,7 @@
             const handleLogin = async (identifier, password, rememberMe = false) => {
                 // setLoading(true); // Disable global loading to keep Login component mounted
                 try {
+                    if (window.__dbgSend) window.__dbgSend('A', 'login.start', { identifier: identifier, rememberMe: !!rememberMe });
                     let emailToUse = identifier;
                     
                     // Check if identifier is likely a phone number (no @)
@@ -13191,6 +13479,7 @@
                         let qPhone = query(usersRef, where('phone', '==', identifier));
                         
                         try {
+                            if (window.__dbgSend) window.__dbgSend('B', 'login.phoneLookup.start', {});
                             let snapshot = await getDocs(qPhone);
                             
                             // Retry with stripped format if empty (e.g. user typed 0912-345-678, db has 0912345678)
@@ -13203,6 +13492,7 @@
                             }
 
                             if (snapshot.empty) {
+                                if (window.__dbgSend) window.__dbgSend('B', 'login.phoneLookup.empty', {});
                                 throw new Error('找不到此手機號碼對應的帳號');
                             }
                             
@@ -13224,7 +13514,9 @@
                                 throw new Error('此帳號資料異常(無Email)，請聯繫管理員');
                             }
                             emailToUse = userDoc.email;
+                            if (window.__dbgSend) window.__dbgSend('B', 'login.phoneLookup.ok', { email: emailToUse });
                         } catch (err) {
+                            if (window.__dbgSend) window.__dbgSend('B', 'login.phoneLookup.err', { code: err && err.code, message: err && err.message });
                             if (err.code === 'permission-denied') {
                                 throw new Error('系統權限不足，無法在登入前查詢手機號碼。請直接使用 Email 登入，或聯繫管理員開啟權限。');
                             }
@@ -13233,6 +13525,7 @@
                     }
 
                     await signInWithRetry(emailToUse, password);
+                    if (window.__dbgSend) window.__dbgSend('A', 'login.auth.ok', { email: emailToUse });
                     const q = query(
                         collection(db, 'artifacts', appId, 'public', 'data', 'users'), 
                         where('email', '==', emailToUse)
@@ -13242,6 +13535,7 @@
                     if (!snap.empty) {
                         userData = { id: snap.docs[0].id, ...snap.docs[0].data() };
                     } else {
+                        if (window.__dbgSend) window.__dbgSend('B', 'login.userDoc.missing', { email: emailToUse });
                         const baseUserRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
                         const name = emailToUse.split('@')[0];
                         const defaultRole = 'staff';
@@ -13268,6 +13562,7 @@
                     userData.communityName = comm ? comm.name : (userData.communityId === 'SYSTEM' ? '總部系統' : '未分配');
                     setDbUser(userData);
                     // setView('dashboard'); // Moved to onLoginSuccess in Login component
+                    if (window.__dbgSend) window.__dbgSend('B', 'login.done', { role: userData.role, status: userData.status });
                     if (rememberMe) {
                         try {
                             localStorage.setItem('remember_until', String(Date.now() + 48 * 60 * 60 * 1000));
@@ -13275,6 +13570,7 @@
                         } catch {}
                     }
                 } catch (e) {
+                    if (window.__dbgSend) window.__dbgSend('A', 'login.err', { code: e && e.code, message: e && e.message });
                     console.error(e);
                     throw e;
                 } finally {
