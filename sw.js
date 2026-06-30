@@ -2,7 +2,7 @@
 const ICON_URL = './logo.svg';
 const BADGE_URL = './badge.svg';
 
-const CACHE_VERSION = 'v2.0.0';
+const CACHE_VERSION = 'v2.0.1';
 const APP_SHELL_CACHE = `nw-checkin-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `nw-checkin-runtime-${CACHE_VERSION}`;
 
@@ -13,6 +13,8 @@ const PRECACHE_URLS = [
   './firebase-config.js',
   './logo.svg',
   './badge.svg',
+  './appeal.html',
+  './appeal-a.html',
   './check.html',
   './feedback.html',
   './patrol.html',
