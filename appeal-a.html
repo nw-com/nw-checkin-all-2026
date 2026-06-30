@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>總經理看板 - 總經理直通車</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { background-color: #f1f5f9; }
+    /* 卡片進場動畫 */
+    .card-enter { animation: slideUp 0.4s ease-out forwards; opacity: 0; transform: translateY(20px); }
+    @keyframes slideUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased pb-10">
+
+  <!-- 頂部導覽列 -->
+  <header class="sticky top-0 left-0 right-0 bg-slate-900 text-white shadow-lg z-40">
+    <div class="flex items-center justify-between h-16 px-4 max-w-lg mx-auto">
+      <div class="flex items-center">
+        <i data-lucide="shield-alert" class="w-7 h-7 mr-2 text-blue-400"></i>
+        <h1 class="text-xl font-bold tracking-wide">總經理看板</h1>
+      </div>
+      <div class="relative">
+        <i data-lucide="bell" class="w-6 h-6 text-slate-300"></i>
+        <span class="absolute top-0 right-0 -mt-1 -mr-1 flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="px-4 pt-6 max-w-lg mx-auto space-y-6">
+    
+    <!-- 統計數據卡片 -->
+    <section class="grid grid-cols-2 gap-3">
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col justify-center items-center">
+        <div class="flex items-center text-red-500 mb-1">
+          <i data-lucide="alert-triangle" class="w-5 h-5 mr-1"></i>
+          <span class="font-bold text-sm">高緊急案件</span>
+        </div>
+        <span class="text-3xl font-black text-slate-800" id="highCount">0</span>
+      </div>
+      
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col justify-center items-center">
+        <div class="flex items-center text-blue-500 mb-1">
+          <i data-lucide="inbox" class="w-5 h-5 mr-1"></i>
+          <span class="font-bold text-sm">待處理案件</span>
+        </div>
+        <span class="text-3xl font-black text-slate-800" id="pendingCount">0</span>
+      </div>
+    </section>
+
+    <!-- 案件列表區 -->
+    <section>
+      <div class="flex items-center justify-between mb-4 px-1">
+        <h2 class="text-lg font-bold text-slate-800">最新反應案件</h2>
+        <button class="text-sm text-blue-600 font-semibold flex items-center">
+          <i data-lucide="filter" class="w-4 h-4 mr-1"></i> 篩選
+        </button>
+      </div>
+
+      <div id="reportList" class="space-y-4">
+        <!-- 卡片將由 JavaScript 動態生成 -->
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const APPEAL_STORAGE_KEY = 'gm_appeal_reports';
+
+    const SAMPLE_REPORTS = [
+      {
+        id: 'sample-1', date: '06/30 09:15', createdAt: '2026-06-30T09:15:00+08:00', community: '帝寶社區', role: '機電人員', name: '王大明',
+        category: '社區大停電/大漏水', urgency: '高',
+        description: 'B2停車場因主幹管破裂導致嚴重積水，目前已關閉水閥，但抽水機故障，急需總公司支援調派大型抽水設備。',
+        status: '未處理'
+      },
+      {
+        id: 'sample-2', date: '06/29 22:30', createdAt: '2026-06-29T22:30:00+08:00', community: '幸福花園', role: '保全人員', name: '李建國',
+        category: '住戶/訪客暴力衝突', urgency: '高',
+        description: '晚間有外來訪客酒醉強行闖入，與夜班保全發生肢體衝突，已報警處理，保全輕傷已送醫，需回報裁示後續法務協助。',
+        status: '處理中'
+      },
+      {
+        id: 'sample-3', date: '06/28 14:00', createdAt: '2026-06-28T14:00:00+08:00', community: '信義之星', role: '總幹事', name: '林美玲',
+        category: '社區合約危機(面臨解約)', urgency: '中',
+        description: '新任主委對本月服務費調漲有異議，揚言下個月要重新招標，請業務部或總經理協助出面協調。',
+        status: '已結案'
+      }
+    ];
+
+    const reportList = document.getElementById('reportList');
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function loadReports() {
+      try {
+        const raw = localStorage.getItem(APPEAL_STORAGE_KEY);
+        const parsed = JSON.parse(raw || '[]');
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (_) {}
+      return SAMPLE_REPORTS;
+    }
+
+    function sortReports(reports) {
+      return [...reports].sort((a, b) => {
+        const timeA = new Date(a.createdAt || '').getTime() || 0;
+        const timeB = new Date(b.createdAt || '').getTime() || 0;
+        return timeB - timeA;
+      });
+    }
+
+    function renderReports() {
+      const reports = sortReports(loadReports());
+      document.getElementById('highCount').textContent = reports.filter(r => r.urgency === '高').length;
+      document.getElementById('pendingCount').textContent = reports.filter(r => r.status === '未處理').length;
+      reportList.innerHTML = '';
+
+      if (reports.length === 0) {
+        reportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">目前沒有案件</p>
+            <p class="text-sm">現場送出申訴後，這裡會即時顯示。</p>
+          </article>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      reports.forEach((report, index) => {
+      let urgencyStyles = '';
+      let statusStyles = '';
+
+      if (report.urgency === '高') urgencyStyles = 'bg-red-100 text-red-700 border-red-200';
+      else if (report.urgency === '中') urgencyStyles = 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      else urgencyStyles = 'bg-green-100 text-green-700 border-green-200';
+
+      if (report.status === '未處理') statusStyles = 'text-red-500 bg-red-50';
+      else if (report.status === '處理中') statusStyles = 'text-blue-600 bg-blue-50';
+      else statusStyles = 'text-slate-500 bg-slate-100';
+
+      const cardHTML = `
+        <article class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden card-enter" style="animation-delay: ${index * 0.1}s">
+          <div class="p-4">
+            <!-- 頭部：狀態與時間 -->
+            <div class="flex justify-between items-center mb-3">
+              <span class="px-2.5 py-1 text-xs font-bold rounded-md border ${urgencyStyles}">
+                ${escapeHtml(report.urgency)}急
+              </span>
+              <div class="flex items-center text-xs text-slate-400 font-medium">
+                <i data-lucide="clock" class="w-3.5 h-3.5 mr-1"></i> ${escapeHtml(report.date)}
+              </div>
+            </div>
+            
+            <!-- 標題與分類 -->
+            <h3 class="text-xl font-bold text-slate-800 mb-1">${escapeHtml(report.community)}</h3>
+            <div class="inline-block bg-blue-50 text-blue-700 text-xs font-bold px-2 py-1 rounded mb-3">
+              ${escapeHtml(report.category)}
+            </div>
+            
+            <!-- 內文 -->
+            <p class="text-slate-600 text-sm leading-relaxed mb-4">
+              ${escapeHtml(report.description)}
+            </p>
+            
+            <!-- 底部資訊 -->
+            <div class="flex justify-between items-end border-t border-slate-100 pt-3">
+              <div class="flex items-center text-sm text-slate-500 font-medium">
+                <div class="bg-slate-100 p-1.5 rounded-full mr-2">
+                  <i data-lucide="user" class="w-4 h-4 text-slate-600"></i>
+                </div>
+                <span>${escapeHtml(report.name)} <span class="text-slate-400 text-xs ml-1">(${escapeHtml(report.role)})</span></span>
+              </div>
+              <span class="text-xs font-bold px-2.5 py-1 rounded-full ${statusStyles}">
+                ${escapeHtml(report.status)}
+              </span>
+            </div>
+          </div>
+        </article>
+      `;
+      reportList.insertAdjacentHTML('beforeend', cardHTML);
+      });
+
+      lucide.createIcons();
+    }
+
+    renderReports();
+    window.addEventListener('storage', (event) => {
+      if (event.key === APPEAL_STORAGE_KEY) renderReports();
+    });
+  </script>
+</body>
+</html>

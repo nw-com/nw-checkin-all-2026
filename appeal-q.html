@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>現場人員回報 - 總經理直通車</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* 隱藏捲軸但保留捲動功能，讓畫面更像 App */
+    ::-webkit-scrollbar { display: none; }
+    body { -ms-overflow-style: none; scrollbar-width: none; background-color: #f8fafc; }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased pb-24">
+
+  <!-- 頂部導覽列 (固定) -->
+  <header class="fixed top-0 left-0 right-0 bg-blue-700 text-white shadow-md z-40">
+    <div class="flex items-center justify-center h-14 px-4 max-w-md mx-auto">
+      <i data-lucide="shield-alert" class="w-6 h-6 mr-2 text-blue-200"></i>
+      <h1 class="text-lg font-bold tracking-widest">總經理直通車</h1>
+    </div>
+  </header>
+
+  <!-- 主要內容區塊 -->
+  <main class="pt-16 px-4 max-w-md mx-auto">
+    
+    <div class="bg-blue-50 text-blue-800 p-4 rounded-xl mb-6 shadow-sm border border-blue-100 flex items-start">
+      <i data-lucide="message-square" class="w-5 h-5 mr-3 mt-0.5 flex-shrink-0"></i>
+      <p class="text-sm font-medium leading-relaxed">您的意見將直接加密傳送至總經理信箱，請放心據實填寫。</p>
+    </div>
+
+    <form id="reportForm" class="space-y-5">
+      
+      <!-- 派駐社區 -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-bold text-slate-700 flex items-center">
+          <i data-lucide="map-pin" class="w-4 h-4 mr-1.5 text-slate-400"></i> 派駐社區
+        </label>
+        <input type="text" id="community" required placeholder="例如：帝寶社區" 
+          class="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-base shadow-sm">
+      </div>
+
+      <!-- 姓名 -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-bold text-slate-700 flex items-center">
+          <i data-lucide="user" class="w-4 h-4 mr-1.5 text-slate-400"></i> 您的姓名
+        </label>
+        <input type="text" id="name" required placeholder="請輸入姓名" 
+          class="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-base shadow-sm">
+      </div>
+
+      <!-- 職務別 -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-bold text-slate-700">職務別</label>
+        <select id="role" required
+          class="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-base shadow-sm appearance-none">
+          <option value="" disabled selected>請選擇您的職務</option>
+          <option value="總幹事">總幹事</option>
+          <option value="秘書">秘書</option>
+          <option value="保全人員">保全人員</option>
+          <option value="清潔人員">清潔人員</option>
+          <option value="機電人員">機電人員</option>
+        </select>
+      </div>
+
+      <!-- 狀況分類 -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-bold text-slate-700">狀況分類</label>
+        <select id="category" required disabled
+          class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-base shadow-sm appearance-none bg-slate-100 text-slate-400">
+          <option value="" disabled selected>請先選擇職務</option>
+        </select>
+      </div>
+
+      <!-- 緊急程度 (單選按鈕群組) -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-bold text-slate-700">緊急程度</label>
+        <div class="flex space-x-3" id="urgencyGroup">
+          <button type="button" data-level="高" class="urgency-btn flex-1 py-3 rounded-xl font-bold border-2 transition-all bg-slate-50 text-slate-500 border-slate-200">高</button>
+          <button type="button" data-level="中" class="urgency-btn flex-1 py-3 rounded-xl font-bold border-2 transition-all bg-yellow-100 text-yellow-800 border-yellow-400">中</button>
+          <button type="button" data-level="低" class="urgency-btn flex-1 py-3 rounded-xl font-bold border-2 transition-all bg-slate-50 text-slate-500 border-slate-200">低</button>
+        </div>
+        <input type="hidden" id="urgency" value="中">
+      </div>
+
+      <!-- 詳細說明 -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-bold text-slate-700">詳細說明 (人、事、時、地、物)</label>
+        <textarea id="description" required rows="4" placeholder="請詳細描述發生的經過，需要何種支援..."
+          class="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none transition-all text-base shadow-sm"></textarea>
+      </div>
+
+    </form>
+  </main>
+
+  <!-- 底部固定送出按鈕 -->
+  <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-md border-t border-slate-200 z-40">
+    <button type="submit" form="reportForm" 
+      class="w-full max-w-md mx-auto bg-blue-600 active:bg-blue-700 text-white font-bold py-4 rounded-xl flex items-center justify-center transition-colors shadow-lg text-lg">
+      直接呈報總經理 <i data-lucide="arrow-right" class="ml-2 w-5 h-5"></i>
+    </button>
+  </div>
+
+  <!-- 成功提示 Overlay -->
+  <div id="successOverlay" class="fixed inset-0 bg-white/95 backdrop-blur-sm z-50 hidden flex-col items-center justify-center">
+    <i data-lucide="check-circle" class="w-24 h-24 text-green-500 mb-6 drop-shadow-md"></i>
+    <h3 class="text-3xl font-bold text-slate-800 mb-2">呈報成功！</h3>
+    <p class="text-slate-500 font-medium text-lg">資料已加密送出，感謝您的回報。</p>
+  </div>
+
+  <script>
+    // 初始化 Lucide Icons
+    lucide.createIcons();
+
+    const APPEAL_STORAGE_KEY = 'gm_appeal_reports';
+
+    // 定義資料
+    const ROLE_ISSUES = {
+      '總幹事': ['管委會糾紛/異常要求', '社區合約危機(面臨解約)', '帳務/資金異常', '重大公共意外(火災/淹水)'],
+      '秘書': ['住戶嚴重客訴', '行政流程/帳務異常', '管委會交辦事項異常'],
+      '保全人員': ['住戶/訪客暴力衝突', '夜間突發緊急狀況', '哨點設備嚴重損壞', '排班/人力嚴重短缺'],
+      '清潔人員': ['重大衛生異常/大量廢棄物', '清潔設備/耗材嚴重缺乏', '工作環境安全/職災疑慮'],
+      '機電人員': ['電梯/發電機重大故障', '社區大停電/大漏水', '消防設備異常/安檢未過'],
+    };
+    const GENERAL_ISSUES = ['薪資/出勤異常', '職場霸凌/不平等待遇', '對公司營運重大建議', '其他'];
+
+    const roleSelect = document.getElementById('role');
+    const categorySelect = document.getElementById('category');
+    const urgencyBtns = document.querySelectorAll('.urgency-btn');
+    const urgencyInput = document.getElementById('urgency');
+    const form = document.getElementById('reportForm');
+    const successOverlay = document.getElementById('successOverlay');
+
+    function loadStoredReports() {
+      try {
+        const raw = localStorage.getItem(APPEAL_STORAGE_KEY);
+        const parsed = JSON.parse(raw || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveStoredReports(reports) {
+      localStorage.setItem(APPEAL_STORAGE_KEY, JSON.stringify(reports));
+    }
+
+    function formatReportDate(date) {
+      const d = date instanceof Date ? date : new Date(date);
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hour = String(d.getHours()).padStart(2, '0');
+      const minute = String(d.getMinutes()).padStart(2, '0');
+      return `${month}/${day} ${hour}:${minute}`;
+    }
+
+    function buildReportPayload() {
+      const now = new Date();
+      return {
+        id: `appeal-${Date.now()}`,
+        createdAt: now.toISOString(),
+        date: formatReportDate(now),
+        community: document.getElementById('community').value.trim(),
+        name: document.getElementById('name').value.trim(),
+        role: roleSelect.value,
+        category: categorySelect.value,
+        urgency: urgencyInput.value,
+        description: document.getElementById('description').value.trim(),
+        status: '未處理'
+      };
+    }
+
+    // 處理職務選擇連動分類
+    roleSelect.addEventListener('change', (e) => {
+      const role = e.target.value;
+      categorySelect.innerHTML = '<option value="" disabled selected>請選擇發生的狀況</option>';
+      
+      if (role) {
+        categorySelect.disabled = false;
+        categorySelect.classList.remove('bg-slate-100', 'text-slate-400');
+        categorySelect.classList.add('bg-white', 'text-slate-800');
+
+        // 加入特定職務選項
+        const optgroupRole = document.createElement('optgroup');
+        optgroupRole.label = `--- 常見狀況 (${role}) ---`;
+        ROLE_ISSUES[role].forEach(issue => {
+          optgroupRole.innerHTML += `<option value="${issue}">${issue}</option>`;
+        });
+        categorySelect.appendChild(optgroupRole);
+
+        // 加入通用選項
+        const optgroupGen = document.createElement('optgroup');
+        optgroupGen.label = '--- 公司通用狀況 ---';
+        GENERAL_ISSUES.forEach(issue => {
+          optgroupGen.innerHTML += `<option value="${issue}">${issue}</option>`;
+        });
+        categorySelect.appendChild(optgroupGen);
+      }
+    });
+
+    // 處理緊急程度按鈕樣式切換
+    const updateUrgencyStyles = (selectedLevel) => {
+      urgencyBtns.forEach(btn => {
+        const level = btn.getAttribute('data-level');
+        btn.className = 'urgency-btn flex-1 py-3 rounded-xl font-bold border-2 transition-all';
+        
+        if (level === selectedLevel) {
+          if (level === '高') btn.classList.add('bg-red-100', 'text-red-800', 'border-red-400');
+          if (level === '中') btn.classList.add('bg-yellow-100', 'text-yellow-800', 'border-yellow-400');
+          if (level === '低') btn.classList.add('bg-green-100', 'text-green-800', 'border-green-400');
+        } else {
+          btn.classList.add('bg-slate-50', 'text-slate-500', 'border-slate-200');
+        }
+      });
+    };
+
+    urgencyBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const level = e.target.getAttribute('data-level');
+        urgencyInput.value = level;
+        updateUrgencyStyles(level);
+      });
+    });
+
+    // 處理表單送出
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+
+      const payload = buildReportPayload();
+      const reports = loadStoredReports();
+      reports.unshift(payload);
+      saveStoredReports(reports);
+      
+      // 顯示成功畫面
+      successOverlay.classList.remove('hidden');
+      successOverlay.classList.add('flex', 'animate-fade-in');
+      
+      // 模擬傳送延遲後重置表單
+      setTimeout(() => {
+        successOverlay.classList.add('hidden');
+        successOverlay.classList.remove('flex', 'animate-fade-in');
+        form.reset();
+        
+        // 恢復預設狀態
+        categorySelect.innerHTML = '<option value="" disabled selected>請先選擇職務</option>';
+        categorySelect.disabled = true;
+        categorySelect.classList.add('bg-slate-100', 'text-slate-400');
+        categorySelect.classList.remove('bg-white', 'text-slate-800');
+        urgencyInput.value = '中';
+        updateUrgencyStyles('中');
+        window.scrollTo(0, 0);
+      }, 2500);
+    });
+
+  </script>
+</body>
+</html>
