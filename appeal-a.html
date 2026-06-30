@@ -6,6 +6,9 @@
   <title>總經理看板 - 總經理直通車</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="./firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <style>
     body { background-color: #f1f5f9; }
     /* 卡片進場動畫 */
@@ -191,28 +194,11 @@
   </div>
 
   <script>
-    const APPEAL_STORAGE_KEY = 'gm_appeal_reports';
-
-    const SAMPLE_REPORTS = [
-      {
-        id: 'sample-1', date: '06/30 09:15', createdAt: '2026-06-30T09:15:00+08:00', community: '帝寶社區', role: '機電人員', name: '王大明',
-        category: '社區大停電/大漏水', urgency: '高',
-        description: 'B2停車場因主幹管破裂導致嚴重積水，目前已關閉水閥，但抽水機故障，急需總公司支援調派大型抽水設備。',
-        status: '未處理'
-      },
-      {
-        id: 'sample-2', date: '06/29 22:30', createdAt: '2026-06-29T22:30:00+08:00', community: '幸福花園', role: '保全人員', name: '李建國',
-        category: '住戶/訪客暴力衝突', urgency: '高',
-        description: '晚間有外來訪客酒醉強行闖入，與夜班保全發生肢體衝突，已報警處理，保全輕傷已送醫，需回報裁示後續法務協助。',
-        status: '處理中'
-      },
-      {
-        id: 'sample-3', date: '06/28 14:00', createdAt: '2026-06-28T14:00:00+08:00', community: '信義之星', role: '總幹事', name: '林美玲',
-        category: '社區合約危機(面臨解約)', urgency: '中',
-        description: '新任主委對本月服務費調漲有異議，揚言下個月要重新招標，請業務部或總經理協助出面協調。',
-        status: '已結案'
-      }
-    ];
+    const DEFAULT_APP_ID = 'default-attendance-app';
+    const APP_ID = typeof window.__app_id === 'string' && window.__app_id.trim() ? window.__app_id.trim() : DEFAULT_APP_ID;
+    let firestoreDb = null;
+    let reportsCache = [];
+    let unsubscribeAppeals = null;
 
     const pendingReportList = document.getElementById('pendingReportList');
     const resolvedReportList = document.getElementById('resolvedReportList');
@@ -233,6 +219,67 @@
       role: 'all'
     };
 
+    function getFirestoreDb() {
+      if (!window.firebase) throw new Error('Firebase SDK 未載入');
+      if (!window.FIREBASE_CONFIG) throw new Error('缺少 firebase-config.js 或 FIREBASE_CONFIG');
+      if (!firebase.apps || firebase.apps.length === 0) firebase.initializeApp(window.FIREBASE_CONFIG);
+      return firebase.firestore();
+    }
+
+    function getAppealsCollection(db) {
+      return db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('appeals');
+    }
+
+    function formatReportDate(date) {
+      const d = date instanceof Date ? date : new Date(date);
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hour = String(d.getHours()).padStart(2, '0');
+      const minute = String(d.getMinutes()).padStart(2, '0');
+      return `${month}/${day} ${hour}:${minute}`;
+    }
+
+    function normalizeReport(doc) {
+      const data = doc.data() || {};
+      const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate() : new Date(data.clientCreatedAt || data.createdAt || 0);
+      const dateText = data.date ? String(data.date) : formatReportDate(createdAt);
+      return {
+        id: doc.id,
+        createdAt: createdAt.toISOString(),
+        date: dateText,
+        community: data.community || '',
+        role: data.role || '',
+        name: data.name || '',
+        category: data.category || '',
+        urgency: data.urgency || '中',
+        description: data.description || '',
+        status: data.status || '未處理',
+        handlingMethod: data.handlingMethod || '',
+        photo: data.photo || null
+      };
+    }
+
+    function updateLocalReport(reportId, patch) {
+      const id = String(reportId || '');
+      const idx = reportsCache.findIndex(r => String(r.id) === id);
+      if (idx === -1) return;
+      reportsCache[idx] = { ...reportsCache[idx], ...patch };
+    }
+
+    async function updateAppealDoc(reportId, patch) {
+      if (!firestoreDb) return;
+      const id = String(reportId || '');
+      if (!id) return;
+      updateLocalReport(id, patch);
+      renderReports();
+      try {
+        await getAppealsCollection(firestoreDb).doc(id).set(
+          { ...patch, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+      } catch (_) {}
+    }
+
     function escapeHtml(value) {
       return String(value || '')
         .replace(/&/g, '&amp;')
@@ -242,30 +289,8 @@
         .replace(/'/g, '&#39;');
     }
 
-    function loadReports() {
-      try {
-        const raw = localStorage.getItem(APPEAL_STORAGE_KEY);
-        const parsed = JSON.parse(raw || '[]');
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (_) {}
-      return SAMPLE_REPORTS;
-    }
-
-    function saveReports(reports) {
-      localStorage.setItem(APPEAL_STORAGE_KEY, JSON.stringify(reports));
-    }
-
-    function getMutableReports() {
-      try {
-        const raw = localStorage.getItem(APPEAL_STORAGE_KEY);
-        const parsed = JSON.parse(raw || '[]');
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (_) {}
-      return SAMPLE_REPORTS.map(report => ({ ...report }));
-    }
-
     function findReportById(reportId) {
-      return loadReports().find(report => String(report.id) === String(reportId || '')) || null;
+      return reportsCache.find(report => String(report.id) === String(reportId || '')) || null;
     }
 
     function buildLineShareText(report, handlingMethod) {
@@ -282,16 +307,10 @@
     }
 
     function openHandlingModal(reportId) {
-      const reports = getMutableReports();
-      const target = reports.find(report => String(report.id) === String(reportId || ''));
-      if (!target) return;
-      if (target.status !== '已處理') {
-        target.status = '已處理';
-        saveReports(reports);
-      }
-      const report = target;
+      const report = findReportById(reportId);
       if (!report) return;
       activeReportId = String(report.id);
+      if (report.status !== '已處理') updateAppealDoc(activeReportId, { status: '已處理' });
       document.getElementById('handlingModalTitle').textContent = `${report.community} / ${report.category}`;
       document.getElementById('handlingModalMeta').textContent = `${report.name} (${report.role}) | 目前狀態：${report.status || '未處理'}`;
       handlingMethodInput.value = String(report.handlingMethod || '');
@@ -310,23 +329,16 @@
 
     function saveHandlingMethod() {
       if (!activeReportId) return;
-      const reports = getMutableReports();
-      const target = reports.find(report => String(report.id) === activeReportId);
-      if (!target) return;
-      target.handlingMethod = handlingMethodInput.value.trim();
-      saveReports(reports);
-      renderReports();
+      updateAppealDoc(activeReportId, { handlingMethod: handlingMethodInput.value.trim(), status: '已處理' });
       closeHandlingModal();
     }
 
     function shareHandlingToLine() {
       if (!activeReportId) return;
-      const reports = getMutableReports();
-      const target = reports.find(report => String(report.id) === activeReportId);
+      const target = findReportById(activeReportId);
       if (!target) return;
       const handlingMethod = handlingMethodInput.value.trim();
-      target.handlingMethod = handlingMethod;
-      saveReports(reports);
+      updateAppealDoc(activeReportId, { handlingMethod, status: '已處理' });
       const text = buildLineShareText(target, handlingMethod);
       const lineUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
       window.open(lineUrl, '_blank', 'noopener');
@@ -393,7 +405,7 @@
     }
 
     function openFilterModal() {
-      populateRoleFilterOptions(loadReports());
+      populateRoleFilterOptions(reportsCache);
       syncFilterInputs();
       filterModal.classList.remove('hidden');
       filterModal.classList.add('flex');
@@ -492,7 +504,7 @@
     }
 
     function renderReports() {
-      const reports = sortReports(loadReports());
+      const reports = sortReports(reportsCache);
       populateRoleFilterOptions(reports);
       updateFilterButtonLabel();
       const filteredReports = reports.filter(matchesFilters);
@@ -569,10 +581,35 @@
       lucide.createIcons();
     }
 
-    renderReports();
-    window.addEventListener('storage', (event) => {
-      if (event.key === APPEAL_STORAGE_KEY) renderReports();
-    });
+    function startRealtime() {
+      try {
+        firestoreDb = getFirestoreDb();
+      } catch (err) {
+        pendingReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="alert-triangle" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">無法載入案件</p>
+            <p class="text-sm">${escapeHtml(String(err && err.message ? err.message : err))}</p>
+          </article>
+        `;
+        resolvedReportList.innerHTML = '';
+        lucide.createIcons();
+        return;
+      }
+
+      if (typeof unsubscribeAppeals === 'function') unsubscribeAppeals();
+      unsubscribeAppeals = getAppealsCollection(firestoreDb)
+        .orderBy('createdAt', 'desc')
+        .limit(200)
+        .onSnapshot((snap) => {
+          reportsCache = snap.docs.map(normalizeReport);
+          renderReports();
+        }, () => {});
+
+      renderReports();
+    }
+
+    startRealtime();
   </script>
 </body>
 </html>
