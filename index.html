@@ -8387,7 +8387,8 @@
                 { key: 'supervise', label: '督勤' },
                 { key: 'training', label: '訓練' },
                 { key: 'download', label: '下載' },
-                { key: 'tools', label: '工具' }
+                { key: 'tools', label: '工具' },
+                { key: 'appeal', label: '申訴' }
             ],
             cadre: [
                 { key: 'map', label: '地圖' },
@@ -9715,6 +9716,8 @@
             const [settingsSubtab, setSettingsSubtab] = useState('account');
             const [applicationSubtab, setApplicationSubtab] = useState('signature');
             const [functionSubtab, setFunctionSubtab] = useState('log');
+            const [appealOverlayOpen, setAppealOverlayOpen] = useState(false);
+            const [appealOverlayKey, setAppealOverlayKey] = useState(0);
             const [functionRegionFilter, setFunctionRegionFilter] = useState(() => {
                 try {
                     const v = localStorage.getItem('function_region_filter') || '';
@@ -9784,6 +9787,30 @@
                 }
                 setShareItem(null);
             };
+
+            const openAppealOverlay = () => {
+                if (typeof hasSubPermission === 'function' && !hasSubPermission('function', 'appeal')) return;
+                setAppealOverlayKey(k => k + 1);
+                setAppealOverlayOpen(true);
+            };
+
+            const closeAppealOverlay = () => {
+                setAppealOverlayOpen(false);
+            };
+
+            useEffect(() => {
+                if (!appealOverlayOpen) return;
+                const prevOverflow = document.body.style.overflow;
+                document.body.style.overflow = 'hidden';
+                const onKeyDown = (e) => {
+                    if (e.key === 'Escape') closeAppealOverlay();
+                };
+                window.addEventListener('keydown', onKeyDown);
+                return () => {
+                    document.body.style.overflow = prevOverflow;
+                    window.removeEventListener('keydown', onKeyDown);
+                };
+            }, [appealOverlayOpen]);
 
             const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
             const [editUserForm, setEditUserForm] = useState({});
@@ -14819,6 +14846,18 @@
                         </div>
                     )}
 
+                    {appealOverlayOpen && (
+                        <div className="fixed inset-0 z-[10000] bg-white flex flex-col">
+                            <div className="h-14 px-4 border-b border-gray-100 flex items-center justify-between">
+                                <div className="font-black text-gray-800">申訴</div>
+                                <button onClick={closeAppealOverlay} className="w-10 h-10 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 flex items-center justify-center">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <iframe key={appealOverlayKey} src="appeal-a.html" title="申訴" className="flex-1 w-full" style={{ border: 'none' }} />
+                        </div>
+                    )}
+
                     {shareModalOpen && (
                         <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4 animate-fade-in">
                             <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden animate-scale-up">
@@ -15495,6 +15534,7 @@
                                     {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
                                     {(hasSubPermission('function', 'tools') || hasSubPermission('function', 'download')) && <button onClick={() => setFunctionSubtab('tools')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'tools' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>工具</button>}
+                                    {hasSubPermission('function', 'appeal') && <button onClick={openAppealOverlay} className="px-3 py-2 text-xs font-bold rounded-2xl bg-gray-50 text-gray-700 whitespace-nowrap">申訴</button>}
                                 </div>
                             )}
                             {activeTab === 'community' && (

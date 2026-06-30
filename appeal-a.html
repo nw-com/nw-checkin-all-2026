@@ -37,39 +37,158 @@
   <main class="px-4 pt-6 max-w-lg mx-auto space-y-6">
     
     <!-- 統計數據卡片 -->
-    <section class="grid grid-cols-2 gap-3">
+    <section class="grid grid-cols-3 gap-3">
       <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col justify-center items-center">
         <div class="flex items-center text-red-500 mb-1">
           <i data-lucide="alert-triangle" class="w-5 h-5 mr-1"></i>
-          <span class="font-bold text-sm">高緊急案件</span>
+          <span class="font-bold text-sm">待處理高</span>
         </div>
-        <span class="text-3xl font-black text-slate-800" id="highCount">0</span>
+        <span class="text-3xl font-black text-slate-800" id="pendingHighCount">0</span>
       </div>
       
       <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col justify-center items-center">
-        <div class="flex items-center text-blue-500 mb-1">
-          <i data-lucide="inbox" class="w-5 h-5 mr-1"></i>
-          <span class="font-bold text-sm">待處理案件</span>
+        <div class="flex items-center text-yellow-500 mb-1">
+          <i data-lucide="clock-3" class="w-5 h-5 mr-1"></i>
+          <span class="font-bold text-sm">待處理中</span>
         </div>
-        <span class="text-3xl font-black text-slate-800" id="pendingCount">0</span>
+        <span class="text-3xl font-black text-slate-800" id="pendingMediumCount">0</span>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col justify-center items-center">
+        <div class="flex items-center text-green-500 mb-1">
+          <i data-lucide="badge-check" class="w-5 h-5 mr-1"></i>
+          <span class="font-bold text-sm">待處理低</span>
+        </div>
+        <span class="text-3xl font-black text-slate-800" id="pendingLowCount">0</span>
       </div>
     </section>
 
     <!-- 案件列表區 -->
     <section>
       <div class="flex items-center justify-between mb-4 px-1">
-        <h2 class="text-lg font-bold text-slate-800">最新反應案件</h2>
-        <button class="text-sm text-blue-600 font-semibold flex items-center">
-          <i data-lucide="filter" class="w-4 h-4 mr-1"></i> 篩選
+        <h2 class="text-lg font-bold text-slate-800">案件列表</h2>
+        <button id="filterButton" type="button" onclick="openFilterModal()" class="text-sm text-blue-600 font-semibold flex items-center">
+          <i data-lucide="filter" class="w-4 h-4 mr-1"></i> <span id="filterButtonLabel">篩選</span>
         </button>
       </div>
 
-      <div id="reportList" class="space-y-4">
-        <!-- 卡片將由 JavaScript 動態生成 -->
+      <div class="space-y-6">
+        <div>
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <i data-lucide="list-todo" class="w-4 h-4 text-red-500"></i>
+            <h3 class="text-base font-black text-slate-800">未處理案件</h3>
+          </div>
+          <div id="pendingReportList" class="space-y-4">
+            <!-- 未處理卡片將由 JavaScript 動態生成 -->
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <i data-lucide="archive" class="w-4 h-4 text-green-600"></i>
+            <h3 class="text-base font-black text-slate-800">已處理案件</h3>
+          </div>
+          <div id="resolvedReportList" class="space-y-4">
+            <!-- 已處理卡片將由 JavaScript 動態生成 -->
+          </div>
+        </div>
       </div>
     </section>
 
   </main>
+
+  <div id="handlingModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden items-end sm:items-center justify-center p-4" onclick="closeHandlingModal()">
+    <div class="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <div class="text-lg font-black text-slate-800">案件處理</div>
+          <div id="handlingModalSubtitle" class="text-xs text-slate-400 mt-1">填寫處理方式後可直接分享到 Line</div>
+        </div>
+        <button type="button" onclick="closeHandlingModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+          <div id="handlingModalTitle" class="font-bold text-slate-800"></div>
+          <div id="handlingModalMeta" class="text-xs text-slate-500 mt-1"></div>
+        </div>
+        <div>
+          <label for="handlingMethodInput" class="block text-sm font-bold text-slate-700 mb-2">處理方式</label>
+          <textarea id="handlingMethodInput" rows="5" placeholder="請輸入處理方式、支援需求或回覆內容..." class="w-full px-4 py-3 bg-white border border-slate-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-base shadow-sm"></textarea>
+        </div>
+        <div class="flex gap-3">
+          <button type="button" onclick="closeHandlingModal()" class="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 transition-colors">關閉</button>
+          <button type="button" onclick="saveHandlingMethod()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors">儲存</button>
+        </div>
+        <button type="button" onclick="shareHandlingToLine()" class="w-full py-3 rounded-2xl bg-[#06C755] hover:bg-[#05b64d] text-white font-black transition-colors flex items-center justify-center gap-2">
+          <span class="w-5 h-5 rounded bg-white/20 flex items-center justify-center">
+            <i data-lucide="message-circle" class="w-4 h-4"></i>
+          </span>
+          分享到 Line
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="filterModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden items-end sm:items-center justify-center p-4" onclick="closeFilterModal()">
+    <div class="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <div class="text-lg font-black text-slate-800">篩選案件</div>
+          <div class="text-xs text-slate-400 mt-1">可依緊急程度、狀態與職務篩選</div>
+        </div>
+        <button type="button" onclick="closeFilterModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div>
+          <label for="urgencyFilter" class="block text-sm font-bold text-slate-700 mb-2">緊急程度</label>
+          <select id="urgencyFilter" class="w-full px-4 py-3 bg-white border border-slate-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-base shadow-sm">
+            <option value="all">全部</option>
+            <option value="高">高</option>
+            <option value="中">中</option>
+            <option value="低">低</option>
+          </select>
+        </div>
+        <div>
+          <label for="statusFilter" class="block text-sm font-bold text-slate-700 mb-2">處理狀態</label>
+          <select id="statusFilter" class="w-full px-4 py-3 bg-white border border-slate-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-base shadow-sm">
+            <option value="all">全部</option>
+            <option value="pending">待處理</option>
+            <option value="resolved">已處理</option>
+          </select>
+        </div>
+        <div>
+          <label for="roleFilter" class="block text-sm font-bold text-slate-700 mb-2">職務</label>
+          <select id="roleFilter" class="w-full px-4 py-3 bg-white border border-slate-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-base shadow-sm">
+            <option value="all">全部</option>
+          </select>
+        </div>
+        <div class="flex gap-3">
+          <button type="button" onclick="resetFilters()" class="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 transition-colors">清除</button>
+          <button type="button" onclick="applyFilters()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors">套用</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="photoModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4" onclick="closePhotoModal()">
+    <div class="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <div class="text-lg font-black text-slate-800">案件照片</div>
+          <div id="photoModalMeta" class="text-xs text-slate-400 mt-1"></div>
+        </div>
+        <button type="button" onclick="closePhotoModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-4 bg-slate-50">
+        <img id="photoModalImage" src="" alt="案件照片" class="w-full max-h-[70vh] object-contain rounded-2xl bg-white border border-slate-200">
+      </div>
+    </div>
+  </div>
 
   <script>
     const APPEAL_STORAGE_KEY = 'gm_appeal_reports';
@@ -95,7 +214,24 @@
       }
     ];
 
-    const reportList = document.getElementById('reportList');
+    const pendingReportList = document.getElementById('pendingReportList');
+    const resolvedReportList = document.getElementById('resolvedReportList');
+    const handlingModal = document.getElementById('handlingModal');
+    const filterModal = document.getElementById('filterModal');
+    const photoModal = document.getElementById('photoModal');
+    const photoModalImage = document.getElementById('photoModalImage');
+    const photoModalMeta = document.getElementById('photoModalMeta');
+    const handlingMethodInput = document.getElementById('handlingMethodInput');
+    const urgencyFilterSelect = document.getElementById('urgencyFilter');
+    const statusFilterSelect = document.getElementById('statusFilter');
+    const roleFilterSelect = document.getElementById('roleFilter');
+    const filterButtonLabel = document.getElementById('filterButtonLabel');
+    let activeReportId = '';
+    const currentFilters = {
+      urgency: 'all',
+      status: 'all',
+      role: 'all'
+    };
 
     function escapeHtml(value) {
       return String(value || '')
@@ -115,6 +251,108 @@
       return SAMPLE_REPORTS;
     }
 
+    function saveReports(reports) {
+      localStorage.setItem(APPEAL_STORAGE_KEY, JSON.stringify(reports));
+    }
+
+    function getMutableReports() {
+      try {
+        const raw = localStorage.getItem(APPEAL_STORAGE_KEY);
+        const parsed = JSON.parse(raw || '[]');
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (_) {}
+      return SAMPLE_REPORTS.map(report => ({ ...report }));
+    }
+
+    function findReportById(reportId) {
+      return loadReports().find(report => String(report.id) === String(reportId || '')) || null;
+    }
+
+    function buildLineShareText(report, handlingMethod) {
+      const lines = [
+        '總經理直通車案件',
+        `社區：${report.community || ''}`,
+        `分類：${report.category || ''}`,
+        `緊急程度：${report.urgency || ''}`,
+        `回報人：${report.name || ''} (${report.role || ''})`,
+        `案件內容：${report.description || ''}`,
+        `處理方式：${handlingMethod || '尚未填寫'}`
+      ];
+      return lines.join('\n');
+    }
+
+    function openHandlingModal(reportId) {
+      const reports = getMutableReports();
+      const target = reports.find(report => String(report.id) === String(reportId || ''));
+      if (!target) return;
+      if (target.status !== '已處理') {
+        target.status = '已處理';
+        saveReports(reports);
+      }
+      const report = target;
+      if (!report) return;
+      activeReportId = String(report.id);
+      document.getElementById('handlingModalTitle').textContent = `${report.community} / ${report.category}`;
+      document.getElementById('handlingModalMeta').textContent = `${report.name} (${report.role}) | 目前狀態：${report.status || '未處理'}`;
+      handlingMethodInput.value = String(report.handlingMethod || '');
+      renderReports();
+      handlingModal.classList.remove('hidden');
+      handlingModal.classList.add('flex');
+      handlingMethodInput.focus();
+      lucide.createIcons();
+    }
+
+    function closeHandlingModal() {
+      activeReportId = '';
+      handlingModal.classList.add('hidden');
+      handlingModal.classList.remove('flex');
+    }
+
+    function saveHandlingMethod() {
+      if (!activeReportId) return;
+      const reports = getMutableReports();
+      const target = reports.find(report => String(report.id) === activeReportId);
+      if (!target) return;
+      target.handlingMethod = handlingMethodInput.value.trim();
+      saveReports(reports);
+      renderReports();
+      closeHandlingModal();
+    }
+
+    function shareHandlingToLine() {
+      if (!activeReportId) return;
+      const reports = getMutableReports();
+      const target = reports.find(report => String(report.id) === activeReportId);
+      if (!target) return;
+      const handlingMethod = handlingMethodInput.value.trim();
+      target.handlingMethod = handlingMethod;
+      saveReports(reports);
+      const text = buildLineShareText(target, handlingMethod);
+      const lineUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+      window.open(lineUrl, '_blank', 'noopener');
+      renderReports();
+    }
+
+    function openPhotoModal(reportId) {
+      const report = findReportById(reportId);
+      const photo = report && report.photo ? report.photo : null;
+      if (!report || !photo || !photo.dataUrl) return;
+      photoModalImage.src = photo.dataUrl;
+      photoModalImage.alt = `${report.community || ''} 案件照片`;
+      photoModalMeta.textContent = `${report.community || ''} / ${report.category || ''}`;
+      photoModal.classList.remove('hidden');
+      photoModal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function closePhotoModal() {
+      photoModalImage.src = '';
+      photoModalImage.alt = '案件照片';
+      photoModalMeta.textContent = '';
+      photoModal.classList.add('hidden');
+      photoModal.classList.remove('flex');
+    }
+
     function sortReports(reports) {
       return [...reports].sort((a, b) => {
         const timeA = new Date(a.createdAt || '').getTime() || 0;
@@ -123,27 +361,83 @@
       });
     }
 
-    function renderReports() {
-      const reports = sortReports(loadReports());
-      document.getElementById('highCount').textContent = reports.filter(r => r.urgency === '高').length;
-      document.getElementById('pendingCount').textContent = reports.filter(r => r.status === '未處理').length;
-      reportList.innerHTML = '';
-
-      if (reports.length === 0) {
-        reportList.innerHTML = `
-          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
-            <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-3"></i>
-            <p class="font-bold text-slate-500 mb-1">目前沒有案件</p>
-            <p class="text-sm">現場送出申訴後，這裡會即時顯示。</p>
-          </article>
-        `;
-        lucide.createIcons();
-        return;
+    function populateRoleFilterOptions(reports) {
+      const roles = Array.from(new Set((reports || []).map(report => String(report.role || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+      roleFilterSelect.innerHTML = '<option value="all">全部</option>';
+      roles.forEach((role) => {
+        const option = document.createElement('option');
+        option.value = role;
+        option.textContent = role;
+        roleFilterSelect.appendChild(option);
+      });
+      roleFilterSelect.value = currentFilters.role;
+      if (!Array.from(roleFilterSelect.options).some(option => option.value === currentFilters.role)) {
+        currentFilters.role = 'all';
+        roleFilterSelect.value = 'all';
       }
+    }
 
-      reports.forEach((report, index) => {
+    function syncFilterInputs() {
+      urgencyFilterSelect.value = currentFilters.urgency;
+      statusFilterSelect.value = currentFilters.status;
+      roleFilterSelect.value = currentFilters.role;
+    }
+
+    function getActiveFilterCount() {
+      return ['urgency', 'status', 'role'].filter((key) => currentFilters[key] !== 'all').length;
+    }
+
+    function updateFilterButtonLabel() {
+      const count = getActiveFilterCount();
+      filterButtonLabel.textContent = count > 0 ? `篩選 (${count})` : '篩選';
+    }
+
+    function openFilterModal() {
+      populateRoleFilterOptions(loadReports());
+      syncFilterInputs();
+      filterModal.classList.remove('hidden');
+      filterModal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function closeFilterModal() {
+      filterModal.classList.add('hidden');
+      filterModal.classList.remove('flex');
+    }
+
+    function applyFilters() {
+      currentFilters.urgency = urgencyFilterSelect.value;
+      currentFilters.status = statusFilterSelect.value;
+      currentFilters.role = roleFilterSelect.value;
+      updateFilterButtonLabel();
+      renderReports();
+      closeFilterModal();
+    }
+
+    function resetFilters() {
+      currentFilters.urgency = 'all';
+      currentFilters.status = 'all';
+      currentFilters.role = 'all';
+      syncFilterInputs();
+      updateFilterButtonLabel();
+      renderReports();
+      closeFilterModal();
+    }
+
+    function matchesFilters(report) {
+      const matchesUrgency = currentFilters.urgency === 'all' || String(report.urgency || '') === currentFilters.urgency;
+      const isResolved = String(report.status || '') === '已處理';
+      const matchesStatus = currentFilters.status === 'all'
+        || (currentFilters.status === 'pending' && !isResolved)
+        || (currentFilters.status === 'resolved' && isResolved);
+      const matchesRole = currentFilters.role === 'all' || String(report.role || '') === currentFilters.role;
+      return matchesUrgency && matchesStatus && matchesRole;
+    }
+
+    function getReportCardHtml(report, index) {
       let urgencyStyles = '';
       let statusStyles = '';
+      const hasPhoto = !!(report && report.photo && report.photo.dataUrl);
 
       if (report.urgency === '高') urgencyStyles = 'bg-red-100 text-red-700 border-red-200';
       else if (report.urgency === '中') urgencyStyles = 'bg-yellow-100 text-yellow-700 border-yellow-200';
@@ -151,12 +445,12 @@
 
       if (report.status === '未處理') statusStyles = 'text-red-500 bg-red-50';
       else if (report.status === '處理中') statusStyles = 'text-blue-600 bg-blue-50';
+      else if (report.status === '已處理') statusStyles = 'text-green-600 bg-green-50';
       else statusStyles = 'text-slate-500 bg-slate-100';
 
-      const cardHTML = `
+      return `
         <article class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden card-enter" style="animation-delay: ${index * 0.1}s">
           <div class="p-4">
-            <!-- 頭部：狀態與時間 -->
             <div class="flex justify-between items-center mb-3">
               <span class="px-2.5 py-1 text-xs font-bold rounded-md border ${urgencyStyles}">
                 ${escapeHtml(report.urgency)}急
@@ -165,35 +459,112 @@
                 <i data-lucide="clock" class="w-3.5 h-3.5 mr-1"></i> ${escapeHtml(report.date)}
               </div>
             </div>
-            
-            <!-- 標題與分類 -->
             <h3 class="text-xl font-bold text-slate-800 mb-1">${escapeHtml(report.community)}</h3>
             <div class="inline-block bg-blue-50 text-blue-700 text-xs font-bold px-2 py-1 rounded mb-3">
               ${escapeHtml(report.category)}
             </div>
-            
-            <!-- 內文 -->
-            <p class="text-slate-600 text-sm leading-relaxed mb-4">
-              ${escapeHtml(report.description)}
-            </p>
-            
-            <!-- 底部資訊 -->
+            <div class="flex items-start gap-3 mb-4">
+              <p class="flex-1 text-slate-600 text-sm leading-relaxed mb-0">
+                ${escapeHtml(report.description)}
+              </p>
+              ${hasPhoto ? `
+                <button type="button" onclick='openPhotoModal(${JSON.stringify(String(report.id || ""))})' class="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-colors shrink-0" title="查看照片">
+                  <i data-lucide="image" class="w-4 h-4"></i>
+                </button>
+              ` : ''}
+            </div>
             <div class="flex justify-between items-end border-t border-slate-100 pt-3">
-              <div class="flex items-center text-sm text-slate-500 font-medium">
-                <div class="bg-slate-100 p-1.5 rounded-full mr-2">
-                  <i data-lucide="user" class="w-4 h-4 text-slate-600"></i>
+              <div class="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                <div class="flex items-center">
+                  <div class="bg-slate-100 p-1.5 rounded-full mr-2">
+                    <i data-lucide="user" class="w-4 h-4 text-slate-600"></i>
+                  </div>
+                  <span>${escapeHtml(report.name)} <span class="text-slate-400 text-xs ml-1">(${escapeHtml(report.role)})</span></span>
                 </div>
-                <span>${escapeHtml(report.name)} <span class="text-slate-400 text-xs ml-1">(${escapeHtml(report.role)})</span></span>
               </div>
-              <span class="text-xs font-bold px-2.5 py-1 rounded-full ${statusStyles}">
+              <span onclick='openHandlingModal(${JSON.stringify(String(report.id || ""))})' class="text-xs font-bold px-2.5 py-1 rounded-full ${statusStyles} cursor-pointer hover:opacity-80 transition-opacity" title="點擊填寫處理方式並分享到 Line">
                 ${escapeHtml(report.status)}
               </span>
             </div>
           </div>
         </article>
       `;
-      reportList.insertAdjacentHTML('beforeend', cardHTML);
-      });
+    }
+
+    function renderReports() {
+      const reports = sortReports(loadReports());
+      populateRoleFilterOptions(reports);
+      updateFilterButtonLabel();
+      const filteredReports = reports.filter(matchesFilters);
+      const pendingReports = filteredReports.filter(r => r.status !== '已處理');
+      const resolvedReports = filteredReports.filter(r => r.status === '已處理');
+      document.getElementById('pendingHighCount').textContent = pendingReports.filter(r => r.urgency === '高').length;
+      document.getElementById('pendingMediumCount').textContent = pendingReports.filter(r => r.urgency === '中').length;
+      document.getElementById('pendingLowCount').textContent = pendingReports.filter(r => r.urgency === '低').length;
+      pendingReportList.innerHTML = '';
+      resolvedReportList.innerHTML = '';
+
+      if (reports.length === 0) {
+        pendingReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">目前沒有案件</p>
+            <p class="text-sm">現場送出申訴後，這裡會即時顯示。</p>
+          </article>
+        `;
+        resolvedReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="archive" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">目前沒有已處理案件</p>
+          </article>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      if (filteredReports.length === 0) {
+        pendingReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="filter-x" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">沒有符合篩選條件的案件</p>
+            <p class="text-sm">請調整篩選條件後再試一次。</p>
+          </article>
+        `;
+        resolvedReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="filter-x" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">目前沒有符合條件的已處理案件</p>
+          </article>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      if (pendingReports.length === 0) {
+        pendingReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="list-todo" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">目前沒有未處理案件</p>
+          </article>
+        `;
+      } else {
+        pendingReports.forEach((report, index) => {
+          pendingReportList.insertAdjacentHTML('beforeend', getReportCardHtml(report, index));
+        });
+      }
+
+      if (resolvedReports.length === 0) {
+        resolvedReportList.innerHTML = `
+          <article class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+            <i data-lucide="archive" class="w-10 h-10 mx-auto mb-3"></i>
+            <p class="font-bold text-slate-500 mb-1">目前沒有已處理案件</p>
+          </article>
+        `;
+      } else {
+        resolvedReports.forEach((report, index) => {
+          resolvedReportList.insertAdjacentHTML('beforeend', getReportCardHtml(report, index));
+        });
+      }
 
       lucide.createIcons();
     }
