@@ -360,11 +360,7 @@
     }
 
     function buildAppealShareUrl() {
-      try {
-        return new URL('./appeal.html', window.location.href).toString();
-      } catch {
-        return './appeal.html';
-      }
+      return 'https://nw-com.github.io/nw-checkin-all-2026/appeal.html';
     }
 
     function openAppealShareModal() {
@@ -373,7 +369,7 @@
       if (appealShareQrEl) {
         appealShareQrEl.innerHTML = '';
         try {
-          new QRCode(appealShareQrEl, { text: appealShareUrl, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+          appealShareQrEl.innerHTML = `<img src="./photo/qr001.jpg" alt="申訴 QR Code" class="w-[220px] h-[220px] object-contain rounded-2xl bg-white" />`;
         } catch (_) {}
       }
       if (appealShareModal) {
@@ -390,33 +386,20 @@
       }
     }
 
-    function dataUrlToBlob(dataUrl) {
-      const parts = String(dataUrl || '').split(',');
-      if (parts.length < 2) return null;
-      const mime = String(parts[0] || '').match(/data:(.*?);base64/)?.[1] || 'application/octet-stream';
-      const binStr = atob(parts[1]);
-      const len = binStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) bytes[i] = binStr.charCodeAt(i);
-      return new Blob([bytes], { type: mime });
-    }
-
     async function getAppealQrFile() {
-      if (!appealShareQrEl) return null;
-      const canvas = appealShareQrEl.querySelector('canvas');
-      const img = appealShareQrEl.querySelector('img');
-      let dataUrl = '';
-      if (canvas && typeof canvas.toDataURL === 'function') dataUrl = canvas.toDataURL('image/png');
-      else if (img && img.src) dataUrl = String(img.src);
-      if (!dataUrl) return null;
-      const blob = dataUrlToBlob(dataUrl);
-      if (!blob) return null;
-      return new File([blob], 'appeal_qr.png', { type: blob.type || 'image/png' });
+      try {
+        const res = await fetch('./photo/qr001.jpg', { cache: 'reload' });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        return new File([blob], 'qr001.jpg', { type: blob.type || 'image/jpeg' });
+      } catch (_) {
+        return null;
+      }
     }
 
     async function shareAppealToLine() {
       if (!appealShareUrl) appealShareUrl = buildAppealShareUrl();
-      const text = `直通總經理的申訴管道\n${appealShareUrl}`;
+      const text = `${appealShareUrl}`;
       try {
         const file = await getAppealQrFile();
         if (file && navigator && navigator.canShare && navigator.canShare({ files: [file] })) {
