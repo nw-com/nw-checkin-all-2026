@@ -25,7 +25,7 @@
   <header class="sticky top-0 left-0 right-0 bg-slate-900 text-white shadow-lg z-40">
     <div class="flex items-center justify-between h-16 px-4 max-w-lg mx-auto">
       <div class="flex items-center">
-        <i data-lucide="shield-alert" class="w-7 h-7 mr-2 text-blue-400"></i>
+        <i data-lucide="shield-alert" class="w-7 h-7 mr-2 text-red-400"></i>
         <h1 class="text-xl font-bold tracking-wide">總經理看板</h1>
       </div>
       <div class="flex items-center gap-3">
@@ -76,7 +76,7 @@
     <section>
       <div class="flex items-center justify-between mb-4 px-1">
         <h2 class="text-lg font-bold text-slate-800">案件列表</h2>
-        <button id="filterButton" type="button" onclick="openFilterModal()" class="text-sm text-blue-600 font-semibold flex items-center">
+        <button id="filterButton" type="button" onclick="openFilterModal()" class="text-sm text-red-600 font-semibold flex items-center">
           <i data-lucide="filter" class="w-4 h-4 mr-1"></i> <span id="filterButtonLabel">篩選</span>
         </button>
       </div>
@@ -236,6 +236,7 @@
 
   <script>
     const DEFAULT_APP_ID = 'default-attendance-app';
+    const PUBLIC_SITE_ORIGIN = 'https://nw-com.github.io/nw-checkin-all-2026';
     const APP_ID = typeof window.__app_id === 'string' && window.__app_id.trim() ? window.__app_id.trim() : DEFAULT_APP_ID;
     let firestoreDb = null;
     let reportsCache = [];
@@ -302,6 +303,7 @@
         community: data.community || '',
         role: data.role || '',
         name: data.name || '',
+        contactPhone: data.contactPhone || '',
         category: data.category || '',
         urgency: data.urgency || '中',
         description: data.description || '',
@@ -346,15 +348,27 @@
       return reportsCache.find(report => String(report.id) === String(reportId || '')) || null;
     }
 
+    function normalizePhoneForTel(phone) {
+      return String(phone || '').trim().replace(/[^\d+]/g, '');
+    }
+
+    function buildAppealDetailUrl(reportId) {
+      return `${PUBLIC_SITE_ORIGIN}/appeal-detail.html?id=${encodeURIComponent(String(reportId || ''))}`;
+    }
+
     function buildLineShareText(report, handlingMethod) {
+      const detailUrl = buildAppealDetailUrl(report.id);
       const lines = [
         '總經理直通車案件',
         `社區：${report.community || ''}`,
         `分類：${report.category || ''}`,
         `緊急程度：${report.urgency || ''}`,
         `回報人：${report.name || ''} (${report.role || ''})`,
+        `聯絡電話：${report.contactPhone || '未填寫'}`,
         `案件內容：${report.description || ''}`,
-        `處理方式：${handlingMethod || '尚未填寫'}`
+        `處理方式：${handlingMethod || '尚未填寫'}`,
+        '',
+        `案件連結：${detailUrl}`
       ];
       return lines.join('\n');
     }
@@ -587,6 +601,26 @@
       photoModal.classList.remove('flex');
     }
 
+    function dialContactPhone(event, phone) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      const normalized = normalizePhoneForTel(phone);
+      if (!normalized) return;
+      window.location.href = `tel:${normalized}`;
+    }
+
+    function openPublicAppealDetail(event, reportId) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      const detailUrl = buildAppealDetailUrl(reportId);
+      if (!detailUrl) return;
+      window.open(detailUrl, '_blank', 'noopener');
+    }
+
     function sortReports(reports) {
       return [...reports].sort((a, b) => {
         const timeA = new Date(a.createdAt || '').getTime() || 0;
@@ -672,6 +706,7 @@
       let urgencyStyles = '';
       let statusStyles = '';
       const hasPhoto = !!(report && report.photo && report.photo.dataUrl);
+      const hasContactPhone = !!String(report.contactPhone || '').trim();
       const reportId = String(report.id || '');
       const isSelected = selectionMode && selectedReportIds.has(reportId);
       const cardRing = isSelected ? 'ring-2 ring-blue-500 border-blue-200' : 'border-slate-200';
@@ -720,7 +755,7 @@
                 </button>
               ` : ''}
             </div>
-            <div class="flex justify-between items-end border-t border-slate-100 pt-3">
+            <div class="flex justify-between items-end border-t border-slate-100 pt-3 gap-3">
               <div class="flex items-center gap-2 text-sm text-slate-500 font-medium">
                 <div class="flex items-center">
                   <div class="bg-slate-100 p-1.5 rounded-full mr-2">
@@ -729,9 +764,21 @@
                   <span>${escapeHtml(report.name)} <span class="text-slate-400 text-xs ml-1">(${escapeHtml(report.role)})</span></span>
                 </div>
               </div>
-              <span onclick='openHandlingModal(${JSON.stringify(reportId)})' class="text-xs font-bold px-2.5 py-1 rounded-full ${statusStyles} cursor-pointer hover:opacity-80 transition-opacity" title="點擊填寫處理方式並分享到 Line">
-                ${escapeHtml(report.status)}
-              </span>
+              <div class="flex items-center gap-2 shrink-0">
+                ${hasContactPhone ? `
+                  <button
+                    type="button"
+                    onclick='dialContactPhone(event, ${JSON.stringify(report.contactPhone)})'
+                    onpointerdown="event.stopPropagation()"
+                    class="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors"
+                    title="撥打聯絡電話">
+                    <i data-lucide="phone-call" class="w-4 h-4"></i>
+                  </button>
+                ` : ''}
+                <span onclick='openHandlingModal(${JSON.stringify(reportId)})' class="text-xs font-bold px-2.5 py-1 rounded-full ${statusStyles} cursor-pointer hover:opacity-80 transition-opacity whitespace-nowrap" title="點擊填寫處理方式並分享到 Line">
+                  ${escapeHtml(report.status)}
+                </span>
+              </div>
             </div>
           </div>
         </article>

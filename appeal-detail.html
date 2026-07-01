@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>案件詳情 - 總經理直通車</title>
+  <meta name="description" content="總經理直通車案件公開詳情頁面">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="./firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+    <div class="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center">
+        <i data-lucide="shield-alert" class="w-5 h-5 mr-2 text-red-500"></i>
+        <h1 class="text-base font-black tracking-wide">總經理直通車</h1>
+      </div>
+      <a href="./appeal.html" class="text-sm font-bold text-red-600">申訴入口</a>
+    </div>
+  </header>
+
+  <main class="max-w-lg mx-auto p-4 space-y-4">
+    <div id="loadingState" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 text-center text-slate-500">
+      載入案件資料中...
+    </div>
+
+    <div id="errorState" class="hidden bg-white rounded-3xl border border-red-100 shadow-sm p-6 text-center">
+      <div class="text-lg font-black text-red-600">找不到案件</div>
+      <div class="text-sm text-slate-500 mt-2">請確認連結是否正確，或該案件已被移除。</div>
+    </div>
+
+    <article id="detailCard" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="p-5">
+        <div class="flex justify-between items-center gap-3 mb-4">
+          <span id="urgencyBadge" class="px-3 py-1 text-xs font-bold rounded-full border"></span>
+          <span id="statusBadge" class="px-3 py-1 text-xs font-bold rounded-full"></span>
+        </div>
+
+        <h2 id="detailCommunity" class="text-2xl font-black text-slate-800"></h2>
+        <div id="detailCategory" class="inline-block mt-2 bg-blue-50 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-xl"></div>
+
+        <div class="mt-4 grid grid-cols-1 gap-3 text-sm">
+          <div class="flex items-start gap-3 bg-slate-50 rounded-2xl p-3">
+            <i data-lucide="clock-3" class="w-4 h-4 mt-0.5 text-slate-400"></i>
+            <div>
+              <div class="text-xs text-slate-400">回報時間</div>
+              <div id="detailDate" class="font-bold text-slate-700"></div>
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3 bg-slate-50 rounded-2xl p-3">
+            <i data-lucide="user" class="w-4 h-4 mt-0.5 text-slate-400"></i>
+            <div>
+              <div class="text-xs text-slate-400">回報人 / 職務</div>
+              <div id="detailReporter" class="font-bold text-slate-700"></div>
+            </div>
+          </div>
+
+          <div id="detailPhoneBlock" class="hidden flex items-start gap-3 bg-slate-50 rounded-2xl p-3">
+            <i data-lucide="phone" class="w-4 h-4 mt-0.5 text-slate-400"></i>
+            <div class="flex-1">
+              <div class="text-xs text-slate-400">聯絡電話</div>
+              <div class="flex items-center justify-between gap-3">
+                <div id="detailPhone" class="font-bold text-slate-700 break-all"></div>
+                <a id="detailPhoneLink" href="#" class="shrink-0 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-600 text-xs font-bold">立即撥打</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 rounded-2xl p-3">
+            <div class="text-xs text-slate-400 mb-1">案件內容</div>
+            <p id="detailDescription" class="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap"></p>
+          </div>
+
+          <div id="detailHandlingBlock" class="bg-slate-50 rounded-2xl p-3">
+            <div class="text-xs text-slate-400 mb-1">處理方式</div>
+            <p id="detailHandling" class="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap"></p>
+          </div>
+
+          <div id="detailPhotoBlock" class="hidden bg-slate-50 rounded-2xl p-3">
+            <div class="text-xs text-slate-400 mb-2">案件照片</div>
+            <img id="detailPhoto" src="" alt="案件照片" class="w-full rounded-2xl border border-slate-200 bg-white object-contain max-h-[28rem]">
+          </div>
+        </div>
+      </div>
+    </article>
+  </main>
+
+  <script>
+    const DEFAULT_APP_ID = 'default-attendance-app';
+    const APP_ID = typeof window.__app_id === 'string' && window.__app_id.trim() ? window.__app_id.trim() : DEFAULT_APP_ID;
+
+    const loadingState = document.getElementById('loadingState');
+    const errorState = document.getElementById('errorState');
+    const detailCard = document.getElementById('detailCard');
+    const urgencyBadge = document.getElementById('urgencyBadge');
+    const statusBadge = document.getElementById('statusBadge');
+    const detailCommunity = document.getElementById('detailCommunity');
+    const detailCategory = document.getElementById('detailCategory');
+    const detailDate = document.getElementById('detailDate');
+    const detailReporter = document.getElementById('detailReporter');
+    const detailDescription = document.getElementById('detailDescription');
+    const detailHandling = document.getElementById('detailHandling');
+    const detailHandlingBlock = document.getElementById('detailHandlingBlock');
+    const detailPhoneBlock = document.getElementById('detailPhoneBlock');
+    const detailPhone = document.getElementById('detailPhone');
+    const detailPhoneLink = document.getElementById('detailPhoneLink');
+    const detailPhotoBlock = document.getElementById('detailPhotoBlock');
+    const detailPhoto = document.getElementById('detailPhoto');
+
+    function getFirestoreDb() {
+      if (!window.firebase) throw new Error('Firebase SDK 未載入');
+      if (!window.FIREBASE_CONFIG) throw new Error('缺少 firebase-config.js 或 FIREBASE_CONFIG');
+      if (!firebase.apps || firebase.apps.length === 0) firebase.initializeApp(window.FIREBASE_CONFIG);
+      return firebase.firestore();
+    }
+
+    function getAppealsCollection(db) {
+      return db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('appeals');
+    }
+
+    function normalizePhoneForTel(phone) {
+      return String(phone || '').trim().replace(/[^\d+]/g, '');
+    }
+
+    function setVisibility(el, visible) {
+      if (!el) return;
+      el.classList.toggle('hidden', !visible);
+    }
+
+    function setUrgencyBadge(urgency) {
+      const level = String(urgency || '中');
+      urgencyBadge.className = 'px-3 py-1 text-xs font-bold rounded-full border';
+      if (level === '高') urgencyBadge.classList.add('bg-red-100', 'text-red-700', 'border-red-200');
+      else if (level === '中') urgencyBadge.classList.add('bg-yellow-100', 'text-yellow-700', 'border-yellow-200');
+      else urgencyBadge.classList.add('bg-green-100', 'text-green-700', 'border-green-200');
+      urgencyBadge.textContent = `${level}急`;
+    }
+
+    function setStatusBadge(status) {
+      const text = String(status || '未處理');
+      statusBadge.className = 'px-3 py-1 text-xs font-bold rounded-full';
+      if (text === '已處理') statusBadge.classList.add('bg-green-50', 'text-green-600');
+      else if (text === '處理中') statusBadge.classList.add('bg-blue-50', 'text-blue-600');
+      else statusBadge.classList.add('bg-red-50', 'text-red-500');
+      statusBadge.textContent = text;
+    }
+
+    function renderAppeal(data) {
+      setUrgencyBadge(data.urgency);
+      setStatusBadge(data.status);
+      detailCommunity.textContent = data.community || '未填寫社區';
+      detailCategory.textContent = data.category || '未分類';
+      detailDate.textContent = data.date || '';
+      detailReporter.textContent = `${data.name || '未填寫'}${data.role ? ` (${data.role})` : ''}`;
+      detailDescription.textContent = data.description || '未填寫';
+      detailHandling.textContent = data.handlingMethod || '尚未填寫';
+      setVisibility(detailHandlingBlock, true);
+
+      const phone = String(data.contactPhone || '').trim();
+      const telValue = normalizePhoneForTel(phone);
+      if (phone && telValue) {
+        detailPhone.textContent = phone;
+        detailPhoneLink.href = `tel:${telValue}`;
+        setVisibility(detailPhoneBlock, true);
+      } else {
+        setVisibility(detailPhoneBlock, false);
+      }
+
+      const photoDataUrl = data.photo && data.photo.dataUrl ? String(data.photo.dataUrl) : '';
+      if (photoDataUrl) {
+        detailPhoto.src = photoDataUrl;
+        setVisibility(detailPhotoBlock, true);
+      } else {
+        detailPhoto.src = '';
+        setVisibility(detailPhotoBlock, false);
+      }
+
+      setVisibility(loadingState, false);
+      setVisibility(errorState, false);
+      setVisibility(detailCard, true);
+      lucide.createIcons();
+    }
+
+    async function loadAppeal() {
+      const params = new URLSearchParams(window.location.search);
+      const appealId = String(params.get('id') || '').trim();
+      if (!appealId) {
+        setVisibility(loadingState, false);
+        setVisibility(errorState, true);
+        return;
+      }
+
+      try {
+        const db = getFirestoreDb();
+        const snapshot = await getAppealsCollection(db).doc(appealId).get();
+        if (!snapshot.exists) {
+          setVisibility(loadingState, false);
+          setVisibility(errorState, true);
+          return;
+        }
+
+        const data = snapshot.data() || {};
+        if (data.deleted) {
+          setVisibility(loadingState, false);
+          setVisibility(errorState, true);
+          return;
+        }
+
+        renderAppeal({
+          community: data.community || '',
+          category: data.category || '',
+          date: data.date || '',
+          name: data.name || '',
+          role: data.role || '',
+          contactPhone: data.contactPhone || '',
+          urgency: data.urgency || '中',
+          description: data.description || '',
+          status: data.status || '未處理',
+          handlingMethod: data.handlingMethod || '',
+          photo: data.photo || null
+        });
+      } catch (_) {
+        setVisibility(loadingState, false);
+        setVisibility(errorState, true);
+      }
+    }
+
+    lucide.createIcons();
+    loadAppeal();
+  </script>
+</body>
+</html>
