@@ -10110,6 +10110,8 @@
             const [showCompanyMenu, setShowCompanyMenu] = useState(false);
             const [roles, setRoles] = useState([]);
             const [companies, setCompanies] = useState([]);
+            const [appealsList, setAppealsList] = useState([]);
+            const [pendingAppealsCount, setPendingAppealsCount] = useState({ high: 0, medium: 0, low: 0, total: 0 });
 
             // Helper for Notification Targeting
             const isNotificationTarget = (notification) => {
@@ -12879,6 +12881,41 @@
                     cancelled = true;
                     unsubscribes.forEach(u => u());
                 };
+            }, [user]);
+
+            useEffect(() => {
+                if (!user || !db) return;
+                const appealsRef = collection(db, 'artifacts', appId, 'public', 'data', 'appeals');
+                const q = query(appealsRef, orderBy('createdAt', 'desc'), limit(200));
+                const unsubscribe = onSnapshot(
+                    q,
+                    (snap) => {
+                        const reports = snap.docs.map(doc => {
+                            const data = doc.data() || {};
+                            return {
+                                id: doc.id,
+                                urgency: data.urgency || '中',
+                                status: data.status || '未處理',
+                                deleted: !!data.deleted
+                            };
+                        }).filter(r => !r.deleted);
+                        
+                        const pendingReports = reports.filter(r => r.status !== '已處理');
+                        const countHigh = pendingReports.filter(r => r.urgency === '高').length;
+                        const countMedium = pendingReports.filter(r => r.urgency === '中').length;
+                        const countLow = pendingReports.filter(r => r.urgency === '低').length;
+                        setAppealsList(reports);
+                        setPendingAppealsCount({
+                            high: countHigh,
+                            medium: countMedium,
+                            low: countLow,
+                            total: pendingReports.length
+                        });
+                    },
+                    () => {}
+                );
+                
+                return () => unsubscribe();
             }, [user]);
 
             // 1. Stable Data (Companies, Areas, Users, All Attendance)
@@ -15830,7 +15867,14 @@
                                     {hasSubPermission('function', 'training') && <button onClick={() => setFunctionSubtab('training')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'training' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>訓練</button>}
                                     {hasSubPermission('function', 'download') && <button onClick={() => setFunctionSubtab('download')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'download' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>下載</button>}
                                     {(hasSubPermission('function', 'tools') || hasSubPermission('function', 'download')) && <button onClick={() => setFunctionSubtab('tools')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${functionSubtab === 'tools' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>工具</button>}
-                                    {hasSubPermission('function', 'appeal') && <button onClick={openAppealOverlay} className="px-3 py-2 text-xs font-bold rounded-2xl bg-gray-50 text-gray-700 whitespace-nowrap">申訴</button>}
+                                    {hasSubPermission('function', 'appeal') && <button onClick={openAppealOverlay} className="relative px-3 py-2 text-xs font-bold rounded-2xl bg-gray-50 text-gray-700 whitespace-nowrap">
+                                        申訴
+                                        {pendingAppealsCount.total > 0 && (
+                                            <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
+                                                {pendingAppealsCount.total}
+                                            </span>
+                                        )}
+                                    </button>}
                                 </div>
                             )}
                             {activeTab === 'community' && (
@@ -27481,9 +27525,14 @@
                                 <div className="flex-1 flex justify-center">
                                     <button
                                         onClick={() => switchTab('function')}
-                                        className={`flex flex-col items-center font-bold text-xs ${activeTab === 'function' ? 'text-red-600' : 'text-gray-600'}`}
+                                        className={`relative flex flex-col items-center font-bold text-xs ${activeTab === 'function' ? 'text-red-600' : 'text-gray-600'}`}
                                     >
                                         <Briefcase className="w-5 h-5 mb-1" /> 功能
+                                        {pendingAppealsCount.total > 0 && (
+                                            <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
+                                                {pendingAppealsCount.total}
+                                            </span>
+                                        )}
                                     </button>
                                 </div>
                             )}
