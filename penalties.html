@@ -72,12 +72,11 @@
                         <select id="penalty-unit" onchange="updateAmountLabel()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
                             <option value="">請選擇計量方式</option>
                             <option value="points">點數</option>
-                            <option value="money">金額</option>
                         </select>
                     </div>
                     <div>
                         <label id="penalty-amount-label" class="block text-xs font-bold text-gray-400 uppercase mb-1">數值</label>
-                        <input type="number" id="penalty-amount" placeholder="請輸入數值" 
+                        <input type="number" id="penalty-amount" value="1" placeholder="請輸入數值" 
                                class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
                     </div>
                     <div>
@@ -208,7 +207,6 @@
                     <select id="edit-unit" onchange="updateAmountLabel()" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
                         <option value="">請選擇計量方式</option>
                         <option value="points">點數</option>
-                        <option value="money">金額</option>
                     </select>
                 </div>
                 <div>
@@ -264,19 +262,33 @@
             </div>
             <div class="px-5 py-4">
                 <div id="share-community-name" class="text-sm font-bold text-gray-800 mb-3"></div>
-                <div class="mt-3">
-                    <div class="text-xs font-bold text-gray-400 uppercase mb-1">說明</div>
-                    <div class="text-xs text-gray-500">此功能用於分享統計報表</div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-1">說明</div>
+                        <div class="text-xs text-gray-500">此連結為公開唯讀頁面，可查看目前日期的獎懲記錄，無法編輯或刪除。</div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-1">分享連結</div>
+                        <input id="share-public-url" type="text" readonly class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg text-gray-600" value="">
+                    </div>
                 </div>
             </div>
-            <div class="px-5 py-4 border-t border-gray-100">
+            <div class="px-5 py-4 border-t border-gray-100 space-y-2">
+                <button onclick="copyPublicShareUrl()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition flex items-center justify-center gap-2">
+                    <i data-lucide="copy" size="18"></i>
+                    複製連結
+                </button>
+                <button onclick="sharePublicShareUrl()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                    <i data-lucide="share-2" size="18"></i>
+                    分享連結
+                </button>
                 <button onclick="closeShareModal()" class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">關閉</button>
             </div>
         </div>
     </div>
 
     <!-- 公告彈窗 -->
-    <div id="notice-modal" class="fixed inset-0 bg-black/50 z-[116] hidden p-4 flex items-start justify-center overflow-y-auto" style="padding-top: 10vh; padding-bottom: 10vh;">
+    <div id="notice-modal" class="fixed inset-0 bg-black/50 z-[116] hidden p-4 flex items-start justify-center overflow-y-auto" style="padding-top: 8vh; padding-bottom: 8vh;">
         <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden my-auto">
             <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
                 <div class="font-black text-gray-800 text-base">獎懲公告</div>
@@ -284,7 +296,7 @@
                     <i data-lucide="x" size="18"></i>
                 </button>
             </div>
-            <div id="notice-content" class="p-5 overflow-y-auto" style="max-height: 70vh;">
+            <div id="notice-content" class="p-4 overflow-y-auto" style="max-height: 74vh;">
                 <!-- 公告內容將在這裡動態生成 -->
             </div>
             <div class="px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white space-y-2">
@@ -520,6 +532,19 @@
             if (el) el.textContent = formatDateLabel(selectedRecordsDate);
         }
 
+        function getRequestedRecordsDate() {
+            const params = new URLSearchParams(window.location.search || '');
+            const raw = String(params.get('date') || '').trim();
+            if (!raw) return null;
+            const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!match) return null;
+            const [, y, m, d] = match;
+            const parsed = new Date(Number(y), Number(m) - 1, Number(d));
+            if (Number.isNaN(parsed.getTime())) return null;
+            parsed.setHours(0, 0, 0, 0);
+            return parsed;
+        }
+
         function changeRecordsDate(deltaDays) {
             const next = new Date(selectedRecordsDate);
             next.setDate(next.getDate() + (Number(deltaDays) || 0));
@@ -724,7 +749,7 @@
                 document.getElementById('penalty-type').innerHTML = '<option value="">請先選擇類別</option>';
                 document.getElementById('penalty-unit').value = '';
                 updateAmountLabel();
-                document.getElementById('penalty-amount').value = '';
+                document.getElementById('penalty-amount').value = '1';
                 document.getElementById('penalty-reason').value = '';
                 resetImageUpload('penalty-image-preview', false); // 重置圖片上傳區域
 
@@ -774,6 +799,7 @@
                 const amountPrefix = unit === 'money' ? '$' : '';
                 const unitLabel = unit === 'points' ? ' 點' : '';
                 const categoryLabel = isReward ? '獎勵' : '懲處';
+                const canModifyRecord = !isPublicView && !!canManageSettings;
                 
                 const imagesHtml = images.length > 0 ? `
                     <div class="grid grid-cols-3 gap-2 mt-3">
@@ -791,6 +817,11 @@
                     </div>
                 `;
                 
+                const recordActionHtml = canModifyRecord ? `
+                                <button onclick='openEditModal("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
+                                <button onclick='deleteRecord("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                ` : '';
+
                 return `
                     <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 ${borderColor}">
                         <div class="flex gap-3 items-start">
@@ -808,8 +839,7 @@
                             </div>
                             <div class="flex items-center gap-1 flex-shrink-0">
                                 <button onclick='openNoticeModal("${record.id}")' class="text-gray-400 hover:text-blue-500 p-1"><i data-lucide="file-text" size="16"></i></button>
-                                <button onclick='openEditModal("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
-                                <button onclick='deleteRecord("${record.id}")' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="trash-2" size="16"></i></button>
+                                ${recordActionHtml}
                             </div>
                         </div>
                     </div>
@@ -859,11 +889,11 @@
             const amountLabel = isReward ? (unit === 'points' ? '獎勵點數' : '獎勵金額') : (unit === 'points' ? '懲處點數' : '懲處金額');
             
             const imagesHtml = images.length > 0 ? `
-                <div class="py-3">
-                    <div class="text-sm font-bold text-gray-500 mb-2">照片</div>
+                <div class="py-0">
+                    <div class="text-sm font-bold text-gray-500 mb-0">照片</div>
                     <div class="grid grid-cols-2 gap-2">
                         ${images.map(img => `
-                            <img src="${img}" class="w-full h-32 object-cover rounded-lg border border-gray-200">
+                            <img src="${img}" class="w-full h-24 object-cover rounded-lg border border-gray-200">
                         `).join('')}
                     </div>
                 </div>
@@ -872,63 +902,63 @@
             const contentHtml = `
                 <div class="flex flex-col items-center justify-center">
                     <!-- 抬頭 -->
-                    <div class="w-full text-center mb-6">
-                        <div class="text-xl font-black text-gray-800 mb-2">西北保全股份有限公司</div>
+                    <div class="w-full text-center mb-0">
+                        <div class="text-lg font-black text-gray-800 mb-0">西北保全股份有限公司</div>
                         <div class="text-sm text-gray-500">${formatDateLabel(new Date())}</div>
                     </div>
                     
                     <!-- 主要內容卡片 -->
-                    <div class="w-full bg-white border-2 ${isReward ? 'border-green-200' : 'border-red-200'} rounded-xl p-6 shadow-lg">
+                    <div class="w-full bg-white border-2 ${isReward ? 'border-green-200' : 'border-red-200'} rounded-xl p-4 shadow-lg">
                         <!-- 標題 -->
-                        <div class="text-center mb-6">
-                            <div class="inline-block ${titleBg} px-6 py-2 rounded-full">
+                        <div class="text-center mb-0">
+                            <div class="inline-block ${titleBg} px-5 py-1.5 rounded-full">
                                 <span class="text-lg font-black ${titleColor}">${categoryLabel}</span>
                             </div>
                         </div>
                         
                         <!-- 人員資訊 -->
-                        <div class="mb-6">
-                            <div class="flex items-center gap-4 border-b border-gray-100 pb-4 mb-4">
+                        <div class="mb-0">
+                            <div class="flex items-center gap-3 border-b border-gray-100 pb-0 mb-0">
                                 ${userAvatar ? `
-                                    <img src="${userAvatar}" class="w-16 h-16 rounded-full object-cover border-2 ${isReward ? 'border-green-200' : 'border-red-200'}">
+                                    <img src="${userAvatar}" class="w-14 h-14 rounded-full object-cover border-2 ${isReward ? 'border-green-200' : 'border-red-200'}">
                                 ` : `
-                                    <div class="w-16 h-16 ${isReward ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center">
-                                        <i data-lucide="user" class="${isReward ? 'text-green-600' : 'text-red-600'}" size="32"></i>
+                                    <div class="w-14 h-14 ${isReward ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center">
+                                        <i data-lucide="user" class="${isReward ? 'text-green-600' : 'text-red-600'}" size="28"></i>
                                     </div>
                                 `}
                                 <div class="flex-1">
-                                    <div class="text-lg font-bold text-gray-800">${name}</div>
+                                    <div class="text-base font-bold text-gray-800">${name}</div>
                                     <div class="text-sm text-gray-500">${userTitle}</div>
                                 </div>
                             </div>
                         </div>
                         
                         <!-- 獎懲資訊 -->
-                        <div class="space-y-4">
-                            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                        <div class="space-y-0">
+                            <div class="flex items-center justify-between py-0 border-b border-gray-100">
                                 <span class="text-sm font-bold text-gray-500">類型</span>
                                 <span class="text-sm font-bold text-gray-800">${type}</span>
                             </div>
-                            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                            <div class="flex items-center justify-between py-0 border-b border-gray-100">
                                 <span class="text-sm font-bold text-gray-500">${amountLabel}</span>
-                                <span class="text-xl font-black ${titleColor}">${amountPrefix}${amount.toLocaleString()}${unitLabel}</span>
+                                <span class="text-lg font-black ${titleColor}">${amountPrefix}${amount.toLocaleString()}${unitLabel}</span>
                             </div>
-                            <div class="py-3">
-                                <div class="text-sm font-bold text-gray-500 mb-2">事由說明</div>
-                                <div class="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg">${reason}</div>
+                            <div class="py-0">
+                                <div class="text-sm font-bold text-gray-500 mb-0">事由說明</div>
+                                <div class="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">${reason}</div>
                             </div>
                             ${imagesHtml}
                         </div>
                         
                         <!-- 時間 -->
-                        <div class="mt-6 pt-4 border-t border-gray-100 text-center">
+                        <div class="mt-0 pt-0 border-t border-gray-100 text-center">
                             <div class="text-xs text-gray-400">建立時間</div>
                             <div class="text-sm text-gray-600">${time}</div>
                         </div>
                     </div>
                     
                     <!-- 頁尾 -->
-                    <div class="mt-6 text-center text-xs text-gray-400">
+                    <div class="mt-0 text-center text-xs text-gray-400">
                         此公告由系統自動產生
                     </div>
                 </div>
@@ -946,11 +976,26 @@
             if (modal) modal.classList.add('hidden');
         }
 
+        async function waitForImagesInElement(element) {
+            if (!element) return;
+            const images = Array.from(element.querySelectorAll('img'));
+            if (images.length === 0) return;
+
+            await Promise.all(images.map((img) => {
+                if (img.complete) return Promise.resolve();
+                return new Promise((resolve) => {
+                    img.addEventListener('load', resolve, { once: true });
+                    img.addEventListener('error', resolve, { once: true });
+                });
+            }));
+        }
+
         async function shareToLine() {
-            // 找到公告彈窗的主要內容容器（不含按鈕區域）
-            const noticeModal = document.getElementById('notice-modal');
-            const modalContent = noticeModal.querySelector('.bg-white');
+            const noticeContent = document.getElementById('notice-content');
+            if (!noticeContent) return;
             
+            let captureHost = null;
+
             try {
                 // 顯示載入狀態
                 const button = document.querySelector('button[onclick="shareToLine()"]');
@@ -958,24 +1003,54 @@
                 button.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2"></i> 處理中...';
                 button.disabled = true;
                 lucide.createIcons();
-                
-                // 先隱藏按鈕區域以便截圖
-                const buttonArea = modalContent.querySelector('.sticky.bottom-0');
-                const originalButtonDisplay = buttonArea.style.display;
-                buttonArea.style.display = 'none';
-                
-                // 使用html2canvas截圖
-                const canvas = await html2canvas(modalContent, {
+
+                const captureWidth = Math.max(
+                    Math.ceil(noticeContent.getBoundingClientRect().width),
+                    noticeContent.scrollWidth,
+                    320
+                );
+
+                // 建立不受捲動限制的臨時分享畫布，確保完整內容都會被截進圖片。
+                captureHost = document.createElement('div');
+                captureHost.style.position = 'fixed';
+                captureHost.style.left = '-10000px';
+                captureHost.style.top = '0';
+                captureHost.style.width = `${captureWidth}px`;
+                captureHost.style.background = '#ffffff';
+                captureHost.style.zIndex = '-1';
+                captureHost.style.pointerEvents = 'none';
+
+                const captureContent = noticeContent.cloneNode(true);
+                captureContent.id = 'notice-content-share-clone';
+                captureContent.style.maxHeight = 'none';
+                captureContent.style.height = 'auto';
+                captureContent.style.overflow = 'visible';
+                captureContent.style.width = '100%';
+
+                captureHost.appendChild(captureContent);
+                document.body.appendChild(captureHost);
+
+                try {
+                    if (document.fonts && document.fonts.ready) {
+                        await document.fonts.ready;
+                    }
+                } catch (_) {}
+
+                await waitForImagesInElement(captureContent);
+
+                // 使用 html2canvas 擷取完整公告內容，不截取彈窗標題與底部按鈕。
+                const canvas = await html2canvas(captureContent, {
                     scale: 2,
                     useCORS: true,
                     allowTaint: true,
                     backgroundColor: '#ffffff',
-                    logging: false
+                    logging: false,
+                    width: captureWidth,
+                    height: Math.ceil(captureContent.scrollHeight),
+                    windowWidth: captureWidth,
+                    windowHeight: Math.ceil(captureContent.scrollHeight)
                 });
-                
-                // 恢復按鈕區域顯示
-                buttonArea.style.display = originalButtonDisplay;
-                
+
                 // 將canvas轉換為圖片
                 const imageData = canvas.toDataURL('image/png');
                 
@@ -1003,7 +1078,7 @@
                 
                 // 創建一個臨時彈窗顯示圖片並提供分享選項
                 const shareModalHtml = `
-                    <div id="share-modal" class="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 overflow-y-auto" onclick="closeShareModal()">
+                    <div id="share-image-modal" class="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 overflow-y-auto" onclick="closeShareModal()">
                         <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl my-auto overflow-hidden" onclick="event.stopPropagation()">
                             <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <div class="font-black text-gray-800 text-base">分享圖片</div>
@@ -1043,13 +1118,89 @@
                     button.disabled = false;
                     lucide.createIcons();
                 }
+            } finally {
+                if (captureHost && captureHost.parentNode) {
+                    captureHost.parentNode.removeChild(captureHost);
+                }
             }
         }
 
+        function buildPublicRecordsUrl() {
+            if (!selectedCommunityId) return '';
+            const url = new URL(window.location.href);
+            url.searchParams.set('communityId', String(selectedCommunityId));
+            url.searchParams.set('public', '1');
+            url.searchParams.set('date', formatYmd(selectedRecordsDate || new Date()));
+            return url.toString();
+        }
+
+        async function copyTextToClipboard(text) {
+            const value = String(text || '').trim();
+            if (!value) return false;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(value);
+                    return true;
+                }
+            } catch (_) {}
+
+            try {
+                const input = document.createElement('textarea');
+                input.value = value;
+                input.setAttribute('readonly', '');
+                input.style.position = 'fixed';
+                input.style.left = '-9999px';
+                document.body.appendChild(input);
+                input.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(input);
+                return !!ok;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        async function copyPublicShareUrl() {
+            const url = buildPublicRecordsUrl();
+            if (!url) {
+                alert('目前尚未選定可分享的社區');
+                return;
+            }
+            const ok = await copyTextToClipboard(url);
+            alert(ok ? '公開連結已複製' : '複製失敗，請手動複製');
+        }
+
+        async function sharePublicShareUrl() {
+            const url = buildPublicRecordsUrl();
+            if (!url) {
+                alert('目前尚未選定可分享的社區');
+                return;
+            }
+            try {
+                if (navigator.share) {
+                    await navigator.share({
+                        title: `${selectedCommunityName || '社區'} 獎懲記錄`,
+                        text: `公開唯讀獎懲記錄：${selectedCommunityName || ''}`,
+                        url
+                    });
+                    return;
+                }
+            } catch (error) {
+                if (error && error.name === 'AbortError') return;
+            }
+            const ok = await copyTextToClipboard(url);
+            alert(ok ? '裝置不支援直接分享，已改為複製連結' : '分享失敗，請手動複製連結');
+        }
+
         function closeShareModal() {
+            const imageModal = document.getElementById('share-image-modal');
+            if (imageModal) {
+                imageModal.remove();
+            }
+
             const modal = document.getElementById('share-modal');
             if (modal) {
-                modal.remove();
+                modal.classList.add('hidden');
             }
         }
 
@@ -1100,7 +1251,7 @@
                 document.getElementById('edit-type').value = record.type || '';
             }, 50);
             
-            document.getElementById('edit-unit').value = record.unit || 'money';
+            document.getElementById('edit-unit').value = record.unit === 'points' ? 'points' : '';
             updateAmountLabel();
             document.getElementById('edit-amount').value = record.amount || 0;
             document.getElementById('edit-reason').value = record.reason || '';
@@ -1261,11 +1412,21 @@
         }
 
         function openShareModal() {
-            document.getElementById('share-modal').classList.remove('hidden');
-        }
+            const modal = document.getElementById('share-modal');
+            const communityEl = document.getElementById('share-community-name');
+            const urlInput = document.getElementById('share-public-url');
+            const dateLabel = formatDateLabel(selectedRecordsDate || new Date());
+            const url = buildPublicRecordsUrl();
 
-        function closeShareModal() {
-            document.getElementById('share-modal').classList.add('hidden');
+            if (communityEl) {
+                communityEl.textContent = `${selectedCommunityName || '未選擇社區'}｜${dateLabel}`;
+            }
+            if (urlInput) {
+                urlInput.value = url;
+            }
+            if (modal) {
+                modal.classList.remove('hidden');
+            }
         }
 
         function hideAppChrome() {
@@ -1278,8 +1439,10 @@
         function showAppChrome() {
             const header = document.getElementById('page-header');
             const nav = document.getElementById('page-nav');
+            const clearBtn = document.getElementById('clear-records-btn');
             if (header) header.classList.remove('hidden');
             if (nav) nav.classList.toggle('hidden', !!isPublicView);
+            if (clearBtn) clearBtn.classList.toggle('hidden', !!isPublicView || !canManageSettings);
             
             // 設置圖片上傳功能
             setupImageUpload('penalty-image-input', 'penalty-image-preview', false);
@@ -1367,8 +1530,10 @@
 
         function setPageTitle() {
             const el = document.getElementById('page-title');
-            if (el) el.textContent = '西北保全股份有限公司 獎懲';
-            document.title = '西北保全股份有限公司 獎懲';
+            const baseTitle = '西北保全股份有限公司 獎懲';
+            const title = isPublicView ? `${baseTitle}（公開查閱）` : baseTitle;
+            if (el) el.textContent = title;
+            document.title = title;
         }
 
         function loadRoles() {
@@ -1464,7 +1629,7 @@
         function selectCommunity(commId, commName) {
             selectedCommunityId = commId;
             selectedCommunityName = commName;
-            selectedRecordsDate = new Date(); // 重置為當日日期
+            selectedRecordsDate = getRequestedRecordsDate() || new Date();
             setPageTitle();
             
             if (settingsUnsub) { try { settingsUnsub(); } catch {} settingsUnsub = null; }
@@ -1475,6 +1640,9 @@
             updateRecordsDateLabel();
             updateDateNavButtons();
             subscribeRecordsForDate(selectedRecordsDate);
+            if (isPublicView) {
+                switchView('records');
+            }
         }
 
         function renderCommunitySelector(communities, allowedIds) {
@@ -1552,6 +1720,11 @@
 
                     const allowedIds = dbUser ? resolveAllowedCommunityIds(dbUser) : ['*'];
                     const requestedCommunityId = getRequestedCommunityId();
+
+                    if (isPublicView && !requestedCommunityId) {
+                        renderErrorScreen('分享連結缺少社區資訊。');
+                        return;
+                    }
 
                     if (requestedCommunityId) {
                         const target = communities.find(c => String(c.id).trim().toUpperCase() === requestedCommunityId);
