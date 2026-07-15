@@ -1304,6 +1304,63 @@
             const [cameraDevices, setCameraDevices] = useState([]);
             const [selectedDeviceId, setSelectedDeviceId] = useState(null);
 
+            const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
+                const R = 6371e3;
+                const phi1 = lat1 * Math.PI / 180;
+                const phi2 = lat2 * Math.PI / 180;
+                const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+                const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                    Math.cos(phi1) * Math.cos(phi2) *
+                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            };
+
+            const resolveTargetInfo = (target) => {
+                if (!target) return null;
+                let lat = null;
+                let lng = null;
+                if (target.lat && target.lng) {
+                    lat = parseFloat(target.lat);
+                    lng = parseFloat(target.lng);
+                } else if (target.coordLat && target.coordLng) {
+                    lat = parseFloat(target.coordLat);
+                    lng = parseFloat(target.coordLng);
+                } else if (target.location) {
+                    const parts = String(target.location).split(',');
+                    if (parts.length === 2) {
+                        lat = parseFloat(parts[0].trim());
+                        lng = parseFloat(parts[1].trim());
+                    }
+                }
+                if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+                const radius = parseFloat(target.radiusMeters || target.radius || 100) || 100;
+                return {
+                    location: { lat, lng },
+                    name: target.name || '服務單位',
+                    radius
+                };
+            };
+
+            const targetInfo = useMemo(() => resolveTargetInfo(checkInLocation || workSite), [checkInLocation, workSite]);
+            const distanceMeters = useMemo(() => {
+                if (!location || !targetInfo?.location) return null;
+                return calculateDistanceMeters(
+                    location.lat,
+                    location.lng,
+                    targetInfo.location.lat,
+                    targetInfo.location.lng
+                );
+            }, [location, targetInfo]);
+            const isOutOfRange = useMemo(() => {
+                if (distanceMeters === null || !targetInfo?.radius) return false;
+                return distanceMeters > targetInfo.radius;
+            }, [distanceMeters, targetInfo]);
+            const rangeErrorMessage = (!error && location && targetInfo?.location && isOutOfRange)
+                ? '您不在打卡範圍'
+                : '';
+
             useEffect(() => {
                 if (isOpen) {
                     setStep('location');
@@ -1326,27 +1383,9 @@
             useEffect(() => {
                 try {
                     if (step === 'location' && location && mapRef.current && window.google && window.google.maps) {
-                        // Calculate Target Location (prioritize checkInLocation over workSite)
-                        let targetLocation = null;
-                        let targetName = "服務單位";
-                        const target = checkInLocation || workSite;
-
-                        if (target) {
-                            if (target.lat && target.lng) {
-                                targetLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
-                            } else if (target.location) {
-                                const locStr = String(target.location);
-                                const parts = locStr.split(',');
-                                if (parts.length === 2) {
-                                    const lat = parseFloat(parts[0].trim());
-                                    const lng = parseFloat(parts[1].trim());
-                                    if (!isNaN(lat) && !isNaN(lng)) {
-                                        targetLocation = { lat, lng };
-                                    }
-                                }
-                            }
-                            targetName = target.name || "服務單位";
-                        }
+                        const targetLocation = targetInfo?.location || null;
+                        const targetName = targetInfo?.name || "服務單位";
+                        const targetRadius = targetInfo?.radius || 100;
 
                         // Center on User Location if available, otherwise Target Location
                         const mapCenter = location || targetLocation;
@@ -1458,7 +1497,7 @@
                                 fillOpacity: 0.15,
                                 map: map,
                                 center: targetLocation,
-                                radius: 100 // Default 100m
+                                radius: targetRadius
                             });
 
                             if (userAvatar) {
@@ -1528,7 +1567,7 @@
                     console.error("Map initialization error:", err);
                     // Don't crash the UI, just log the error
                 }
-            }, [step, location, workSite, checkInLocation, userAvatar]);
+            }, [step, location, targetInfo, userAvatar]);
 
             const startCamera = async (targetFacing = facing) => {
                 try {
@@ -1693,31 +1732,12 @@
             };
 
             const handleShowWorkSite = () => {
-                const target = checkInLocation || workSite;
-                if (!target) {
+                if (!targetInfo) {
                     alert('未找到您的服務單位資料');
                     return;
                 }
-                
-                let wsLocation = null;
-                if (target.lat && target.lng) {
-                    wsLocation = { lat: parseFloat(target.lat), lng: parseFloat(target.lng) };
-                } else if (target.location) {
-                    const locStr = String(target.location);
-                    const parts = locStr.split(',');
-                    if (parts.length === 2) {
-                        const lat = parseFloat(parts[0].trim());
-                        const lng = parseFloat(parts[1].trim());
-                        if (!isNaN(lat) && !isNaN(lng)) {
-                            wsLocation = { lat, lng };
-                        }
-                    }
-                }
-
-                if (!wsLocation) {
-                    alert('服務單位未設定有效的 GPS 座標');
-                    return;
-                }
+                const wsLocation = targetInfo.location;
+                const targetRadius = targetInfo.radius || 100;
 
                 if (mapRef.current && window.google && window.google.maps) {
                     const mapInstance = new google.maps.Map(mapRef.current, {
@@ -1809,7 +1829,7 @@
                         fillOpacity: 0.15,
                         map: mapInstance,
                         center: wsLocation,
-                        radius: 100 // Default 100m if not specified
+                        radius: targetRadius
                     });
 
                     if (userAvatar) {
@@ -1844,7 +1864,7 @@
                                 new google.maps.Marker({
                                     position: wsLocation,
                                     map: mapInstance,
-                                    title: target.name || "服務單位",
+                                        title: targetInfo.name || "服務單位",
                                     icon: {
                                         url: canvas4.toDataURL(),
                                         scaledSize: new google.maps.Size(48, 48),
@@ -1855,7 +1875,7 @@
                                 new google.maps.Marker({
                                     position: wsLocation,
                                     map: mapInstance,
-                                    title: target.name || "服務單位"
+                                    title: targetInfo.name || "服務單位"
                                 });
                             }
                         };
@@ -1863,20 +1883,24 @@
                             new google.maps.Marker({
                                 position: wsLocation,
                                 map: mapInstance,
-                                title: target.name || "服務單位"
+                                title: targetInfo.name || "服務單位"
                             });
                         };
                     } else {
                         new google.maps.Marker({
                             position: wsLocation,
                             map: mapInstance,
-                            title: target.name || "服務單位"
+                            title: targetInfo.name || "服務單位"
                         });
                     }
                 }
             };
 
             const nextToCamera = () => {
+                if (rangeErrorMessage) {
+                    alert(rangeErrorMessage);
+                    return;
+                }
                 setStep('camera');
                 startCamera(facing);
             };
@@ -1974,6 +1998,10 @@
 
             const confirm = async () => {
                 if (!image || !location) return;
+                if (rangeErrorMessage) {
+                    alert(rangeErrorMessage);
+                    return;
+                }
                 setIsProcessing(true);
                 try {
                     await onConfirm(image, location, address);
@@ -2104,6 +2132,17 @@
                                             <div className="flex-1">
                                                 <div className="text-xs text-gray-400">目前位置</div>
                                                 <div className={`font-bold text-sm ${error ? 'text-red-500' : 'text-gray-800'}`}>{address}</div>
+                                                {targetInfo && (
+                                                    <div className="mt-2 text-xs text-gray-500 space-y-1">
+                                                        <div>打卡位置：{targetInfo.name}</div>
+                                                        <div>打卡範圍：{Math.round(targetInfo.radius)}m</div>
+                                                        {distanceMeters !== null && (
+                                                            <div className={isOutOfRange ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>
+                                                                目前距離：{Math.round(distanceMeters)}m
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                             {error && (
                                                 <button onClick={startLocation} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200" title="重新定位">
@@ -2134,12 +2173,12 @@
                         </div>
 
                         <div className="p-6 bg-white flex-shrink-0">
-                            {error && <div className="text-red-500 text-center mb-4 text-sm">{error}</div>}
+                            {(error || rangeErrorMessage) && <div className="text-red-500 text-center mb-4 text-sm font-bold">{error || rangeErrorMessage}</div>}
                             
                             {step === 'location' && (
                                 <button 
                                     onClick={nextToCamera} 
-                                    disabled={!location}
+                                    disabled={!location || !!error || !!rangeErrorMessage}
                                     className="w-full py-4 bg-red-600 text-white rounded-2xl font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     下一步：拍照認證
@@ -6591,6 +6630,7 @@
             const [showLeaveModal, setShowLeaveModal] = useState(false);
             const [leaveLoading, setLeaveLoading] = useState(false);
             const [showLocationSelector, setShowLocationSelector] = useState(false);
+            const historyDateInputRef = useRef(null);
             const [viewDate, setViewDate] = useState(new Date());
             const [currentLocation, setCurrentLocation] = useState(null);
             const [hasLocationSorted, setHasLocationSorted] = useState(false);
@@ -6606,6 +6646,11 @@
             const [myLeaves, setMyLeaves] = useState([]);
             const [showScheduleConfirmModal, setShowScheduleConfirmModal] = useState(false);
             const [scheduleConfirmData, setScheduleConfirmData] = useState(null);
+            const [showWorkOutConfirmModal, setShowWorkOutConfirmModal] = useState(false);
+            const [workOutConfirmData, setWorkOutConfirmData] = useState(null);
+            const [pendingCheckConfig, setPendingCheckConfig] = useState(null);
+            const [selectedWorkOutLocationId, setSelectedWorkOutLocationId] = useState('');
+            const [selectedWorkOutShift, setSelectedWorkOutShift] = useState('day');
             const [outingReasonOption, setOutingReasonOption] = useState('例行督察');
             const [outingCustomReason, setOutingCustomReason] = useState('');
             const [showOutingReasonSelector, setShowOutingReasonSelector] = useState(false);
@@ -6695,15 +6740,50 @@
             const isCompanyGroup = useMemo(() => {
                 if (!currentUser) return false;
                 // 1. Check hardcoded IDs
-                if (['admin', 'hr', 'cadre', 'property'].includes(currentUser.role)) return true;
+                if (['admin', 'manager', 'hr', 'property', 'cadre', 'staff'].includes(currentUser.role)) return true;
                 // 2. Check Title
                 if (currentUser.title && currentUser.title.includes('幹部')) return true;
                 // 3. Check Role Name (using passed roles prop)
                 const roleObj = (roles || []).find(r => r.id === currentUser.role);
-                if (roleObj && (roleObj.name.includes('幹部') || roleObj.name.includes('人事') || roleObj.name.includes('系統管理員') || roleObj.name.includes('物業'))) return true;
+                if (roleObj && (roleObj.name.includes('幹部') || roleObj.name.includes('人事') || roleObj.name.includes('系統管理員') || roleObj.name.includes('物業') || roleObj.name.includes('員工') || roleObj.name.includes('管理層'))) return true;
                 
                 return false;
             }, [currentUser, roles]);
+
+            const currentRoleName = useMemo(() => {
+                if (!currentUser) return '';
+                if (String(currentUser.role || '').trim().toLowerCase() === 'admin') return '系統管理員';
+                const roleObj = (roles || []).find(r => String(r.id) === String(currentUser.role));
+                return String((roleObj?.name || currentUser?.roleName || currentUser?.role || '')).trim();
+            }, [currentUser, roles]);
+
+            const canUseOtherPlaceOption = useMemo(() => {
+                const normalizedRoleId = String(currentUser?.role || '').trim().toLowerCase();
+                if (normalizedRoleId === 'admin') return true;
+                const allowedRoleKeywords = ['系統管理員', '人事', '物業', '幹部', '員工', '總幹事', '秘書'];
+                return allowedRoleKeywords.some(keyword => currentRoleName.includes(keyword));
+            }, [currentRoleName, currentUser?.role]);
+
+            const appendOtherPlaceOption = (locations = []) => {
+                const normalized = Array.isArray(locations) ? [...locations] : [];
+                if (!canUseOtherPlaceOption) return normalized;
+                if (!normalized.some(loc => String(loc?.id || '') === 'other_place')) {
+                    normalized.push({
+                        id: 'other_place',
+                        name: '其他地方',
+                        type: 'other_anywhere'
+                    });
+                }
+                return normalized;
+            };
+
+            const getClockLocationLabel = (clockType) => {
+                const normalizedType = String(clockType || '').trim();
+                if (['out', 'work_out', 'duty_out', 'late_out', 'outing_end'].includes(normalizedType)) {
+                    return '下班打卡位置';
+                }
+                return '上班打卡位置';
+            };
 
             useEffect(() => {
                 if (!timeSynced || !networkTime) return;
@@ -6786,6 +6866,39 @@
                 if (newDate <= new Date()) {
                     setViewDate(newDate);
                 }
+            };
+
+            const toYmd = (d) => {
+                if (!d || isNaN(d.getTime())) return '';
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            };
+
+            const viewDateYmd = useMemo(() => toYmd(viewDate), [viewDate]);
+            const todayYmd = toYmd(new Date());
+
+            const openHistoryDatePicker = () => {
+                const el = historyDateInputRef.current;
+                if (!el) return;
+                try {
+                    if (typeof el.showPicker === 'function') {
+                        el.showPicker();
+                        return;
+                    }
+                } catch (_) {}
+                try { el.click(); } catch (_) {}
+            };
+
+            const handleHistoryDateChange = (e) => {
+                const v = String(e?.target?.value || '').trim();
+                if (!v) return;
+                const d = new Date(`${v}T00:00:00`);
+                if (!d || isNaN(d.getTime())) return;
+                const now = new Date();
+                if (d > now) return;
+                setViewDate(d);
             };
 
             const isToday = isSameDay(viewDate, new Date());
@@ -7086,7 +7199,7 @@
                      }
 
                      // Add all communities for selection
-                     return [...resultLocations, ...allCommunities];
+                     return appendOtherPlaceOption([...resultLocations, ...allCommunities]);
                  } else {
                      const userCommIds = currentUser.communityIds || (currentUser.communityId ? [currentUser.communityId] : []);
                      const userComms = (communities || []).filter(c => userCommIds.some(id => String(id) === String(c.id))).map(c => ({ 
@@ -7097,7 +7210,7 @@
                      }));
                      
                      if (currentLocation && userComms.length > 1) {
-                         return userComms.sort((a, b) => {
+                         return appendOtherPlaceOption(userComms.sort((a, b) => {
                              const latA = parseFloat(a.coordLat);
                              const lngA = parseFloat(a.coordLng);
                              const latB = parseFloat(b.coordLat);
@@ -7109,15 +7222,74 @@
                              const distA = calculateDistance(currentLocation.lat, currentLocation.lng, latA, lngA);
                              const distB = calculateDistance(currentLocation.lat, currentLocation.lng, latB, lngB);
                              return distA - distB;
-                         });
+                         }));
                      }
                      
                      // Fallback: Sort by ID
-                     return userComms.sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
+                     return appendOtherPlaceOption(userComms.sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true})));
                  }
             };
             
             const availableLocations = getAvailableLocations();
+
+            const getDefaultWorkOutLocation = () => {
+                if (!availableLocations?.length) return null;
+
+                const companyRoleNames = new Set(['系統管理員', '管理層', '人事', '物業', '幹部', '員工']);
+                const serviceCommunityRoleNames = new Set(['總幹事', '秘書', '清潔', '機電', '保全', '臨時保全']);
+                const companyLocations = availableLocations.filter(l => l.type === 'company');
+                const communityLocations = availableLocations.filter(l => l.type === 'community');
+
+                const findDefaultCompanyLocation = () => {
+                    const companyIds = [
+                        currentUser?.companyId,
+                        ...((currentUser?.companyIds || []).filter(Boolean))
+                    ].filter(Boolean).map(String);
+                    for (const companyId of companyIds) {
+                        const matched = companyLocations.find(loc => String(loc.id) === companyId);
+                        if (matched) return matched;
+                    }
+                    return companyLocations[0] || availableLocations[0] || null;
+                };
+
+                const findLatestCommunityLocation = () => {
+                    const sortedHistory = [...sourceHistory].sort((a, b) => {
+                        const ta = a?.timestamp?.seconds || a?.createdAt?.seconds || 0;
+                        const tb = b?.timestamp?.seconds || b?.createdAt?.seconds || 0;
+                        return tb - ta;
+                    });
+
+                    for (const record of sortedHistory) {
+                        const matchedById = communityLocations.find(loc =>
+                            String(loc.id) === String(record?.locationId || record?.communityId || '')
+                        );
+                        if (matchedById) return matchedById;
+
+                        const recordLocationName = String(record?.checkInLocationName || '').trim();
+                        if (recordLocationName) {
+                            const matchedByName = communityLocations.find(loc => String(loc.name || '').trim() === recordLocationName);
+                            if (matchedByName) return matchedByName;
+                        }
+                    }
+
+                    return communityLocations[0] || findDefaultCompanyLocation() || availableLocations[0] || null;
+                };
+
+                if (serviceCommunityRoleNames.has(currentRoleName)) {
+                    return findLatestCommunityLocation();
+                }
+
+                if (companyRoleNames.has(currentRoleName) || isCompanyGroup) {
+                    return findDefaultCompanyLocation();
+                }
+
+                if (checkInLocation) {
+                    const matchedCurrent = availableLocations.find(loc => String(loc.id) === String(checkInLocation.id));
+                    if (matchedCurrent) return matchedCurrent;
+                }
+
+                return findDefaultCompanyLocation() || findLatestCommunityLocation() || availableLocations[0] || null;
+            };
 
             // Initialize CheckIn Location
             useEffect(() => {
@@ -7392,6 +7564,35 @@
                     : { type: 'in', text: '上班打卡', sub: '紀錄開始時間', icon: MapPin, colorClass: 'bg-white text-green-600 border-2 border-green-100', iconBg: 'bg-green-50', iconColor: 'text-green-600' };
             };
 
+            const proceedClockIn = (config, overrides = {}) => {
+                if (config.type === 'leave') {
+                    setShowLeaveModal(true);
+                    return;
+                }
+                const extra = {};
+                const isWorkType = ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(config.type);
+                if (mode === 'work' && isWorkType) {
+                    const roleObj = (roles || []).find(r => r.id === currentUser?.role);
+                    const roleName = roleObj ? roleObj.name : currentUser?.roleName;
+                    const schedule = mySchedules[logicDateStr];
+                    const positionId = roleName === '保全'
+                        ? String(schedule?.sentryPoint || currentUser?.defaultSentryPoint || '')
+                        : '';
+                    extra.logicDate = logicDateStr;
+                    extra.shift = overrides.shift || shiftStr;
+                    extra.locationId = overrides.locationId || activeLocationId;
+                    extra.locationName = overrides.locationName || (checkInLocation?.name || '');
+                    extra.positionId = positionId;
+                }
+                onClockIn(
+                    config.type,
+                    availableLocations,
+                    (config.type || '').startsWith('outing')
+                        ? { ...extra, outingReason: (outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption) }
+                        : extra
+                );
+            };
+
             const handleCheckInClick = (config) => {
                  if (!timeSynced || !networkTime) {
                      alert('目前無法取得網路UTC+8台北時間，暫時無法打卡');
@@ -7412,6 +7613,42 @@
                      }
                  }
                  
+                 if (mode === 'work' && ['out', 'work_out', 'duty_out'].includes(config.type)) {
+                     const inTypes = new Set(['in', 'work_in', 'duty_in']);
+                     const scopedIns = sourceHistory.filter(r => {
+                         if (String(r?.userId || '') !== String(currentUser.id)) return false;
+                         if (String(r?.communityId || '') !== activeLocationId) return false;
+                         if (getRecordShiftStr(r) !== shiftStr) return false;
+                         if (getRecordLogicDateStr(r) !== logicDateStr) return false;
+                         const t = String(r?.type || '');
+                         return inTypes.has(t);
+                     });
+                     let lastInRecord = null;
+                     let lastInTime = null;
+                     for (const r of scopedIns) {
+                         const t = getRecordTime(r);
+                         if (!t) continue;
+                         if (!lastInTime || t > lastInTime) {
+                             lastInTime = t;
+                             lastInRecord = r;
+                         }
+                     }
+                    const lastInLocation = (availableLocations || []).find(loc => String(loc.id) === String(lastInRecord?.locationId || ''))
+                        || (availableLocations || []).find(loc => String(loc.name || '').trim() === String(lastInRecord?.checkInLocationName || '').trim())
+                        || null;
+                    const defaultWorkOutLocation = lastInLocation || getDefaultWorkOutLocation();
+                     setPendingCheckConfig(config);
+                     setWorkOutConfirmData({
+                         locationId: String(defaultWorkOutLocation?.id || lastInRecord?.locationId || checkInLocation?.id || activeLocationId || ''),
+                         locationText: (defaultWorkOutLocation?.name || lastInRecord?.checkInLocationName || lastInRecord?.address || '未記錄'),
+                         shiftText: shiftStr === 'night' ? '夜班' : '日班'
+                     });
+                     setSelectedWorkOutLocationId(String(defaultWorkOutLocation?.id || lastInRecord?.locationId || checkInLocation?.id || activeLocationId || ''));
+                     setSelectedWorkOutShift(shiftStr === 'night' ? 'night' : 'day');
+                     setShowWorkOutConfirmModal(true);
+                     return;
+                 }
+
                  // Intercept only 'in' (Clock In)
                  if (['in', 'work_in', 'duty_in'].includes(config.type)) {
                      
@@ -7477,32 +7714,7 @@
                      }
                  }
 
-                 // Default behavior
-                 if (config.type === 'leave') {
-                     setShowLeaveModal(true);
-                } else {
-                    const extra = {};
-                    const isWorkType = ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out'].includes(config.type);
-                    if (mode === 'work' && isWorkType) {
-                        const roleObj = (roles || []).find(r => r.id === currentUser?.role);
-                        const roleName = roleObj ? roleObj.name : currentUser?.roleName;
-                        const schedule = mySchedules[logicDateStr];
-                        const positionId = roleName === '保全'
-                            ? String(schedule?.sentryPoint || currentUser?.defaultSentryPoint || '')
-                            : '';
-                        extra.logicDate = logicDateStr;
-                        extra.shift = shiftStr;
-                        extra.locationId = activeLocationId;
-                        extra.positionId = positionId;
-                    }
-                    onClockIn(
-                        config.type, 
-                        availableLocations,
-                        (config.type || '').startsWith('outing')
-                            ? { ...extra, outingReason: (outingReasonOption === '其他' ? (outingCustomReason || '其他') : outingReasonOption) }
-                            : extra
-                    );
-                }
+                 proceedClockIn(config);
             };
 
 
@@ -7576,20 +7788,20 @@
             }
 
             return (
-                <div className="max-w-md mx-auto space-y-4 pb-20">
+                <div className="max-w-md mx-auto space-y-3 pb-20">
                     {/* Header Info Card */}
                     {!hideHeaderInfo && (
                     <div className={`${headerBgClass} rounded-2xl shadow-xl overflow-hidden relative`}>
                         <div className="absolute top-0 right-0 p-4 opacity-10">
                             <Clock className="w-32 h-32 transform rotate-12 text-white" />
                         </div>
-                        <div className="p-6 relative z-10 text-white">
-                            <div className="flex justify-between items-start mb-6">
+                        <div className="p-4 relative z-10 text-white">
+                            <div className="flex justify-between items-start mb-3">
                                 <div>
-                                    <h2 className="text-2xl font-bold">
+                                    <h2 className="text-lg font-bold">
                                         {currentUser?.title || ''} {currentUser?.name}
                                     </h2>
-                                    <p className="text-white/80 text-sm flex items-center gap-1 mt-1">
+                                    <p className="text-white/80 text-xs flex items-center gap-1 mt-0.5">
                                         {(function() {
                                             // Show Last Record Location + Time (Only for Today)
                                             if (lastRecord) {
@@ -7608,7 +7820,7 @@
                                                     });
                                                     return (
                                                         <>
-                                                            <Building2 className="w-4 h-4" />
+                                                            <Building2 className="w-3 h-3" />
                                                             {`${lastRecord.checkInLocationName || lastRecord.address || '未記錄位置'} ${timeStr}`}
                                                         </>
                                                     );
@@ -7701,19 +7913,19 @@
                                     }
 
                                     return (
-                                        <div className={`backdrop-blur-sm px-3 py-1 rounded-full text-2xl font-mono ${statusClass} bg-opacity-90 border-2 border-white/20 shadow-sm`}>
+                                        <div className={`backdrop-blur-sm px-2.5 py-0.5 rounded-full text-lg font-mono ${statusClass} bg-opacity-90 border-2 border-white/20 shadow-sm`}>
                                             {statusText}
                                         </div>
                                     );
                                 })()}
                             </div>
-                            <div className="text-center py-4">
-                                <div className="text-5xl font-bold font-mono tracking-wider drop-shadow-sm">
+                            <div className="text-center py-2">
+                                <div className="text-6xl font-bold font-mono tracking-wider drop-shadow-sm">
                                     {networkTime
                                         ? networkTime.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute:'2-digit', second: '2-digit' })
                                         : ''}
                                 </div>
-                                <p className="text-white text-2xl mt-2 opacity-80">
+                                <p className="text-white text-xl mt-1 opacity-80">
                                     {networkTime
                                         ? networkTime.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
                                         : ''}
@@ -7722,7 +7934,6 @@
                         </div>
                     </div>
                     )}
-                    
                     {mode === 'outing' && (
                         <div className="px-2 mb-4">
                             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
@@ -7744,138 +7955,14 @@
                             </div>
                         </div>
                     )}
-                    {/* Location Display & Selector */}
-                    {['work', 'outing', 'card'].includes(mode) && (
-                        <div className="px-2 mb-4">
-                            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
-                                <div className="flex justify-between items-center">
-                                    <div className="flex items-center gap-2 text-gray-700">
-                                        <MapPin className="w-5 h-5 text-red-600" />
-                                        <span className="font-bold text-sm">
-                                            {checkInLocation?.id === 'custom' ? '自定義地點' : (checkInLocation?.name || '定位中...')}
-                                            {(function(){
-                                                const role = (roles || []).find(r => r.id === currentUser?.role);
-                                                const roleName = role ? role.name : currentUser?.roleName;
-                                                
-                                                // Only for Security role
-                                                if (roleName !== '保全') return null;
 
-                                                // Get today's sentry point
-                                                const now = new Date();
-                                                const y = now.getFullYear();
-                                                const m = String(now.getMonth() + 1).padStart(2, '0');
-                                                const d = String(now.getDate()).padStart(2, '0');
-                                                const todayStr = `${y}-${m}-${d}`;
-                                                
-                                                const scheduleToday = mySchedules[todayStr];
-                                                const sp = scheduleToday?.sentryPoint || currentUser?.defaultSentryPoint;
-                                                
-                                                if (sp) {
-                                                    return (
-                                                        <>
-                                                            <span className="text-gray-300 mx-1">|</span>
-                                                            <span className="text-gray-600">{sp}</span>
-                                                        </>
-                                                    );
-                                                }
-                                                return null;
-                                            })()}
-                                        </span>
-                                        {availableLocations.length > 1 && (function(){
-                                            const role = (roles || []).find(r => r.id === currentUser?.role);
-                                            const roleName = role ? role.name : currentUser?.roleName;
-                                            // For Security role, only show 'Change' button if they have multiple communities
-                                            if (roleName === '保全') {
-                                                return availableLocations.length > 1;
-                                            }
-                                            return true;
-                                        })() && (
-                                            <button 
-                                                onClick={() => setShowLocationSelector(true)}
-                                                className="text-xs bg-gray-100 px-3 py-1.5 rounded-lg text-gray-600 font-bold hover:bg-gray-200"
-                                            >
-                                                更換
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {typeof setIsNightShift === 'function' && (
-                                            <div className="flex text-[11px] font-bold rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsNightShift(false)}
-                                                    className={`px-2 py-1 ${
-                                                        !isNightShift
-                                                            ? 'bg-blue-600 text-white'
-                                                            : 'text-gray-600 bg-gray-50'
-                                                    }`}
-                                                >
-                                                    日班
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsNightShift(true)}
-                                                    className={`px-2 py-1 ${
-                                                        isNightShift
-                                                            ? 'bg-indigo-600 text-white'
-                                                            : 'text-gray-600 bg-gray-50'
-                                                    }`}
-                                                >
-                                                    夜班
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                                
-                                {/* Sentry Point Display Block (Below) */}
-                                {(function(){
-                                    const role = (roles || []).find(r => r.id === currentUser?.role);
-                                    const roleName = role ? role.name : currentUser?.roleName;
-                                    
-                                    // Only for Security role
-                                    if (roleName !== '保全') return null;
-
-                                    // Get today's sentry point
-                                    const now = new Date();
-                                    const y = now.getFullYear();
-                                    const m = String(now.getMonth() + 1).padStart(2, '0');
-                                    const d = String(now.getDate()).padStart(2, '0');
-                                    const todayStr = `${y}-${m}-${d}`;
-                                    
-                                    const scheduleToday = mySchedules[todayStr];
-                                    const sp = scheduleToday?.sentryPoint || currentUser?.defaultSentryPoint;
-                                    
-                                    if (sp) {
-                                        return (
-                                            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2 text-sm">
-                                                <span className="text-gray-400 font-bold">哨點位置:</span>
-                                                <span className="text-gray-700 font-bold">{sp}</span>
-                                            </div>
-                                        );
-                                    }
-                                    return null;
-                                })()}
-                                
-                                {checkInLocation?.id === 'custom' && (
-                                    <input 
-                                        type="text" 
-                                        className="w-full mt-2 bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-red-500"
-                                        placeholder="請輸入地點名稱"
-                                        value={checkInLocation.name === '自定義地點' ? '' : checkInLocation.name}
-                                        onChange={(e) => setCheckInLocation(prev => ({ ...prev, name: e.target.value }))}
-                                    />
-                                )}
-                            </div>
-                        </div>
-                    )}
 
                     {/* Big Action Button */}
                     <div className="px-2">
                         <button
                             onClick={() => handleCheckInClick(btnConfig)}
                             disabled={btnConfig.disabled}
-                            className={`w-full h-32 rounded-2xl flex flex-row items-center justify-center gap-4 shadow-lg transition-all transform ${btnConfig.disabled ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'} ${btnConfig.colorClass}`}
+                            className={`w-full h-28 rounded-2xl flex flex-row items-center justify-center gap-4 shadow-lg transition-all transform ${btnConfig.disabled ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'} ${btnConfig.colorClass}`}
                         >
                             <div className={`${btnConfig.iconBg} p-3 rounded-full`}>
                                 <BtnIcon className={`w-8 h-8 ${btnConfig.iconColor}`} />
@@ -7888,13 +7975,31 @@
                     </div>
 
                     {/* History List */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-2 py-5">
                         <h3 className="font-bold text-gray-800 mb-4 text-sm flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <button onClick={handlePrevDay} className="p-1 rounded-full hover:bg-gray-100 text-gray-500">
                                     <ChevronLeft className="w-5 h-5" />
                                 </button>
-                                <span>{mode === 'leave' ? '本月請假紀錄' : (isToday ? '今日打卡紀錄' : `${viewDate.getFullYear()}/${viewDate.getMonth() + 1}/${viewDate.getDate()} 打卡紀錄`)}</span>
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={openHistoryDatePicker}
+                                        className="flex items-center hover:underline"
+                                    >
+                                        <span>{mode === 'leave' ? '本月請假紀錄' : (isToday ? '今日打卡紀錄' : `${viewDate.getFullYear()}/${viewDate.getMonth() + 1}/${viewDate.getDate()} 打卡紀錄`)}</span>
+                                    </button>
+                                    <input
+                                        ref={historyDateInputRef}
+                                        type="date"
+                                        value={viewDateYmd}
+                                        max={todayYmd}
+                                        onChange={handleHistoryDateChange}
+                                        className="absolute -left-[9999px] w-px h-px opacity-0"
+                                        tabIndex={-1}
+                                        aria-hidden="true"
+                                    />
+                                </div>
                                 <button 
                                     onClick={handleNextDay} 
                                     disabled={isToday}
@@ -7936,13 +8041,13 @@
                                     })();
                                     
                                     return (
-                                        <div key={r.id} className={`p-3 bg-white border rounded-2xl shadow-sm flex items-start gap-3 ${
+                                        <div key={r.id} className={`px-2 py-2.5 bg-white border rounded-2xl shadow-sm flex items-start gap-2 ${
                                             r.approvalStatus === 'approved' || r.modification?.status === 'approved' ? 'border-green-500' : 
                                             r.approvalStatus === 'rejected' || r.modification?.status === 'rejected' ? 'border-red-500' : 
                                             r.modification?.status === 'pending' ? 'border-orange-500' :
                                             'border-gray-100'
                                         }`}>
-                                            <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                            <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
                                                 {currentUser.avatarUrl ? (
                                                     <img src={currentUser.avatarUrl} className="w-full h-full object-cover" />
                                                 ) : (
@@ -7990,36 +8095,25 @@
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="text-sm text-gray-500 mt-0.5">
-                                                            {!isLeave && r.modification ? (
-                                                                <>
-                                                                    <div className="flex items-center gap-1 mb-1 font-bold text-blue-600">
-                                                                        <Clock className="w-3 h-3" /> 補打卡時間: {r.modification.time || timeStr.substring(0, 5)}
-                                                                    </div>
-                                                                </>
-                                                            ) : (
+                                                        {isLeave && (
+                                                            <div className="text-sm text-gray-500 mt-0.5">
                                                                 <div className="flex items-center gap-1 mb-1">
-                                                                    <Clock className="w-3 h-3" /> 
-                                                                    {isLeave 
-                                                                        ? `請假日期 : ${r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}` 
-                                                                        : timeStr
-                                                                    }
+                                                                    <Clock className="w-3 h-3" />
+                                                                    {`請假日期 : ${r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}`}
                                                                 </div>
-                                                            )}
-                                                            {isLeave && (
                                                                 <div className="pl-5 text-xs text-gray-500 space-y-1 mt-1">
                                                                     {(function() {
                                                                         let dates = [];
                                                                         if (r.leaveStartDate && r.leaveEndDate) {
                                                                             const s = new Date(r.leaveStartDate.split('T')[0]);
                                                                             const e = new Date(r.leaveEndDate.split('T')[0]);
-                                                                            for(let d = new Date(s); d <= e; d.setDate(d.getDate()+1)) {
+                                                                            for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
                                                                                 dates.push(new Date(d));
                                                                             }
                                                                         } else if (r.leaveDate) {
                                                                             dates.push(new Date(r.leaveDate));
                                                                         }
-                                                                        
+
                                                                         if (dates.length === 0) return null;
 
                                                                         const nationalHolidays = [
@@ -8035,62 +8129,28 @@
                                                                         let totalHours = 0;
 
                                                                         const items = dates.map(dateObj => {
-                                                                            const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')}`;
+                                                                            const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                                                                             const schedule = mySchedules[dateStr];
-                                                                            
+
                                                                             let type = 'work';
                                                                             let hours = 0;
                                                                             let timeRangeStr = '';
-                                                                            
+
                                                                             if (schedule) {
                                                                                 type = schedule.type;
                                                                                 if (['work', 'duty', 'card'].includes(type) && schedule.startTime && schedule.endTime) {
                                                                                     const [sH, sM] = schedule.startTime.split(':').map(Number);
                                                                                     const [eH, eM] = schedule.endTime.split(':').map(Number);
-                                                                                    const [dy, dm, dd] = dateStr.split('-').map(Number);
-                                                                                    let sDate = new Date(dy, dm-1, dd, sH, sM);
-                                                                                    let eDate = new Date(dy, dm-1, dd, eH, eM);
-                                                                                    if (eDate < sDate) eDate.setDate(eDate.getDate() + 1);
-                                                                                    hours = (eDate - sDate) / (1000 * 60 * 60);
-                                                                                    let lStart = null, lEnd = null;
-                                                                                    if (r.leaveStartDate && r.leaveEndDate) {
-                                                                                        const [dS, tS] = String(r.leaveStartDate).split(/T| /);
-                                                                                        const [dE, tE] = String(r.leaveEndDate).split(/T| /);
-                                                                                        if (dS && tS && dE && tE) {
-                                                                                            const [yS, mS, dayS] = dS.split('-').map(Number);
-                                                                                            const [hS, mnS] = tS.split(':').map(Number);
-                                                                                            const [yE, mE, dayE] = dE.split('-').map(Number);
-                                                                                            const [hE, mnE] = tE.split(':').map(Number);
-                                                                                            lStart = new Date(yS, mS-1, dayS, hS, mnS);
-                                                                                            lEnd = new Date(yE, mE-1, dayE, hE, mnE);
-                                                                                        }
-                                                                                    } else if (r.leaveDate) {
-                                                                                        let sTime = r.leaveTime;
-                                                                                        let eTime = r.leaveEndTime;
-                                                                                        if (sTime && sTime.includes('~') && !eTime) {
-                                                                                            const parts = sTime.split('~').map(s => s.trim());
-                                                                                            sTime = parts[0];
-                                                                                            eTime = parts[1];
-                                                                                        }
-                                                                                        if (sTime && eTime) {
-                                                                                            const [ly, lm, ld] = r.leaveDate.split('-').map(Number);
-                                                                                            const [lsh, lsm] = sTime.split(':').map(Number);
-                                                                                            const [leh, lem] = eTime.split(':').map(Number);
-                                                                                            lStart = new Date(ly, lm-1, ld, lsh, lsm);
-                                                                                            lEnd = new Date(ly, lm-1, ld, leh, lem);
-                                                                                        }
+                                                                                    const start = new Date(`${dateStr}T00:00:00`);
+                                                                                    const end = new Date(`${dateStr}T00:00:00`);
+                                                                                    start.setHours(sH, sM, 0, 0);
+                                                                                    end.setHours(eH, eM, 0, 0);
+                                                                                    if (schedule.crossDay || schedule.endTime < schedule.startTime) {
+                                                                                        end.setDate(end.getDate() + 1);
                                                                                     }
-                                                                                    if (lStart && lEnd) {
-                                                                                        const overlapStart = new Date(Math.max(sDate.getTime(), lStart.getTime()));
-                                                                                        const overlapEnd = new Date(Math.min(eDate.getTime(), lEnd.getTime()));
-                                                                                        if (overlapEnd > overlapStart) {
-                                                                                            hours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
-                                                                                            const fmt = (d) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-                                                                                            timeRangeStr = `${fmt(overlapStart)}~${fmt(overlapEnd)}`;
-                                                                                        } else {
-                                                                                            hours = 0;
-                                                                                        }
-                                                                                    }
+                                                                                    const diffMs = Math.max(0, end.getTime() - start.getTime());
+                                                                                    hours = diffMs / (1000 * 60 * 60);
+                                                                                    timeRangeStr = `${schedule.startTime}~${schedule.endTime}`;
                                                                                 }
                                                                             } else {
                                                                                 if (nationalHolidays.includes(dateStr)) type = 'holiday';
@@ -8101,7 +8161,7 @@
                                                                                     else type = 'work';
                                                                                 }
                                                                             }
-                                                                            
+
                                                                             if (type === 'off' || type === 'holiday') return null;
                                                                             if (hours <= 0) return null;
 
@@ -8130,20 +8190,30 @@
                                                                         );
                                                                     })()}
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
-                                                            {isLeave ? <Clock className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
-                                                            {isLeave
-                                                                ? `申請日期 : ${new Intl.DateTimeFormat('zh-TW', {
+                                                            </div>
+                                                        )}
+                                                        {!isLeave ? (
+                                                            <div className="text-sm text-gray-500 mt-0.5 flex items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-1 min-w-0">
+                                                                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                                                                    <span className="truncate">{r.checkInLocationName || r.address || '未記錄'}</span>
+                                                                </div>
+                                                                <div className={`flex items-center gap-1 flex-shrink-0 ${r.modification ? 'font-bold text-blue-600' : ''}`}>
+                                                                    <Clock className="w-3 h-3" />
+                                                                    {r.modification ? `補打卡時間: ${r.modification.time || timeStr.substring(0, 5)}` : timeStr}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                                                                <Clock className="w-3 h-3" />
+                                                                {`申請日期 : ${new Intl.DateTimeFormat('zh-TW', {
                                                                     timeZone: 'Asia/Taipei',
                                                                     year: 'numeric', month: '2-digit', day: '2-digit',
                                                                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                                                                     hour12: false
-                                                                }).format(new Date((r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000) * 1000)).replace(/\//g, '/')}`
-                                                                : (r.checkInLocationName || r.address || '未記錄')
-                                                            }
-                                                        </div>
+                                                                }).format(new Date((r.timestamp?.seconds || r.createdAt?.seconds || Date.now() / 1000) * 1000)).replace(/\//g, '/')}`}
+                                                            </div>
+                                                        )}
                                                         {['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.outingReason || '').trim() && (
                                                             <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
                                                                 <ClipboardList className="w-3 h-3" />
@@ -8237,7 +8307,17 @@
                                                             return (
                                                                 <div className="flex gap-2">
                                                                     <div className="flex gap-2">
-                                                                        <div className="flex flex-col gap-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    setEditData(r);
+                                                                                    setShowEditModal(true);
+                                                                                }}
+                                                                                className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                                title="申請修改"
+                                                                            >
+                                                                                <Edit className="w-4 h-4" />
+                                                                            </button>
                                                                             <button 
                                                                                 onClick={() => {
                                                                                     if (loc) {
@@ -8251,7 +8331,7 @@
                                                                                         alert('無座標資訊: ' + (r.address || ''));
                                                                                     }
                                                                                 }}
-                                                                                className="w-12 h-12 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
+                                                                                className="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 hover:opacity-90 transition-opacity overflow-hidden p-0"
                                                                             >
                                                                                 {mapImgUrl ? (
                                                                                     <img
@@ -8265,26 +8345,16 @@
                                                                                         }}
                                                                                     />
                                                                                 ) : (
-                                                                                    <MapPin className="w-5 h-5" />
+                                                                                    <MapPin className="w-4 h-4" />
                                                                                 )}
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={() => {
-                                                                                    setEditData(r);
-                                                                                    setShowEditModal(true);
-                                                                                }}
-                                                                                className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
-                                                                                title="申請修改"
-                                                                            >
-                                                                                <Edit className="w-5 h-5" />
                                                                             </button>
                                                                         </div>
                                                                         <div className="flex flex-col gap-2">
                                                                             {r.photoUrl ? (
-                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
+                                                                                <div className="w-8 h-8 rounded-lg bg-gray-100 overflow-hidden cursor-pointer border border-gray-200 hover:opacity-90 transition-opacity" onClick={() => setPreviewImageUrl({ url: r.photoUrl, isLeave: isLeave })}>
                                                                                     <img src={r.photoUrl} className="w-full h-full object-cover" />
                                                                                 </div>
-                                                                            ) : <div className="w-12 h-12"></div>}
+                                                                            ) : <div className="w-8 h-8"></div>}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -8429,6 +8499,77 @@
                         onSubmit={handleRequestModification}
                         loading={editLoading}
                     />
+
+                    {showWorkOutConfirmModal && workOutConfirmData && pendingCheckConfig && (
+                        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={() => { setShowWorkOutConfirmModal(false); setWorkOutConfirmData(null); setPendingCheckConfig(null); }}>
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <div className="text-center mb-4">
+                                    <h3 className="text-lg font-bold text-gray-800">確認下班打卡</h3>
+                                </div>
+                                <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                                    <div className="flex justify-between items-start gap-4">
+                                        <span className="text-gray-500 font-bold text-sm flex-shrink-0">{getClockLocationLabel(pendingCheckConfig?.type)}</span>
+                                        <select
+                                            value={selectedWorkOutLocationId}
+                                            onChange={(e) => setSelectedWorkOutLocationId(e.target.value)}
+                                            className="text-gray-800 font-bold text-sm text-right bg-white border border-gray-200 rounded-lg px-2 py-1 max-w-[180px] outline-none focus:ring-2 focus:ring-red-500"
+                                        >
+                                            {(availableLocations || []).map(loc => (
+                                                <option key={loc.id} value={String(loc.id)}>
+                                                    {loc.name || loc.id}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex justify-between items-center gap-4">
+                                        <span className="text-gray-500 font-bold text-sm flex-shrink-0">班別</span>
+                                        <select
+                                            value={selectedWorkOutShift}
+                                            onChange={(e) => setSelectedWorkOutShift(e.target.value)}
+                                            className="text-gray-800 font-bold text-sm bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-red-500"
+                                        >
+                                            <option value="day">日班</option>
+                                            <option value="night">夜班</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="mt-4 flex justify-end gap-2">
+                                    <button
+                                        onClick={() => { setShowWorkOutConfirmModal(false); setWorkOutConfirmData(null); setPendingCheckConfig(null); }}
+                                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const cfg = pendingCheckConfig;
+                                            const selectedLocation = (availableLocations || []).find(loc => String(loc.id) === String(selectedWorkOutLocationId));
+                                            const nextShift = selectedWorkOutShift === 'night' ? 'night' : 'day';
+                                            if (selectedLocation) {
+                                                setCheckInLocation(selectedLocation);
+                                            }
+                                            if (typeof setIsNightShift === 'function') {
+                                                setIsNightShift(nextShift === 'night');
+                                            }
+                                            setShowWorkOutConfirmModal(false);
+                                            setWorkOutConfirmData(null);
+                                            setPendingCheckConfig(null);
+                                            if (cfg) {
+                                                proceedClockIn(cfg, {
+                                                    shift: nextShift,
+                                                    locationId: selectedLocation ? String(selectedLocation.id) : String(selectedWorkOutLocationId || ''),
+                                                    locationName: selectedLocation ? selectedLocation.name : workOutConfirmData.locationText
+                                                });
+                                            }
+                                        }}
+                                        className="px-4 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
+                                    >
+                                        確認
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Schedule Confirmation Modal */}
                     {showScheduleConfirmModal && scheduleConfirmData && (
@@ -11408,7 +11549,7 @@
                         scheduleData.leaveLabel = scheduleForm.leaveLabel || '補休';
                     }
 
-                    if (!['off','leave','holiday','comp_leave'].includes(scheduleForm.type)) {
+                    if (!['off','leave','holiday','comp_leave','typhoon_holiday'].includes(scheduleForm.type)) {
                         scheduleData.startTime = scheduleForm.startTime;
                         scheduleData.endTime = scheduleForm.endTime;
                         scheduleData.crossDay = scheduleForm.crossDay || false;
@@ -13728,9 +13869,10 @@
                     logicDate: extra?.logicDate,
                     shift: extra?.shift,
                     locationId: extra?.locationId,
+                    locationName: extra?.locationName,
                     positionId: extra?.positionId
                 };
-                const hasAnyMeta = !!(meta.logicDate || meta.shift || meta.locationId || meta.positionId);
+                const hasAnyMeta = !!(meta.logicDate || meta.shift || meta.locationId || meta.locationName || meta.positionId);
                 setPendingClockMeta(hasAnyMeta ? meta : null);
                 if (locations.length > 0) {
                     setAvailableClockInLocations(locations);
@@ -13810,14 +13952,17 @@
                     const resolvedLocationId = (pendingClockMeta && pendingClockMeta.locationId)
                         ? String(pendingClockMeta.locationId)
                         : String((checkInLocation ? checkInLocation.id : dbUser.communityId) || '');
+                    const resolvedLocationName = (pendingClockMeta && pendingClockMeta.locationName)
+                        ? String(pendingClockMeta.locationName)
+                        : String((checkInLocation ? checkInLocation.name : (dbUser.communityName || '')) || '');
                     const resolvedPositionId = (pendingClockMeta && pendingClockMeta.positionId) ? String(pendingClockMeta.positionId) : '';
 
                     const payload = {
                         userId: dbUser.id,
                         userName: dbUser.name,
                         userRole: dbUser.role,
-                        communityId: checkInLocation ? checkInLocation.id : dbUser.communityId,
-                        checkInLocationName: checkInLocation ? checkInLocation.name : (dbUser.communityName || ''),
+                        communityId: resolvedLocationId || (checkInLocation ? checkInLocation.id : dbUser.communityId),
+                        checkInLocationName: resolvedLocationName,
                         type: clockType,
                         outingReason: (clockType || '').startsWith('outing') ? (pendingOutingReason || '') : '',
                         isNightShift: resolvedShift === 'night',
@@ -15844,13 +15989,6 @@
                             {activeTab === 'clock' && (
                                 <div className="flex gap-2">
                                     {hasSubPermission('clock', 'work') && <button onClick={() => setClockSubtab('work')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'work' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>上下班</button>}
-                                    {hasSubPermission('clock', 'out') && <button onClick={() => setClockSubtab('out')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'out' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>外出</button>}
-                                    {hasSubPermission('clock', 'card') && (function(){
-                                        if (!dbUser) return null;
-                                        // Use dedicated todaySchedule state
-                                        if (todaySchedule && (todaySchedule.type === 'work' || todaySchedule.type === 'duty')) return null;
-                                        return <button onClick={() => setClockSubtab('card')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'card' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>卡班</button>;
-                                    })()}
                                     {hasSubPermission('clock', 'leave') && <button onClick={() => setClockSubtab('leave')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leave' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>請假</button>}
                                     <button onClick={() => setClockSubtab('schedule')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'schedule' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>班表</button>
                                     {hasSubPermission('clock', 'leaveDoc') && <button onClick={() => setClockSubtab('leaveDoc')} className={`px-3 py-2 text-xs font-bold rounded-2xl ${clockSubtab === 'leaveDoc' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}>假單</button>}
@@ -16909,11 +17047,11 @@
                         </div>
                     )}
                     <main className={`absolute left-0 right-0 overflow-y-auto ${(activeTab === 'cadre' || activeTab === 'community') ? 'top-[24vh] h-[68vh]' : 'top-[16vh] h-[76vh]'}`}>
-                        <div className={`w-full max-w-md mx-auto px-4 py-4 ${activeTab === 'cadre' ? 'pb-20' : ''}`}>
+                        <div className={`w-full max-w-md mx-auto px-3 py-3 ${activeTab === 'cadre' ? 'pb-20' : ''}`}>
                         
                         {/* Role Based Views */}
                         {activeTab === 'home' && hasPermission('home') && (
-                            <div className="space-y-6 mb-6">
+                            <div className="space-y-4 mb-4">
                                 <ErrorBoundary>
                                     <StaffDashboard 
                                         currentUser={dbUser} 
@@ -18247,50 +18385,6 @@
                                         roles={roles}
                                         hideHeaderInfo={true}
                                         mode="work"
-                                        isNightShift={isNightShift}
-                                        setIsNightShift={setIsNightShift}
-                                    />
-                                )}
-                                {clockSubtab === 'out' && hasSubPermission('clock', 'out') && (
-                                    <StaffDashboard 
-                                        currentUser={dbUser} 
-                                        onClockIn={handleClockIn} 
-                                        onDeleteRecord={handleAdminDeleteRecord}
-                                        attendanceHistory={myAttendance.filter(r => ['outing_start', 'outing_arrive', 'outing_end'].includes(r.type))}
-                                        timeOffset={timeOffset}
-                                        timeSynced={timeSynced}
-                                        networkTime={networkTime}
-                                        companies={companies}
-                                        communities={communities}
-                                        checkInLocation={checkInLocation}
-                                        setCheckInLocation={setCheckInLocation}
-                                        setMapPreviewTarget={setMapPreviewTarget}
-                                        setPreviewImageUrl={setPreviewImageUrl}
-                                        roles={roles}
-                                        hideHeaderInfo={true}
-                                        mode="outing"
-                                        isNightShift={isNightShift}
-                                        setIsNightShift={setIsNightShift}
-                                    />
-                                )}
-                                {clockSubtab === 'card' && hasSubPermission('clock', 'card') && (
-                                    <StaffDashboard 
-                                        currentUser={dbUser} 
-                                        onClockIn={handleClockIn} 
-                                        onDeleteRecord={handleAdminDeleteRecord}
-                                        attendanceHistory={myAttendance.filter(r => ['late_in', 'late_out', 'duty_in', 'duty_out'].includes(r.type))}
-                                        timeOffset={timeOffset}
-                                        timeSynced={timeSynced}
-                                        networkTime={networkTime}
-                                        companies={companies}
-                                        communities={communities}
-                                        checkInLocation={checkInLocation}
-                                        setCheckInLocation={setCheckInLocation}
-                                        setMapPreviewTarget={setMapPreviewTarget}
-                                        setPreviewImageUrl={setPreviewImageUrl}
-                                        roles={roles}
-                                        hideHeaderInfo={true}
-                                        mode="card"
                                         isNightShift={isNightShift}
                                         setIsNightShift={setIsNightShift}
                                     />
@@ -20783,6 +20877,7 @@
                                                         if (isAbnormalAbsent) return '異常';
                                                         if (schedule && schedule.type === 'comp_leave') return schedule.leaveLabel === '指休' ? '指休' : '補休';
                                                         if (schedule && schedule.type === 'off') return '特休';
+                                                        if (schedule && schedule.type === 'typhoon_holiday') return '颱風假';
                                                         const hasLeave = (typeof leave !== 'undefined' && !!leave) || !!isApprovedActualLeave || (schedule && schedule.type === 'leave');
                                                         if (hasLeave) return '請假';
                                                         if (schedule && schedule.type === 'duty') return '值班';
@@ -20803,7 +20898,7 @@
                                                                     setCadreScheduleSelectedDate(currentDate);
                                                                 }}
                                                                 style={cellStyle}
-                                                                className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm font-bold cursor-pointer transition-all ${cellClass}`}
+                                                                className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm font-bold cursor-pointer transition-all ${schedule && schedule.type === 'typhoon_holiday' ? 'bg-gray-100 text-gray-700 border border-gray-300' : ''} ${cellClass}`}
                                                             >
                                                                 <div className="leading-none">{d}</div>
                                                                 {dayLabel && <div className="text-[10px] font-bold leading-none mt-1 opacity-80">{dayLabel}</div>}
@@ -25693,6 +25788,7 @@
                                                                 if (isAbnormalAbsent) return '異常';
                                                                 if (schedule && schedule.type === 'comp_leave') return schedule.leaveLabel === '指休' ? '指休' : '補休';
                                                                 if (schedule && schedule.type === 'off') return '特休';
+                                                                if (schedule && schedule.type === 'typhoon_holiday') return '颱風假';
                                                                 const hasLeave = (typeof leave !== 'undefined' && !!leave) || !!isApprovedActualLeave || (schedule && schedule.type === 'leave');
                                                                 if (hasLeave) return '請假';
                                                                 if (schedule && schedule.type === 'duty') return '值班';
@@ -25713,7 +25809,7 @@
                                                                             setCadreScheduleSelectedDate(currentDate);
                                                                         }}
                                                                         style={cellStyle}
-                                                                        className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm font-bold cursor-pointer transition-all ${cellClass}`}
+                                                                        className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm font-bold cursor-pointer transition-all ${schedule && schedule.type === 'typhoon_holiday' ? 'bg-gray-100 text-gray-700 border border-gray-300' : ''} ${cellClass}`}
                                                                     >
                                                                         <div className="leading-none">{d}</div>
                                                                         {dayLabel && <div className="text-[10px] font-bold leading-none mt-1 opacity-80">{dayLabel}</div>}
@@ -26105,15 +26201,17 @@
                                                                             (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'work') ? 'bg-blue-100 text-blue-700' :
                                                                             (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'duty') ? 'bg-yellow-100 text-yellow-700' :
                                                                             (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'off') ? 'bg-stone-500 text-white' : 
+                                                                            (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'typhoon_holiday') ? 'bg-gray-200 text-gray-700' :
                                                                             (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'comp_leave') ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-700'
                                                                         }`}>
                                                                             {(((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'work') ? '上班' 
                                                                             : (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'duty') ? '值班' 
                                                                             : (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'off') ? '特休' 
+                                                                            : (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'typhoon_holiday') ? '颱風假'
                                                                             : (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.type : schedule.type) === 'comp_leave') ? (((showScheduleModal && scheduleModalDate === dateStr) ? scheduleForm.leaveLabel : (schedule.leaveLabel || '補休')) || '補休')
                                                                             : '其他'}
                                                                         </div>
-                                                                        {schedule.type !== 'off' && schedule.type !== 'comp_leave' && (
+                                                                        {schedule.type !== 'off' && schedule.type !== 'comp_leave' && schedule.type !== 'typhoon_holiday' && (
                                                                             <div className="font-mono font-bold text-gray-700 text-lg flex items-center gap-2">
                                                                                 <span>{schedule.startTime} ~ {schedule.endTime}</span>
                                                                                 {(schedule.crossDay === true || (typeof schedule.startTime === 'string' && typeof schedule.endTime === 'string' && schedule.startTime > schedule.endTime)) && (
@@ -26125,7 +26223,7 @@
                                                                         )}
                                                                         {/* Location and Sentry Point Display */}
                                                                         {(function(){
-                                                                            if (schedule.type === 'off' || schedule.type === 'comp_leave') return null;
+                                                                            if (schedule.type === 'off' || schedule.type === 'comp_leave' || schedule.type === 'typhoon_holiday') return null;
                                                                             
                                                                             const isSecurity = targetUser?.roleName === '保全' || (roles || []).find(r => r.id === targetUser.role)?.name === '保全';
                                                                             const sp = isSecurity ? (schedule.sentryPoint || targetUser.defaultSentryPoint) : null;
@@ -30072,7 +30170,8 @@
                                             else if (schedule.type === 'duty' || schedule.type === 'card') status = '值班';
                                             else if (schedule.type === 'off') status = '特休';
                                             else if (schedule.type === 'leave') status = '請假';
-                                            else if (schedule.type === 'holiday') status = '假日';
+                                                                        else if (schedule.type === 'holiday') status = '假日';
+                                                                        else if (schedule.type === 'typhoon_holiday') status = '颱風假';
                                             else if (schedule.type === 'comp_leave') status = '補休';
 
                                             if (schedule.type === 'work' || schedule.type === 'duty' || schedule.type === 'card') {
@@ -31741,6 +31840,12 @@
                                         假日
                                     </button>
                                     <button
+                                        onClick={() => setScheduleForm(prev => ({ ...prev, type: 'typhoon_holiday', leaveLabel: '' }))}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${scheduleForm.type === 'typhoon_holiday' ? 'bg-gray-500 text-white shadow-lg shadow-gray-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    >
+                                        颱風假
+                                    </button>
+                                    <button
                                         onClick={() => setScheduleForm(prev => ({ ...prev, type: 'comp_leave', leaveLabel: '補休' }))}
                                         className={`p-3 rounded-xl font-bold text-sm transition-all ${(scheduleForm.type === 'comp_leave' && scheduleForm.leaveLabel !== '指休') ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                                     >
@@ -31748,14 +31853,14 @@
                                     </button>
                                     <button
                                         onClick={() => setScheduleForm(prev => ({ ...prev, type: 'comp_leave', leaveLabel: '指休' }))}
-                                        className={`p-3 rounded-xl font-bold text-sm transition-all col-start-3 ${(scheduleForm.type === 'comp_leave' && scheduleForm.leaveLabel === '指休') ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                        className={`p-3 rounded-xl font-bold text-sm transition-all ${(scheduleForm.type === 'comp_leave' && scheduleForm.leaveLabel === '指休') ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 transform scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                                         title="與補休相同功能"
                                     >
                                         指休
                                     </button>
                                 </div>
 
-                                {(!['off','leave','holiday','comp_leave'].includes(scheduleForm.type)) && (
+                                {(!['off','leave','holiday','comp_leave','typhoon_holiday'].includes(scheduleForm.type)) && (
                                     <div className="space-y-4 mb-6">
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">上班時間</label>

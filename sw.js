@@ -2,7 +2,7 @@
 const ICON_URL = './logo.svg';
 const BADGE_URL = './badge.svg';
 
-const CACHE_VERSION = 'v2.0.4';
+const CACHE_VERSION = 'v2.0.71';
 const APP_SHELL_CACHE = `nw-checkin-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `nw-checkin-runtime-${CACHE_VERSION}`;
 
@@ -18,6 +18,8 @@ const PRECACHE_URLS = [
   './appeal-detail.html',
   './photo/qr001.jpg',
   './check.html',
+  './data-check.html',
+  './data-check-all.html',
   './feedback.html',
   './patrol.html',
   './salary.html',

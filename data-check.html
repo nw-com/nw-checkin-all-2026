@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>打卡資料總表</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: #f8fafc;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800">
+    <div class="max-w-7xl mx-auto px-4 py-6">
+        <header class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-6 mb-4">
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <div class="flex items-center gap-2 text-red-600 font-black text-xl md:text-2xl">
+                        <i data-lucide="table-properties" class="w-6 h-6"></i>
+                        <span>打卡資料總表</span>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-1">顯示所有帳號每日上下班打卡資訊</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="refresh-btn" class="px-4 py-2 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors">
+                        重新整理
+                    </button>
+                    <a href="./index.html" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 transition-colors">
+                        返回首頁
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <section class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-5 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-[1fr_220px_140px] gap-3">
+                <div>
+                    <label for="name-filter" class="block text-xs font-bold text-gray-500 mb-1">姓名搜尋</label>
+                    <input id="name-filter" type="text" placeholder="輸入姓名關鍵字" class="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+                <div>
+                    <label for="date-filter" class="block text-xs font-bold text-gray-500 mb-1">日期篩選</label>
+                    <input id="date-filter" type="date" class="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+                <div class="flex items-end">
+                    <button id="clear-filter-btn" class="w-full rounded-xl bg-gray-100 text-gray-700 font-bold px-4 py-3 hover:bg-gray-200 transition-colors">
+                        清除篩選
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="rounded-2xl bg-red-50 border border-red-100 px-4 py-3">
+                    <div class="text-xs text-red-500 font-bold">資料筆數</div>
+                    <div id="summary-count" class="text-2xl font-black text-red-700">0</div>
+                </div>
+                <div class="rounded-2xl bg-blue-50 border border-blue-100 px-4 py-3">
+                    <div class="text-xs text-blue-500 font-bold">最近更新</div>
+                    <div id="summary-updated" class="text-sm font-bold text-blue-700">尚未載入</div>
+                </div>
+                <div class="rounded-2xl bg-gray-50 border border-gray-100 px-4 py-3">
+                    <div class="text-xs text-gray-500 font-bold">登入狀態</div>
+                    <div id="summary-auth" class="text-sm font-bold text-gray-700">檢查中</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="auth-warning" class="hidden bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-2xl p-4 mb-4"></section>
+        <section id="error-box" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 mb-4"></section>
+
+        <section class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h2 class="font-black text-gray-800">打卡清單</h2>
+                <span id="table-caption" class="text-xs text-gray-500">載入中...</span>
+            </div>
+
+            <div id="loading-box" class="p-8 text-center text-gray-400">
+                <div class="w-10 h-10 border-4 border-red-100 border-t-red-600 rounded-full animate-spin mx-auto mb-3"></div>
+                <p class="font-bold">正在讀取打卡資料...</p>
+            </div>
+
+            <div id="empty-box" class="hidden p-8 text-center text-gray-400">
+                <i data-lucide="database" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+                <p class="font-bold">目前沒有符合條件的打卡資料</p>
+            </div>
+
+            <div class="hidden overflow-x-auto" id="table-wrap">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-gray-600">
+                        <tr>
+                            <th class="text-left px-4 py-3 font-black whitespace-nowrap">姓名</th>
+                            <th class="text-left px-4 py-3 font-black whitespace-nowrap">日期</th>
+                            <th class="text-left px-4 py-3 font-black whitespace-nowrap">上班打卡位置</th>
+                            <th class="text-left px-4 py-3 font-black whitespace-nowrap">上班打卡時間</th>
+                            <th class="text-left px-4 py-3 font-black whitespace-nowrap">下班打卡位置</th>
+                            <th class="text-left px-4 py-3 font-black whitespace-nowrap">下班打卡時間</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+        const inTypes = new Set(['in', 'work_in', 'duty_in', 'late_in', 'card_in']);
+        const outTypes = new Set(['out', 'work_out', 'duty_out', 'late_out', 'card_out']);
+
+        const state = {
+            rawRecords: [],
+            rows: [],
+            filteredRows: [],
+            authUser: null,
+            lastLoadedAt: null
+        };
+
+        const $ = (id) => document.getElementById(id);
+
+        function safeText(value, fallback = '-') {
+            const text = String(value || '').trim();
+            return text || fallback;
+        }
+
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDateLabel(dateStr, shift) {
+            const base = safeText(dateStr).replace(/-/g, '/');
+            return shift === 'night' ? `${base} 夜班` : base;
+        }
+
+        function formatTime(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleTimeString('zh-TW', {
+                timeZone: 'Asia/Taipei',
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function getRecordDate(record) {
+            const seconds = record?.timestamp?.seconds || record?.createdAt?.seconds || 0;
+            if (!seconds) return null;
+            return new Date(seconds * 1000);
+        }
+
+        function getLogicDate(record, date) {
+            const logicDate = String(record?.logicDate || '').trim();
+            if (logicDate) return logicDate;
+            if (!date) return '-';
+            return formatDate(date);
+        }
+
+        function getShift(record) {
+            const shift = String(record?.shift || '').trim();
+            if (shift === 'night') return 'night';
+            if (shift === 'day') return 'day';
+            return record?.isNightShift === true ? 'night' : 'day';
+        }
+
+        function setError(message = '') {
+            const box = $('error-box');
+            if (!message) {
+                box.classList.add('hidden');
+                box.textContent = '';
+                return;
+            }
+            box.textContent = message;
+            box.classList.remove('hidden');
+        }
+
+        function setAuthWarning(message = '') {
+            const box = $('auth-warning');
+            if (!message) {
+                box.classList.add('hidden');
+                box.textContent = '';
+                return;
+            }
+            box.textContent = message;
+            box.classList.remove('hidden');
+        }
+
+        function updateSummary() {
+            $('summary-count').textContent = String(state.filteredRows.length);
+            $('summary-updated').textContent = state.lastLoadedAt
+                ? state.lastLoadedAt.toLocaleString('zh-TW', { hour12: false })
+                : '尚未載入';
+            $('summary-auth').textContent = state.authUser
+                ? `已登入：${state.authUser.email || state.authUser.uid}`
+                : '未登入';
+            $('table-caption').textContent = `共 ${state.filteredRows.length} 筆`;
+        }
+
+        function renderTable() {
+            const loadingBox = $('loading-box');
+            const emptyBox = $('empty-box');
+            const tableWrap = $('table-wrap');
+            const tbody = $('table-body');
+
+            loadingBox.classList.add('hidden');
+            tbody.innerHTML = '';
+
+            if (!state.filteredRows.length) {
+                tableWrap.classList.add('hidden');
+                emptyBox.classList.remove('hidden');
+                updateSummary();
+                return;
+            }
+
+            emptyBox.classList.add('hidden');
+            tableWrap.classList.remove('hidden');
+
+            const fragment = document.createDocumentFragment();
+            state.filteredRows.forEach((row) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 transition-colors';
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-bold text-gray-800 whitespace-nowrap">${safeText(row.name)}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${safeText(row.dateLabel)}</td>
+                    <td class="px-4 py-3">${safeText(row.inLocation)}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${safeText(row.inTime)}</td>
+                    <td class="px-4 py-3">${safeText(row.outLocation)}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${safeText(row.outTime)}</td>
+                `;
+                fragment.appendChild(tr);
+            });
+            tbody.appendChild(fragment);
+            updateSummary();
+        }
+
+        function applyFilters() {
+            const keyword = $('name-filter').value.trim().toLowerCase();
+            const dateFilter = $('date-filter').value;
+
+            state.filteredRows = state.rows.filter((row) => {
+                const matchName = !keyword || row.name.toLowerCase().includes(keyword);
+                const matchDate = !dateFilter || row.date === dateFilter;
+                return matchName && matchDate;
+            });
+
+            renderTable();
+        }
+
+        function buildRows(records) {
+            const grouped = new Map();
+
+            records.forEach((record) => {
+                const date = getRecordDate(record);
+                if (!date) return;
+
+                const shift = getShift(record);
+                const logicDate = getLogicDate(record, date);
+                const name = safeText(record.userName, '未命名');
+                const key = [
+                    String(record.userId || name),
+                    logicDate,
+                    shift
+                ].join('__');
+
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        name,
+                        date: logicDate,
+                        shift,
+                        dateLabel: formatDateLabel(logicDate, shift),
+                        inLocation: '-',
+                        inTime: '-',
+                        outLocation: '-',
+                        outTime: '-',
+                        latestTimestamp: date.getTime()
+                    });
+                }
+
+                const row = grouped.get(key);
+                row.latestTimestamp = Math.max(row.latestTimestamp, date.getTime());
+
+                if (inTypes.has(String(record.type || ''))) {
+                    if (row.inTime === '-' || date.getTime() >= (row._inTimestamp || 0)) {
+                        row.inLocation = safeText(record.checkInLocationName || record.address);
+                        row.inTime = formatTime(date);
+                        row._inTimestamp = date.getTime();
+                    }
+                }
+
+                if (outTypes.has(String(record.type || ''))) {
+                    if (row.outTime === '-' || date.getTime() >= (row._outTimestamp || 0)) {
+                        row.outLocation = safeText(record.checkInLocationName || record.address);
+                        row.outTime = formatTime(date);
+                        row._outTimestamp = date.getTime();
+                    }
+                }
+            });
+
+            return Array.from(grouped.values())
+                .sort((a, b) => {
+                    if (b.date !== a.date) return b.date.localeCompare(a.date);
+                    if (b.latestTimestamp !== a.latestTimestamp) return b.latestTimestamp - a.latestTimestamp;
+                    return a.name.localeCompare(b.name, 'zh-Hant');
+                })
+                .map((row) => {
+                    delete row._inTimestamp;
+                    delete row._outTimestamp;
+                    return row;
+                });
+        }
+
+        async function loadAttendance() {
+            setError('');
+            $('loading-box').classList.remove('hidden');
+            $('table-wrap').classList.add('hidden');
+            $('empty-box').classList.add('hidden');
+
+            try {
+                const snapshot = await db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('attendance')
+                    .orderBy('timestamp', 'desc')
+                    .limit(8000)
+                    .get();
+
+                state.rawRecords = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+                state.rows = buildRows(state.rawRecords);
+                state.filteredRows = [...state.rows];
+                state.lastLoadedAt = new Date();
+                applyFilters();
+            } catch (error) {
+                console.error(error);
+                $('loading-box').classList.add('hidden');
+                setError(`讀取打卡資料失敗：${error.message || error}`);
+                updateSummary();
+            }
+        }
+
+        function bindEvents() {
+            $('refresh-btn').addEventListener('click', loadAttendance);
+            $('name-filter').addEventListener('input', applyFilters);
+            $('date-filter').addEventListener('change', applyFilters);
+            $('clear-filter-btn').addEventListener('click', () => {
+                $('name-filter').value = '';
+                $('date-filter').value = '';
+                applyFilters();
+            });
+        }
+
+        let app = null;
+        let auth = null;
+        let db = null;
+
+        function initFirebase() {
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps.length) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            app = firebase.app();
+            auth = firebase.auth();
+            db = firebase.firestore();
+        }
+
+        async function bootstrap() {
+            try {
+                initFirebase();
+                bindEvents();
+                lucide.createIcons();
+
+                auth.onAuthStateChanged(async (user) => {
+                    state.authUser = user || null;
+                    updateSummary();
+
+                    if (!user) {
+                        setAuthWarning('請先登入後再查看打卡資料總表。');
+                        $('loading-box').classList.add('hidden');
+                        $('table-wrap').classList.add('hidden');
+                        $('empty-box').classList.remove('hidden');
+                        $('table-caption').textContent = '尚未登入';
+                        return;
+                    }
+
+                    setAuthWarning('');
+                    await loadAttendance();
+                });
+            } catch (error) {
+                console.error(error);
+                setError(`頁面初始化失敗：${error.message || error}`);
+                $('loading-box').classList.add('hidden');
+            }
+        }
+
+        bootstrap();
+    </script>
+</body>
+</html>

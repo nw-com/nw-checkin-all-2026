@@ -1,0 +1,1770 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>月出勤總覽</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: #f8fafc;
+            overflow: hidden;
+        }
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            background: #ffffff;
+        }
+        .sticky-head {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            background: #f9fafb;
+        }
+        .sticky-corner {
+            position: sticky;
+            top: 0;
+            left: 0;
+            z-index: 5;
+            background: #f9fafb;
+        }
+        .status-chip {
+            min-width: 132px;
+        }
+        .attendance-td {
+            height: 96px;
+            min-height: 96px;
+            max-height: 96px;
+            overflow: hidden;
+        }
+        .attendance-td .status-chip {
+            height: 100%;
+            max-height: 100%;
+            overflow: hidden;
+        }
+        .table-scroll-area {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: auto;
+            scrollbar-gutter: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #9ca3af transparent;
+        }
+        .table-scroll-area::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .table-scroll-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .table-scroll-area::-webkit-scrollbar-thumb {
+            background: #9ca3af;
+            border-radius: 9999px;
+            border: 1px solid transparent;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800">
+    <div class="max-w-[1800px] mx-auto px-0 py-0">
+        <header class="sticky top-0 z-30 h-[8vh] bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm px-4 md:px-6">
+            <div class="h-full flex flex-wrap items-center justify-between gap-4">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 text-red-600 font-black text-xl md:text-2xl">
+                        <img src="./logo.svg" alt="西北打卡系統 LOGO" class="w-8 h-8 object-contain">
+                        <span>西北人員出勤月報表</span>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center justify-end gap-2 ml-auto">
+                    <a href="./data-check.html" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 transition-colors">
+                        每日總表
+                    </a>
+                    <button id="profile-avatar-btn" type="button" class="hidden relative w-10 h-10 rounded-full overflow-hidden border-2 border-gray-100 bg-white focus:outline-none focus:ring-2 focus:ring-red-500 transition" title="查看登入者大頭照">
+                        <img id="profile-avatar-img" alt="登入者大頭照" class="hidden w-full h-full object-cover">
+                        <span id="profile-avatar-fallback" class="w-full h-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600">?</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <section class="fixed top-[calc(8vh+2px)] left-[2px] right-[2px] z-20 h-[calc(8vh-4px)] rounded-xl bg-white/95 backdrop-blur border border-gray-100 shadow-sm px-2 md:px-3">
+            <div class="max-w-[1800px] h-full mx-auto grid grid-cols-[minmax(0,1fr)_170px_132px_96px] md:grid-cols-[minmax(0,1fr)_250px_160px_108px] gap-2 items-center">
+                <div>
+                    <label for="name-filter" class="sr-only">姓名搜尋</label>
+                    <input id="name-filter" type="text" placeholder="姓名搜尋" class="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+                <div>
+                    <label for="scope-filter" class="sr-only">單位篩選</label>
+                    <select id="scope-filter" class="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500">
+                        <option value="all">全部</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="month-filter" class="sr-only">月份</label>
+                    <input id="month-filter" type="month" class="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+                <div class="flex items-center">
+                    <button id="clear-filter-btn" class="w-full h-9 rounded-lg bg-gray-100 text-gray-700 text-sm font-bold px-3 hover:bg-gray-200 transition-colors">
+                        清除篩選
+                    </button>
+                </div>
+            </div>
+
+        </section>
+
+        <div class="h-[8vh] bg-gray-100"></div>
+
+        <section id="auth-warning" class="hidden bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-2xl p-4 mb-4"></section>
+        <section id="error-box" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 mb-4"></section>
+
+        <section id="profile-avatar-modal" class="hidden fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-xs rounded-2xl shadow-2xl overflow-hidden">
+                <div class="relative h-32 bg-gradient-to-r from-red-600 to-red-500">
+                    <div class="absolute top-3 w-full flex justify-center">
+                        <h3 id="profile-avatar-modal-heading" class="text-lg font-bold text-white drop-shadow-md uppercase tracking-wider">個人資訊</h3>
+                    </div>
+                    <button id="profile-avatar-close" type="button" class="absolute top-3 right-3 p-1 bg-black/20 text-white rounded-full hover:bg-black/40 transition">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="px-6 pb-6">
+                    <div class="relative -mt-20 mb-4">
+                        <div class="flex justify-center">
+                            <div class="relative group">
+                                <div class="w-40 h-40 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white">
+                                    <img id="profile-avatar-modal-img" alt="avatar" class="hidden w-full h-full object-cover">
+                                    <div id="profile-avatar-modal-fallback" class="w-full h-full bg-gray-100 flex items-center justify-center text-3xl font-bold text-gray-400">?</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-center mb-6">
+                        <h2 id="profile-avatar-modal-name" class="text-xl font-bold text-gray-800">未登入</h2>
+                        <p id="profile-avatar-modal-title" class="text-xl text-gray-500">未設定職稱</p>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-2xl">
+                            <span class="text-sm font-bold text-gray-600">本月計點</span>
+                            <span id="profile-avatar-modal-points" class="text-lg font-bold text-gray-800">0</span>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-2xl">
+                            <span class="text-sm font-bold text-gray-600">通知</span>
+                            <div class="flex items-center gap-2">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input id="profile-notify-toggle" type="checkbox" class="sr-only peer" checked>
+                                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
+                                </label>
+                            </div>
+                        </div>
+                        <button id="profile-reset-password-btn" type="button" class="w-full flex items-center justify-center gap-2 p-3 bg-gray-50 text-gray-700 font-bold rounded-2xl hover:bg-gray-100 transition text-sm">
+                            <i data-lucide="shield" class="w-4 h-4"></i> 重設密碼
+                        </button>
+                        <button id="profile-qai-btn" type="button" class="w-full flex items-center justify-center gap-2 p-3 bg-green-600 text-white font-bold rounded-2xl hover:bg-green-700 transition text-sm shadow-md shadow-green-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                                <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
+                                <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
+                            </svg>
+                            QAi
+                        </button>
+                        <button id="profile-logout-btn" type="button" class="w-full flex items-center justify-center gap-2 p-3 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition text-sm shadow-md shadow-red-200">
+                            <i data-lucide="log-out" class="w-4 h-4"></i> 登出系統
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="h-[84vh] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+            <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span id="table-month-label" class="inline-flex items-center rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs font-black text-red-700 whitespace-nowrap">----</span>
+                    <h2 class="font-black text-gray-800 whitespace-nowrap">月出勤表</h2>
+                </div>
+                <span id="table-caption" class="text-xs text-gray-500">載入中...</span>
+            </div>
+
+            <div id="loading-box" class="flex-1 p-8 text-center text-gray-400">
+                <div class="w-10 h-10 border-4 border-red-100 border-t-red-600 rounded-full animate-spin mx-auto mb-3"></div>
+                <p class="font-bold">正在讀取月出勤資料...</p>
+            </div>
+
+            <div id="empty-box" class="hidden flex-1 p-8 text-center text-gray-400">
+                <i data-lucide="calendar-x-2" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+                <p class="font-bold">目前沒有符合條件的月出勤資料</p>
+            </div>
+
+            <div id="table-wrap" class="hidden table-scroll-area">
+                <table class="min-w-full text-sm border-separate border-spacing-0 border border-gray-200">
+                    <thead id="table-head" class="bg-gray-50 text-gray-600"></thead>
+                    <tbody id="table-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+        const inTypes = new Set(['in', 'work_in', 'duty_in', 'late_in', 'card_in']);
+        const outTypes = new Set(['out', 'work_out', 'duty_out', 'late_out', 'card_out']);
+        const holidayNameMap = {
+            '2025-01-01': '元旦',
+            '2025-01-25': '春節', '2025-01-26': '春節', '2025-01-27': '春節', '2025-01-28': '春節', '2025-01-29': '春節', '2025-01-30': '春節', '2025-01-31': '春節', '2025-02-01': '春節', '2025-02-02': '春節',
+            '2025-02-28': '和平紀念日',
+            '2025-04-03': '清明連假', '2025-04-04': '清明節', '2025-04-05': '清明連假', '2025-04-06': '清明連假',
+            '2025-05-01': '勞動節',
+            '2025-05-30': '端午連假', '2025-05-31': '端午節', '2025-06-01': '端午連假',
+            '2025-10-04': '中秋連假', '2025-10-05': '中秋節', '2025-10-06': '中秋連假',
+            '2025-10-10': '國慶日', '2025-10-11': '國慶連假', '2025-10-12': '國慶連假',
+            '2025-12-25': '行憲紀念日',
+            '2026-01-01': '元旦',
+            '2026-02-14': '春節', '2026-02-15': '春節', '2026-02-16': '春節', '2026-02-17': '春節', '2026-02-18': '春節', '2026-02-19': '春節', '2026-02-20': '春節', '2026-02-21': '春節', '2026-02-22': '春節',
+            '2026-02-27': '和平連假', '2026-02-28': '和平紀念日', '2026-03-01': '和平連假',
+            '2026-04-03': '清明連假', '2026-04-04': '兒童清明節', '2026-04-05': '清明連假', '2026-04-06': '清明連假',
+            '2026-05-01': '勞動節',
+            '2026-06-19': '端午連假', '2026-06-20': '端午節', '2026-06-21': '端午連假',
+            '2026-09-25': '中秋連假', '2026-09-26': '中秋節', '2026-09-27': '中秋連假',
+            '2026-10-09': '國慶連假', '2026-10-10': '國慶日', '2026-10-11': '國慶連假',
+            '2026-12-25': '行憲紀念日'
+        };
+        const nationalHolidays = new Set(Object.keys(holidayNameMap));
+
+        const state = {
+            rawRecords: [],
+            rawLeaves: [],
+            rawSchedules: [],
+            users: [],
+            filteredUsers: [],
+            directoryUsers: [],
+            companies: [],
+            communities: [],
+            roles: [],
+            authUser: null,
+            profileUser: null,
+            enableSystemNotification: true,
+            notificationPermission: ('Notification' in window) ? Notification.permission : 'unsupported',
+            lastLoadedAt: null,
+            selectedMonth: '',
+            monthDays: 31
+        };
+
+        const $ = (id) => document.getElementById(id);
+
+        function safeText(value, fallback = '-') {
+            const text = String(value || '').trim();
+            return text || fallback;
+        }
+
+        function getInitials(name) {
+            const cleanName = String(name || '').trim();
+            return cleanName ? cleanName.charAt(0) : '?';
+        }
+
+        function getRoleName(profile) {
+            const roleId = String(profile?.role || '').trim();
+            const roleMap = {
+                admin: '系統管理員',
+                manager: '管理層',
+                hr: '人事',
+                cadre: '幹部',
+                staff: '員工',
+                secretary: '秘書',
+                cleaner: '清潔',
+                mechanic: '機電',
+                guard: '保全',
+                property: '物業',
+                temp_guard: '臨時保全'
+            };
+            return safeText(profile?.roleName || getRoleNameFromDirectory(roleId) || roleMap[roleId] || roleId, '系統管理員');
+        }
+
+        const companyRoleIds = new Set(['admin', 'hr', 'cadre', 'staff']);
+        const companyRoleNames = new Set(['系統管理員', '人事', '幹部', '員工']);
+        const serviceCommunityRoleIds = new Set(['secretary', 'cleaner', 'mechanic', 'guard']);
+        const serviceCommunityRoleNames = new Set(['總幹事', '秘書', '清潔', '機電', '保全']);
+
+        function getRoleNameFromDirectory(roleId) {
+            const normalizedId = String(roleId || '').trim();
+            if (!normalizedId) return '';
+            const match = (state.roles || []).find((role) => String(role?.id || '').trim() === normalizedId);
+            return match ? safeText(match.name, '') : '';
+        }
+
+        function getRoleNameForScope(profile) {
+            if (!profile) return '';
+            const roleId = String(profile?.role || '').trim();
+            const roleMap = {
+                admin: '系統管理員',
+                manager: '管理層',
+                hr: '人事',
+                cadre: '幹部',
+                staff: '員工',
+                secretary: '秘書',
+                cleaner: '清潔',
+                mechanic: '機電',
+                guard: '保全',
+                property: '物業',
+                temp_guard: '臨時保全'
+            };
+            return String(profile?.roleName || getRoleNameFromDirectory(roleId) || roleMap[roleId] || '').trim();
+        }
+
+        function getRoleIdForScope(profile) {
+            return String(profile?.role || '').trim();
+        }
+
+        function shouldExcludeRoleFromTable(profile) {
+            return getRoleName(profile) === '管理層';
+        }
+
+        function getCompanyAllowedRoleIds() {
+            const fromDirectory = (state.roles || [])
+                .filter((role) => companyRoleNames.has(safeText(role?.name, '')))
+                .map((role) => String(role?.id || '').trim())
+                .filter(Boolean);
+            return new Set([...companyRoleIds, ...fromDirectory]);
+        }
+
+        function getCommunityAllowedRoleIds() {
+            const fromDirectory = (state.roles || [])
+                .filter((role) => serviceCommunityRoleNames.has(safeText(role?.name, '')))
+                .map((role) => String(role?.id || '').trim())
+                .filter(Boolean);
+            return new Set([...serviceCommunityRoleIds, ...fromDirectory]);
+        }
+
+        function getProfileCompanyIds(profile) {
+            const ids = [
+                ...(Array.isArray(profile?.companyIds) ? profile.companyIds : []),
+                profile?.companyId
+            ];
+            return Array.from(new Set(
+                ids
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean)
+            ));
+        }
+
+        function getProfileCommunityIds(profile) {
+            const ids = [
+                ...(Array.isArray(profile?.communityIds) ? profile.communityIds : []),
+                profile?.communityId
+            ];
+            return Array.from(new Set(
+                ids
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean)
+            ));
+        }
+
+        function getRoleBadgeLabel(user) {
+            if (!user?.profile) return '未設定角色';
+            const profile = user.profile;
+            const roleName = getRoleName(profile);
+            const roleId = String(profile?.role || '').trim();
+            if (roleName === '管理層') {
+                return '';
+            }
+            if (roleName === '保全' || roleId === 'guard') {
+                const profileCommCount = getProfileCommunityIds(profile).length;
+                const inferredCommCount = Array.isArray(user.communityIdsFromDays) ? user.communityIdsFromDays.length : 0;
+                const commCount = profileCommCount || inferredCommCount;
+                return commCount > 1 ? '機動保全' : '保全';
+            }
+            return roleName || '未設定角色';
+        }
+
+        function getUserUnitLabel(user) {
+            const profile = user?.profile;
+            if (!profile) return { text: '', title: '' };
+
+            const companyIds = getUserCompanyScopeIds(user);
+            if (companyIds.length) {
+                const companyNames = companyIds
+                    .map((id) => state.companies.find((company) => String(company.id) === String(id)))
+                    .filter(Boolean)
+                    .map((company) => safeText(company.name, ''))
+                    .filter(Boolean);
+                const companyText = companyNames.join('、') || safeText(user.primaryCompanyName, '');
+                return { text: companyText || '', title: '' };
+            }
+
+            const communityIds = getUserCommunityScopeIds(user);
+            if (communityIds.length) {
+                const communityNames = communityIds
+                    .map((id) => state.communities.find((community) => String(community.id) === String(id)))
+                    .filter(Boolean)
+                    .map((community) => safeText(community.name, ''))
+                    .filter(Boolean);
+                const fallbackCommunityName = safeText(user.primaryCommunityName, '');
+                if (communityIds.length > 1 || communityNames.length > 1) {
+                    const title = communityNames.join('、') || fallbackCommunityName;
+                    return { text: '多個社區', title };
+                }
+                const communityText = communityNames[0] || fallbackCommunityName;
+                return { text: communityText || '', title: '' };
+            }
+
+            return { text: '', title: '' };
+        }
+
+        function matchesCompanyScopeSource(profile) {
+            if (!profile) return false;
+            const roleId = getRoleIdForScope(profile);
+            const roleName = getRoleNameForScope(profile);
+            return getCompanyAllowedRoleIds().has(roleId) || companyRoleNames.has(roleName);
+        }
+
+        function matchesCommunityScopeSource(profile) {
+            if (!profile) return false;
+            const roleId = getRoleIdForScope(profile);
+            const roleName = getRoleNameForScope(profile);
+            return getCommunityAllowedRoleIds().has(roleId) || serviceCommunityRoleNames.has(roleName);
+        }
+
+        function getCompanyScopeIds(profile) {
+            if (!matchesCompanyScopeSource(profile)) return [];
+            return getProfileCompanyIds(profile);
+        }
+
+        function getCommunityScopeIds(profile) {
+            if (!matchesCommunityScopeSource(profile)) return [];
+            return getProfileCommunityIds(profile);
+        }
+
+        function getPrimaryCompanyName(profile) {
+            if (!profile) return '';
+            const directName = safeText(profile?.companyName || profile?.company, '');
+            if (directName) return directName;
+            const primaryId = String(
+                profile?.companyId ||
+                (Array.isArray(profile?.companyIds) ? (profile.companyIds[0] || '') : '') ||
+                ''
+            ).trim();
+            if (!primaryId) return '';
+            const company = state.companies.find((item) => String(item.id) === String(primaryId));
+            return company ? safeText(company.name, '') : '';
+        }
+
+        function getPrimaryCommunityName(profile) {
+            if (!profile) return '';
+            const primaryId = String(
+                profile?.communityId ||
+                (Array.isArray(profile?.communityIds) ? (profile.communityIds[0] || '') : '') ||
+                ''
+            ).trim();
+            if (!primaryId) return '';
+            const community = state.communities.find((item) => String(item.id) === String(primaryId));
+            return community ? safeText(community.name, '') : '';
+        }
+
+        function getProfileHeading(profile) {
+            const roleName = getRoleName(profile);
+            const roleId = String(profile?.role || '').trim();
+            if (['manager', 'secretary', '總幹事', '秘書'].includes(roleName) || roleId === 'manager' || roleId === 'secretary') {
+                return '個人資訊 西北生活管家';
+            }
+            if (['cleaner', 'mechanic', '清潔', '機電'].includes(roleName) || roleId === 'cleaner' || roleId === 'mechanic') {
+                return '個人資訊 西北生活幫手';
+            }
+            if (['guard', '保全'].includes(roleName) || roleId === 'guard') {
+                return '個人資訊 西北保全';
+            }
+            return `個人資訊 ${roleName}`;
+        }
+
+        function updateNotificationToggleUi() {
+            $('profile-notify-toggle').checked = Boolean(state.enableSystemNotification);
+        }
+
+        function pad2(value) {
+            return String(value).padStart(2, '0');
+        }
+
+        function getDefaultMonth() {
+            const now = new Date();
+            return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+        }
+
+        function getMonthDayCount(monthKey) {
+            const [year, month] = monthKey.split('-').map(Number);
+            return new Date(year, month, 0).getDate();
+        }
+
+        function getMonthStartDate(monthKey) {
+            return new Date(`${monthKey}-01T00:00:00`);
+        }
+
+        function parseDateValue(value) {
+            if (!value) return null;
+            if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+            if (typeof value === 'object') {
+                const seconds = value?.seconds;
+                if (typeof seconds === 'number' && seconds > 0) return new Date(seconds * 1000);
+            }
+            const text = String(value || '').trim();
+            if (!text) return null;
+            const normalized = text.replace(/\//g, '-');
+            if (/^\d{4}-\d{2}$/.test(normalized)) return new Date(`${normalized}-01T00:00:00`);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return new Date(`${normalized}T00:00:00`);
+            const date = new Date(normalized);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        function shouldIncludeProfileInMonth(profile, monthKey) {
+            const status = safeText(profile?.status, '在職');
+            if (status !== '離職') return true;
+            const resignDate = parseDateValue(profile?.resignDate || profile?.resignAt || profile?.resignationDate);
+            if (!resignDate) return false;
+            return resignDate.getTime() >= getMonthStartDate(monthKey).getTime();
+        }
+
+        function formatMonthLabel(monthKey) {
+            if (!monthKey) return '尚未設定';
+            const [year, month] = monthKey.split('-');
+            return `${year} 年 ${Number(month)} 月`;
+        }
+
+        function isNationalHoliday(dateKey) {
+            return nationalHolidays.has(dateKey);
+        }
+
+        function getHolidayName(dateKey) {
+            return holidayNameMap[dateKey] || '';
+        }
+
+        function isWeekend(dateKey) {
+            const date = new Date(`${dateKey}T00:00:00`);
+            const day = date.getDay();
+            return day === 0 || day === 6;
+        }
+
+        function shouldHighlightDayColumn(dateKey) {
+            return isNationalHoliday(dateKey) || isWeekend(dateKey);
+        }
+
+        function getWeekdayLabel(dateKey) {
+            const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+            const date = new Date(`${dateKey}T00:00:00`);
+            return `(${weekdays[date.getDay()]})`;
+        }
+
+        function formatDate(date) {
+            return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+        }
+
+        function formatTime(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+            return date.toLocaleTimeString('zh-TW', {
+                timeZone: 'Asia/Taipei',
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function getRecordDate(record) {
+            const seconds = record?.timestamp?.seconds || record?.createdAt?.seconds || 0;
+            if (!seconds) return null;
+            return new Date(seconds * 1000);
+        }
+
+        function getDateKeyFromValue(value) {
+            if (!value) return '';
+            const raw = String(value).trim();
+            if (!raw) return '';
+            const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (match) return match[1];
+            const date = new Date(raw.replace('T', ' '));
+            if (Number.isNaN(date.getTime())) return '';
+            return formatDate(date);
+        }
+
+        function getDateRangeKeys(startValue, endValue) {
+            const startKey = getDateKeyFromValue(startValue);
+            const endKey = getDateKeyFromValue(endValue) || startKey;
+            if (!startKey || !endKey) return [];
+            const startDate = new Date(`${startKey}T00:00:00`);
+            const endDate = new Date(`${endKey}T00:00:00`);
+            if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return [];
+            const keys = [];
+            const current = new Date(startDate);
+            const maxLoops = 400;
+            let loops = 0;
+            while (current.getTime() <= endDate.getTime() && loops < maxLoops) {
+                keys.push(formatDate(current));
+                current.setDate(current.getDate() + 1);
+                loops += 1;
+            }
+            return keys;
+        }
+
+        function hasTimePart(value) {
+            return /T\d{2}:\d{2}/.test(String(value || '').trim());
+        }
+
+        function formatHourMinute(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+            return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+        }
+
+        function getLeaveRangeTextForDate(dateKey, leave) {
+            const startValue = leave?.leaveStartDate || leave?.leaveDate || '';
+            const endValue = leave?.leaveEndDate || leave?.leaveDate || '';
+            const startKey = getDateKeyFromValue(startValue);
+            const endKey = getDateKeyFromValue(endValue) || startKey;
+            const startDate = parseDateValue(startValue);
+            const endDate = parseDateValue(endValue);
+            const hasStartTime = hasTimePart(startValue);
+            const hasEndTime = hasTimePart(endValue);
+
+            if (!startKey) return '';
+            if (startKey === endKey) {
+                if (hasStartTime && hasEndTime && startDate && endDate) {
+                    return `${formatHourMinute(startDate)}-${formatHourMinute(endDate)}`;
+                }
+                if (hasStartTime && startDate) return `${formatHourMinute(startDate)}起`;
+                if (hasEndTime && endDate) return `至${formatHourMinute(endDate)}`;
+                return '全天';
+            }
+
+            if (dateKey === startKey) {
+                return hasStartTime && startDate ? `${formatHourMinute(startDate)}起` : '全天';
+            }
+            if (dateKey === endKey) {
+                return hasEndTime && endDate ? `至${formatHourMinute(endDate)}` : '全天';
+            }
+            return '全天';
+        }
+
+        function getScheduleDisplayLabel(schedule, dateKey) {
+            const type = String(schedule?.type || '').trim();
+            if (type === 'holiday') return '假日';
+            if (type === 'off') return '特休';
+            if (type === 'typhoon_holiday') return '颱風假';
+            if (type === 'comp_leave') {
+                const label = safeText(schedule?.leaveLabel, '補休');
+                if (label === '指休') return '指休';
+                if (label === '補休') return '補休';
+                return label;
+            }
+            if (!type && shouldHighlightDayColumn(dateKey)) return '假日';
+            return '';
+        }
+
+        function getRecordLocationName(record) {
+            return safeText(
+                record?.checkInLocationName ||
+                record?.address ||
+                record?.locationName ||
+                record?.modification?.locationName ||
+                record?.modification?.checkInLocationName ||
+                record?.modification?.address,
+                ''
+            );
+        }
+
+        function normalizeNameLabel(name) {
+            return String(name || '').trim().replace(/\s+/g, '');
+        }
+
+        function getProfileCompanyNames(profile) {
+            const companyIds = Array.isArray(profile?.companyIds)
+                ? profile.companyIds
+                : (profile?.companyId ? [profile.companyId] : []);
+            const namesFromIds = companyIds
+                .map((id) => state.companies.find((company) => String(company.id) === String(id)))
+                .filter(Boolean)
+                .map((company) => safeText(company.name, ''))
+                .filter(Boolean);
+            const directNames = [
+                profile?.companyName,
+                profile?.company
+            ].map((name) => safeText(name, '')).filter(Boolean);
+            return Array.from(new Set([...namesFromIds, ...directNames]));
+        }
+
+        function getProfileCommunityNames(profile) {
+            const communityIds = Array.isArray(profile?.communityIds)
+                ? profile.communityIds
+                : (profile?.communityId ? [profile.communityId] : []);
+            return communityIds
+                .map((id) => state.communities.find((community) => String(community.id) === String(id)))
+                .filter(Boolean)
+                .map((community) => safeText(community.name, ''))
+                .filter(Boolean);
+        }
+
+        function buildDirectoryIndex(users) {
+            const byId = new Map();
+            const byName = new Map();
+            users.forEach((profile) => {
+                const profileId = String(profile.id || '').trim();
+                const uid = String(profile.uid || '').trim();
+                const email = String(profile.email || '').trim().toLowerCase();
+                const nameKey = normalizeNameLabel(profile.name);
+                if (profileId) byId.set(profileId, profile);
+                if (uid) byId.set(uid, profile);
+                if (email) byId.set(email, profile);
+                if (nameKey && !byName.has(nameKey)) byName.set(nameKey, profile);
+            });
+            return { byId, byName };
+        }
+
+        function getDirectoryUserKey(profile) {
+            return String(
+                profile?.uid ||
+                profile?.id ||
+                profile?.email ||
+                profile?.name ||
+                ''
+            ).trim();
+        }
+
+        function getUserProfileForRow(userRow, directoryIndex) {
+            const userId = String(userRow.userId || '').trim();
+            const profileById = directoryIndex.byId.get(userId);
+            if (profileById) return profileById;
+            return directoryIndex.byName.get(normalizeNameLabel(userRow.name)) || null;
+        }
+
+        function getCompanyNamesFromDays(days = {}) {
+            const knownCompanyNames = new Set(
+                state.companies
+                    .map((company) => safeText(company.name, ''))
+                    .filter(Boolean)
+            );
+            const names = new Set();
+            Object.values(days).forEach((cell) => {
+                [cell?.inLocation, cell?.outLocation].forEach((locationName) => {
+                    const normalized = safeText(locationName, '');
+                    if (normalized && knownCompanyNames.has(normalized)) {
+                        names.add(normalized);
+                    }
+                });
+            });
+            return Array.from(names);
+        }
+
+        function getCompanyIdsFromDays(days = {}) {
+            const nameToId = new Map(
+                state.companies
+                    .map((company) => [safeText(company.name, ''), safeText(company.id, '')])
+                    .filter(([name, id]) => name && id)
+            );
+            const ids = new Set();
+            Object.values(days).forEach((cell) => {
+                [cell?.inLocation, cell?.outLocation].forEach((locationName) => {
+                    const normalized = safeText(locationName, '');
+                    const id = normalized ? nameToId.get(normalized) : '';
+                    if (id) ids.add(String(id));
+                });
+            });
+            return Array.from(ids);
+        }
+
+        function getCommunityNamesFromDays(days = {}) {
+            const knownCommunityNames = new Set(
+                state.communities
+                    .map((community) => safeText(community.name, ''))
+                    .filter(Boolean)
+            );
+            const names = new Set();
+            Object.values(days).forEach((cell) => {
+                [cell?.inLocation, cell?.outLocation].forEach((locationName) => {
+                    const normalized = safeText(locationName, '');
+                    if (normalized && knownCommunityNames.has(normalized)) {
+                        names.add(normalized);
+                    }
+                });
+            });
+            return Array.from(names);
+        }
+
+        function getCommunityIdsFromDays(days = {}) {
+            const nameToId = new Map(
+                state.communities
+                    .map((community) => [safeText(community.name, ''), safeText(community.id, '')])
+                    .filter(([name, id]) => name && id)
+            );
+            const ids = new Set();
+            Object.values(days).forEach((cell) => {
+                [cell?.inLocation, cell?.outLocation].forEach((locationName) => {
+                    const normalized = safeText(locationName, '');
+                    const id = normalized ? nameToId.get(normalized) : '';
+                    if (id) ids.add(String(id));
+                });
+            });
+            return Array.from(ids);
+        }
+
+        function getUserCompanyScopeIds(user) {
+            if (!user?.profile) return [];
+            if (!matchesCompanyScopeSource(user.profile)) return [];
+            const fromDays = Array.isArray(user.companyIdsFromDays) ? user.companyIdsFromDays : [];
+            if (fromDays.length) return fromDays;
+            return getProfileCompanyIds(user.profile);
+        }
+
+        function getUserCommunityScopeIds(user) {
+            if (!user?.profile) return [];
+            if (!matchesCommunityScopeSource(user.profile)) return [];
+            const fromDays = Array.isArray(user.communityIdsFromDays) ? user.communityIdsFromDays : [];
+            if (fromDays.length) return fromDays;
+            return getProfileCommunityIds(user.profile);
+        }
+
+        function getUserScope(profile, days = {}) {
+            if (!profile) {
+                const inferredCompanyNames = getCompanyNamesFromDays(days);
+                const inferredCommunityNames = getCommunityNamesFromDays(days);
+                if (inferredCompanyNames.length) {
+                    return { type: 'company', names: inferredCompanyNames };
+                }
+                if (inferredCommunityNames.length) {
+                    return { type: 'community', names: inferredCommunityNames };
+                }
+                return { type: 'unknown', names: [] };
+            }
+            const roleName = getRoleName(profile);
+            if (companyRoleNames.has(roleName)) {
+                const companyNames = getProfileCompanyNames(profile);
+                const inferredCompanyNames = getCompanyNamesFromDays(days);
+                return { type: 'company', names: Array.from(new Set([...companyNames, ...inferredCompanyNames])) };
+            }
+            if (serviceCommunityRoleNames.has(roleName)) {
+                const communityNames = getProfileCommunityNames(profile);
+                const inferredCommunityNames = getCommunityNamesFromDays(days);
+                return { type: 'community', names: Array.from(new Set([...communityNames, ...inferredCommunityNames])) };
+            }
+            return {
+                type: 'unknown',
+                names: [
+                    ...getProfileCompanyNames(profile),
+                    ...getProfileCommunityNames(profile)
+                ]
+            };
+        }
+
+        function populateScopeFilterOptions() {
+            const scopeFilter = $('scope-filter');
+            const companyOptions = state.companies
+                .map((company) => ({
+                    id: safeText(company.id, ''),
+                    name: safeText(company.name, '')
+                }))
+                .filter((company) => company.id && (company.name === '台北公司' || company.name === '桃園公司'))
+                .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+            const communityOptions = state.communities
+                .map((community) => ({
+                    id: safeText(community.id, ''),
+                    code: safeText(community.id, ''),
+                    name: safeText(community.name, '')
+                }))
+                .filter((community) => community.id && community.code && community.name)
+                .sort((a, b) => a.code.localeCompare(b.code, 'en'));
+            const companyCountMap = new Map();
+            const communityCountMap = new Map();
+
+            state.users.forEach((user) => {
+                getUserCompanyScopeIds(user).forEach((companyId) => {
+                    companyCountMap.set(companyId, (companyCountMap.get(companyId) || 0) + 1);
+                });
+                getUserCommunityScopeIds(user).forEach((communityId) => {
+                    communityCountMap.set(communityId, (communityCountMap.get(communityId) || 0) + 1);
+                });
+            });
+
+            const options = [
+                `<option value="all">全部（${state.users.length}）</option>`,
+                ...companyOptions.map((company) => `<option value="company:${company.id}">${company.name}（${companyCountMap.get(company.id) || 0}）</option>`),
+                ...communityOptions.map((community) => `<option value="community:${community.id}">${community.code} ${community.name}（${communityCountMap.get(community.id) || 0}）</option>`)
+            ];
+
+            const currentValue = scopeFilter.value || 'all';
+            scopeFilter.innerHTML = options.join('');
+            scopeFilter.value = options.some((option) => option.includes(`value="${currentValue}"`)) ? currentValue : 'all';
+        }
+
+        function isSupplementRecord(record) {
+            const modificationStatus = String(record?.modification?.status || '').trim().toLowerCase();
+            if (modificationStatus === 'approved') return true;
+
+            const hasManualAuditStamp = Boolean(record?.createdAt || record?.updatedAt);
+            const hasOnsiteClockEvidence = Boolean(
+                String(record?.device || '').trim() ||
+                String(record?.photoUrl || '').trim() ||
+                String(record?.location || '').trim()
+            );
+
+            if (hasManualAuditStamp && !hasOnsiteClockEvidence) return true;
+            return false;
+        }
+
+        function getLogicDate(record, date) {
+            const logicDate = String(record?.logicDate || '').trim();
+            if (logicDate) return logicDate;
+            if (!date) return '';
+            return formatDate(date);
+        }
+
+        function getShift(record) {
+            const shift = String(record?.shift || '').trim();
+            if (shift === 'night') return 'night';
+            if (shift === 'day') return 'day';
+            return record?.isNightShift === true ? 'night' : 'day';
+        }
+
+        function setError(message = '') {
+            const box = $('error-box');
+            if (!message) {
+                box.classList.add('hidden');
+                box.textContent = '';
+                return;
+            }
+            box.textContent = message;
+            box.classList.remove('hidden');
+        }
+
+        function setAuthWarning(message = '') {
+            const box = $('auth-warning');
+            if (!message) {
+                box.classList.add('hidden');
+                box.textContent = '';
+                return;
+            }
+            box.textContent = message;
+            box.classList.remove('hidden');
+        }
+
+        function renderProfileAvatarButton() {
+            const button = $('profile-avatar-btn');
+            const img = $('profile-avatar-img');
+            const fallback = $('profile-avatar-fallback');
+            const profile = state.profileUser || state.authUser;
+
+            if (!profile) {
+                button.classList.add('hidden');
+                img.classList.add('hidden');
+                fallback.textContent = '?';
+                return;
+            }
+
+            button.classList.remove('hidden');
+            const avatarUrl = String(profile.avatarUrl || profile.photoURL || '').trim();
+            const displayName = safeText(profile.name || profile.displayName || profile.email, '使用者');
+            button.title = displayName;
+
+            if (avatarUrl) {
+                img.src = avatarUrl;
+                img.classList.remove('hidden');
+                fallback.classList.add('hidden');
+            } else {
+                img.removeAttribute('src');
+                img.classList.add('hidden');
+                fallback.textContent = getInitials(displayName);
+                fallback.classList.remove('hidden');
+            }
+        }
+
+        function setProfileAvatarModal(open) {
+            const modal = $('profile-avatar-modal');
+            const img = $('profile-avatar-modal-img');
+            const fallback = $('profile-avatar-modal-fallback');
+            const headingBox = $('profile-avatar-modal-heading');
+            const nameBox = $('profile-avatar-modal-name');
+            const titleBox = $('profile-avatar-modal-title');
+            const pointsBox = $('profile-avatar-modal-points');
+            const profile = state.profileUser || state.authUser;
+
+            if (!open || !profile) {
+                modal.classList.add('hidden');
+                return;
+            }
+
+            const avatarUrl = String(profile.avatarUrl || profile.photoURL || '').trim();
+            const displayName = safeText(profile.name || profile.displayName || profile.email, '使用者');
+            const title = safeText(profile.title, '未設定職稱');
+
+            headingBox.textContent = getProfileHeading(profile);
+            nameBox.textContent = displayName;
+            titleBox.textContent = title;
+            pointsBox.textContent = String(profile.points || profile.point || 0);
+            if (avatarUrl) {
+                img.src = avatarUrl;
+                img.classList.remove('hidden');
+                fallback.classList.add('hidden');
+            } else {
+                img.removeAttribute('src');
+                img.classList.add('hidden');
+                fallback.textContent = getInitials(displayName);
+                fallback.classList.remove('hidden');
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        async function handleResetPassword() {
+            const profile = state.profileUser || state.authUser;
+            const email = String(profile?.email || state.authUser?.email || '').trim();
+            if (!email) {
+                alert('此帳號無 Email，無法寄送重設密碼信件');
+                return;
+            }
+            if (!window.confirm(`確定要寄送重設密碼信件給 ${email} 嗎？`)) return;
+            try {
+                await auth.sendPasswordResetEmail(email);
+                alert(`重設密碼信件已發送至 ${email}`);
+            } catch (error) {
+                alert(`寄送失敗：${error.message || error}`);
+            }
+        }
+
+        function handleOpenQai() {
+            window.location.href = './mypage.html';
+        }
+
+        async function handleLogout() {
+            try {
+                await auth.signOut();
+                window.location.href = './index.html';
+            } catch (error) {
+                alert(`登出失敗：${error.message || error}`);
+            }
+        }
+
+        function updateSummary() {
+            const summaryCount = $('summary-count');
+            const summaryMonth = $('summary-month');
+            const tableMonthLabel = $('table-month-label');
+            const summaryUpdated = $('summary-updated');
+            const summaryAuth = $('summary-auth');
+            const tableCaption = $('table-caption');
+
+            if (summaryCount) summaryCount.textContent = String(state.filteredUsers.length);
+            if (summaryMonth) summaryMonth.textContent = formatMonthLabel(state.selectedMonth);
+            if (tableMonthLabel) tableMonthLabel.textContent = state.selectedMonth || '----';
+            if (summaryUpdated) {
+                summaryUpdated.textContent = state.lastLoadedAt
+                    ? state.lastLoadedAt.toLocaleString('zh-TW', { hour12: false })
+                    : '尚未載入';
+            }
+            if (summaryAuth) {
+                summaryAuth.textContent = state.authUser
+                    ? `已登入：${state.authUser.email || state.authUser.uid}`
+                    : '未登入';
+            }
+            if (tableCaption) tableCaption.textContent = `共 ${state.filteredUsers.length} 人，${state.monthDays} 天`;
+        }
+
+        function getCellStatus(cell) {
+            const hasIn = Boolean(cell?.inTime);
+            const hasOut = Boolean(cell?.outTime);
+            if (hasIn && hasOut) {
+                return {
+                    text: '上下',
+                    className: 'bg-amber-50 border border-amber-100 text-amber-700',
+                    hasIn,
+                    hasOut
+                };
+            }
+            if (hasIn) {
+                return {
+                    text: '上',
+                    className: 'bg-green-50 border border-green-100 text-green-700',
+                    hasIn,
+                    hasOut
+                };
+            }
+            if (hasOut) {
+                return {
+                    text: '下',
+                    className: 'bg-red-50 border border-red-100 text-red-700',
+                    hasIn,
+                    hasOut
+                };
+            }
+            return {
+                text: '-',
+                className: 'bg-gray-50 border border-gray-100 text-gray-400',
+                hasIn,
+                hasOut
+            };
+        }
+
+        function buildTableHead() {
+            const head = $('table-head');
+            const dayHeaders = Array.from({ length: state.monthDays }, (_, index) => {
+                const day = index + 1;
+                const dateKey = `${state.selectedMonth}-${pad2(day)}`;
+                const weekdayLabel = getWeekdayLabel(dateKey);
+                const holidayName = getHolidayName(dateKey);
+                const holidayClass = shouldHighlightDayColumn(dateKey)
+                    ? 'bg-gray-200 text-red-600'
+                    : '';
+                const weekdayClass = shouldHighlightDayColumn(dateKey) ? 'text-red-500' : 'text-gray-500';
+                const holidayNameHtml = holidayName
+                    ? `<span class="mt-1 text-[10px] font-bold text-red-500 whitespace-nowrap">${holidayName}</span>`
+                    : '';
+                return `<th class="sticky-head px-2 py-3 font-black text-center min-w-[86px] border-r border-b border-gray-200 ${holidayClass}"><div class="flex flex-col items-center leading-tight"><span>${day}</span><span class="mt-1 text-[11px] font-bold ${weekdayClass}">${weekdayLabel}</span>${holidayNameHtml}</div></th>`;
+            }).join('');
+
+            head.innerHTML = `
+                <tr>
+                    <th class="sticky-corner px-4 py-3 font-black text-left whitespace-nowrap border-r border-b border-gray-200 min-w-[150px]">姓名</th>
+                    ${dayHeaders}
+                </tr>
+            `;
+        }
+
+        function renderTable() {
+            const loadingBox = $('loading-box');
+            const emptyBox = $('empty-box');
+            const tableWrap = $('table-wrap');
+            const tbody = $('table-body');
+
+            loadingBox.classList.add('hidden');
+            tbody.innerHTML = '';
+
+            if (!state.filteredUsers.length) {
+                tableWrap.classList.add('hidden');
+                emptyBox.classList.remove('hidden');
+                updateSummary();
+                return;
+            }
+
+            emptyBox.classList.add('hidden');
+            tableWrap.classList.remove('hidden');
+            buildTableHead();
+
+            const fragment = document.createDocumentFragment();
+            state.filteredUsers.forEach((user) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 transition-colors';
+
+                const nameTd = document.createElement('td');
+                nameTd.className = 'attendance-td sticky-col px-4 py-3 font-bold text-gray-800 whitespace-nowrap border-r border-b border-gray-200 align-top';
+                const roleBadge = document.createElement('span');
+                roleBadge.className = 'inline-flex items-center rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] font-black text-gray-600 w-fit';
+                const roleBadgeText = getRoleBadgeLabel(user);
+                roleBadge.textContent = roleBadgeText;
+
+                const nameLabel = document.createElement('span');
+                nameLabel.className = 'mt-1 block leading-tight';
+                nameLabel.textContent = safeText(user.name, '未命名');
+
+                const unitLabel = document.createElement('span');
+                const unitInfo = getUserUnitLabel(user);
+                unitLabel.className = `mt-1 block text-[10px] font-medium leading-tight text-gray-500 whitespace-normal break-words${unitInfo?.title ? ' cursor-help underline decoration-dotted underline-offset-2' : ''}`;
+                unitLabel.textContent = unitInfo?.text || '';
+                unitLabel.title = unitInfo?.title || '';
+
+                if (roleBadgeText) {
+                    nameTd.appendChild(roleBadge);
+                }
+                nameTd.appendChild(nameLabel);
+                if (unitLabel.textContent) {
+                    nameTd.appendChild(unitLabel);
+                }
+                tr.appendChild(nameTd);
+
+                for (let day = 1; day <= state.monthDays; day += 1) {
+                    const dateKey = `${state.selectedMonth}-${pad2(day)}`;
+                    const cell = user.days[dateKey] || {};
+                    const status = getCellStatus(cell);
+                    const isHighlighted = shouldHighlightDayColumn(dateKey);
+                    const td = document.createElement('td');
+                    td.className = `attendance-td px-2 py-3 text-center align-top border-r border-b border-gray-200 ${isHighlighted ? 'bg-gray-100 text-red-600' : ''}`;
+
+                    if (status.hasIn || status.hasOut || cell.leaveLabel || cell.scheduleLabel) {
+                        const isLeaveOnly = Boolean(cell.leaveLabel && !status.hasIn && !status.hasOut);
+                        const isScheduleOnly = Boolean(cell.scheduleLabel && !cell.leaveLabel && !status.hasIn && !status.hasOut);
+                        const hasLeaveColumn = Boolean(cell.leaveLabel);
+                        const wrapper = document.createElement('div');
+                        wrapper.className = `status-chip h-full overflow-hidden mx-auto rounded-xl px-1.5 py-1.5 ${hasLeaveColumn && !isLeaveOnly ? 'min-w-[198px]' : ''} ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
+
+                        if (isScheduleOnly) {
+                            const scheduleTag = document.createElement('span');
+                            scheduleTag.className = `inline-flex items-center justify-center min-w-[58px] rounded-lg px-2 py-0.5 text-xs font-bold leading-none mx-auto ${
+                                cell.scheduleLabel === '假日'
+                                    ? 'bg-gray-200 border border-gray-300 text-red-600'
+                                    : cell.scheduleLabel === '颱風假'
+                                        ? 'bg-gray-200 border border-gray-300 text-gray-700'
+                                    : 'bg-violet-50 border border-violet-100 text-violet-700'
+                            }`;
+                            scheduleTag.textContent = cell.scheduleLabel;
+                            wrapper.className = `status-chip h-full overflow-hidden flex items-start justify-center mx-auto rounded-xl px-1.5 py-1.5 ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
+                            wrapper.appendChild(scheduleTag);
+                            td.appendChild(wrapper);
+                            tr.appendChild(td);
+                            continue;
+                        }
+
+                        const tagRow = document.createElement('div');
+                        tagRow.className = `grid ${isLeaveOnly ? 'grid-cols-1' : (hasLeaveColumn ? 'grid-cols-3' : 'grid-cols-2')} gap-1 items-start text-xs font-bold`;
+
+                        if (!isLeaveOnly) {
+                            const inTag = document.createElement('span');
+                            inTag.className = `min-w-[58px] rounded-lg px-2 py-0.5 leading-none ${status.hasIn ? 'bg-green-50 border border-green-100 text-green-700' : 'bg-gray-100 border border-gray-200 text-gray-400'} ${isHighlighted ? 'text-red-600 border-red-200' : ''}`;
+                            inTag.textContent = '上';
+
+                            const outTag = document.createElement('span');
+                            outTag.className = `min-w-[58px] rounded-lg px-2 py-0.5 leading-none ${status.hasOut ? 'bg-red-50 border border-red-100 text-red-700' : 'bg-gray-100 border border-gray-200 text-gray-400'} ${isHighlighted ? 'text-red-600 border-red-200' : ''}`;
+                            outTag.textContent = '下';
+
+                            tagRow.appendChild(inTag);
+                            tagRow.appendChild(outTag);
+                        }
+
+                        if (hasLeaveColumn) {
+                            const leaveTag = document.createElement('span');
+                            leaveTag.className = `min-w-[58px] rounded-lg px-2 py-0.5 leading-none bg-orange-50 border border-orange-100 text-orange-700 ${isHighlighted ? 'text-red-600 border-red-200 bg-gray-100' : ''}`;
+                            leaveTag.textContent = cell.leaveLabel;
+                            tagRow.appendChild(leaveTag);
+                        }
+
+                        const timeRow = document.createElement('div');
+                        timeRow.className = `mt-1 grid ${isLeaveOnly ? 'grid-cols-1' : (hasLeaveColumn ? 'grid-cols-3' : 'grid-cols-2')} gap-1 text-[10px] leading-tight`;
+                        wrapper.appendChild(tagRow);
+
+                        if (!isLeaveOnly) {
+                            const inTime = document.createElement('span');
+                            inTime.className = `min-w-[58px] text-center ${cell.inTime ? 'text-green-700' : 'text-transparent'}`;
+                            inTime.textContent = cell.inTime ? `${cell.inTime}${cell.inSupplement ? '(補)' : ''}` : '';
+
+                            const outTime = document.createElement('span');
+                            outTime.className = `min-w-[58px] text-center ${cell.outTime ? 'text-red-700' : 'text-transparent'}`;
+                            outTime.textContent = cell.outTime ? `${cell.outTime}${cell.outSupplement ? '(補)' : ''}` : '';
+
+                            timeRow.appendChild(inTime);
+                            timeRow.appendChild(outTime);
+                        }
+                        if (hasLeaveColumn) {
+                            const leaveRangeCell = document.createElement('div');
+                            leaveRangeCell.className = `text-center text-[10px] leading-tight ${cell.leaveRangeText ? (isHighlighted ? 'text-red-600' : 'text-orange-700') : 'text-transparent'}`;
+                            leaveRangeCell.textContent = cell.leaveRangeText || '';
+                            timeRow.appendChild(leaveRangeCell);
+                        }
+
+                        wrapper.appendChild(timeRow);
+                        if (!isLeaveOnly) {
+                            const locationRow = document.createElement('div');
+                            locationRow.className = `mt-1 grid ${hasLeaveColumn ? 'grid-cols-3' : 'grid-cols-2'} gap-1 text-[10px] leading-tight ${isHighlighted ? 'text-red-600' : 'text-gray-500'}`;
+
+                            const inLocation = document.createElement('span');
+                            inLocation.className = 'min-w-[58px] text-center break-words';
+                            inLocation.textContent = cell.inLocation || '';
+
+                            const outLocation = document.createElement('span');
+                            outLocation.className = 'min-w-[58px] text-center break-words';
+                            outLocation.textContent = cell.outLocation || '';
+
+                            wrapper.appendChild(locationRow);
+                            locationRow.appendChild(inLocation);
+                            locationRow.appendChild(outLocation);
+                            if (hasLeaveColumn) {
+                                const leaveLocationSpacer = document.createElement('span');
+                                leaveLocationSpacer.className = 'min-w-[58px] text-center text-transparent';
+                                leaveLocationSpacer.textContent = '';
+                                locationRow.appendChild(leaveLocationSpacer);
+                            }
+                        }
+
+                        const details = [];
+                        if (cell.inTime) details.push(`上 ${cell.inTime}`);
+                        if (cell.outTime) details.push(`下 ${cell.outTime}`);
+                        if (cell.inLocation) details.push(`上地點 ${cell.inLocation}`);
+                        if (cell.outLocation) details.push(`下地點 ${cell.outLocation}`);
+                        if (details.length) {
+                            wrapper.title = details.join('\n');
+                        }
+
+                        td.appendChild(wrapper);
+                    }
+                    tr.appendChild(td);
+                }
+
+                fragment.appendChild(tr);
+            });
+
+            tbody.appendChild(fragment);
+            updateSummary();
+        }
+
+        function applyFilters() {
+            const keyword = $('name-filter').value.trim().toLowerCase();
+            const scopeValue = $('scope-filter').value || 'all';
+            state.selectedMonth = $('month-filter').value || getDefaultMonth();
+            state.monthDays = getMonthDayCount(state.selectedMonth);
+
+            state.filteredUsers = state.users
+                .filter((user) => {
+                    const matchName = !keyword || user.name.toLowerCase().includes(keyword);
+                    if (!matchName) return false;
+                    if (scopeValue === 'all') return true;
+
+                    const [scopeType, scopeId = ''] = scopeValue.split(':');
+                    if (scopeType === 'company') {
+                        return getUserCompanyScopeIds(user).includes(scopeId);
+                    }
+                    if (scopeType === 'community') {
+                        return getUserCommunityScopeIds(user).includes(scopeId);
+                    }
+
+                    const userScope = user.scope || { type: 'unknown', names: [] };
+                    return userScope.type === scopeType && userScope.names.includes(scopeId);
+                })
+                .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+
+            renderTable();
+        }
+
+        function buildMonthlyRows(records, monthKey) {
+            const userMap = new Map();
+            const monthDirectoryUsers = (state.directoryUsers || []).filter((profile) => (
+                shouldIncludeProfileInMonth(profile, monthKey) && !shouldExcludeRoleFromTable(profile)
+            ));
+            const directoryIndex = buildDirectoryIndex(monthDirectoryUsers);
+
+            monthDirectoryUsers.forEach((profile) => {
+                const userKey = getDirectoryUserKey(profile);
+                if (!userKey) return;
+                userMap.set(userKey, {
+                    userId: userKey,
+                    name: safeText(profile.name || profile.email, '未命名'),
+                    days: {},
+                    profile
+                });
+            });
+
+            records.forEach((record) => {
+                const date = getRecordDate(record);
+                if (!date) return;
+
+                const logicDate = getLogicDate(record, date);
+                if (!logicDate.startsWith(`${monthKey}-`)) return;
+
+                const dayPart = logicDate.split('-')[2];
+                if (!dayPart) return;
+
+                const userId = String(record.userId || record.userName || record.id || '');
+                const name = safeText(record.userName, '未命名');
+                const matchedProfile = directoryIndex.byId.get(userId) || directoryIndex.byName.get(normalizeNameLabel(name)) || null;
+                if (matchedProfile && shouldExcludeRoleFromTable(matchedProfile)) return;
+                const userKey = matchedProfile ? getDirectoryUserKey(matchedProfile) : (userId || name);
+                const dateKey = `${monthKey}-${dayPart}`;
+
+                if (!userMap.has(userKey)) {
+                    userMap.set(userKey, {
+                        userId: userKey,
+                        name,
+                        days: {},
+                        profile: matchedProfile
+                    });
+                }
+
+                const userRow = userMap.get(userKey);
+                if (!userRow.name || userRow.name === '未命名') {
+                    userRow.name = name;
+                }
+                if (!userRow.days[dateKey]) {
+                    userRow.days[dateKey] = {
+                        shift: getShift(record),
+                        inTime: '',
+                        outTime: '',
+                        inLocation: '',
+                        outLocation: '',
+                        leaveLabel: '',
+                        leaveRangeText: '',
+                        scheduleLabel: '',
+                        inSupplement: false,
+                        outSupplement: false,
+                        _inStamp: 0,
+                        _outStamp: 0
+                    };
+                }
+
+                const cell = userRow.days[dateKey];
+                const stamp = date.getTime();
+                const recordType = String(record.type || '');
+                const locationName = getRecordLocationName(record);
+                const timeLabel = formatTime(date);
+                const isSupplement = isSupplementRecord(record);
+
+                if (inTypes.has(recordType) && stamp >= cell._inStamp) {
+                    cell.inTime = timeLabel;
+                    cell.inLocation = locationName;
+                    cell._inStamp = stamp;
+                    cell.inSupplement = isSupplement;
+                }
+
+                if (outTypes.has(recordType) && stamp >= cell._outStamp) {
+                    cell.outTime = timeLabel;
+                    cell.outLocation = locationName;
+                    cell._outStamp = stamp;
+                    cell.outSupplement = isSupplement;
+                }
+            });
+
+            (state.rawLeaves || []).forEach((leave) => {
+                if (String(leave?.approvalStatus || '').trim() !== 'approved') return;
+                const leaveUserId = String(leave?.userId || leave?.userName || '').trim();
+                const leaveUserName = safeText(leave?.userName, '');
+                const matchedProfile = directoryIndex.byId.get(leaveUserId) || directoryIndex.byName.get(normalizeNameLabel(leaveUserName)) || null;
+                if (matchedProfile && shouldExcludeRoleFromTable(matchedProfile)) return;
+
+                const userKey = matchedProfile ? getDirectoryUserKey(matchedProfile) : (leaveUserId || leaveUserName);
+                if (!userKey) return;
+                if (!userMap.has(userKey)) {
+                    userMap.set(userKey, {
+                        userId: userKey,
+                        name: leaveUserName || '未命名',
+                        days: {},
+                        profile: matchedProfile
+                    });
+                }
+
+                const leaveDateKeys = getDateRangeKeys(
+                    leave?.leaveStartDate || leave?.leaveDate,
+                    leave?.leaveEndDate || leave?.leaveDate
+                ).filter((dateKey) => dateKey.startsWith(`${monthKey}-`));
+
+                leaveDateKeys.forEach((dateKey) => {
+                    const userRow = userMap.get(userKey);
+                    if (!userRow.days[dateKey]) {
+                        userRow.days[dateKey] = {
+                            shift: '',
+                            inTime: '',
+                            outTime: '',
+                            inLocation: '',
+                            outLocation: '',
+                            leaveLabel: '',
+                            leaveRangeText: '',
+                            scheduleLabel: '',
+                            inSupplement: false,
+                            outSupplement: false,
+                            _inStamp: 0,
+                            _outStamp: 0
+                        };
+                    }
+                    userRow.days[dateKey].leaveLabel = '請假';
+                    userRow.days[dateKey].leaveRangeText = getLeaveRangeTextForDate(dateKey, leave);
+                });
+            });
+
+            (state.rawSchedules || []).forEach((schedule) => {
+                const dateKey = String(schedule?.date || '').trim();
+                if (!dateKey.startsWith(`${monthKey}-`)) return;
+
+                const scheduleUserId = String(schedule?.userId || '').trim();
+                const matchedProfile = directoryIndex.byId.get(scheduleUserId) || null;
+                if (matchedProfile && shouldExcludeRoleFromTable(matchedProfile)) return;
+
+                const userKey = matchedProfile ? getDirectoryUserKey(matchedProfile) : scheduleUserId;
+                if (!userKey || !userMap.has(userKey)) return;
+
+                const userRow = userMap.get(userKey);
+                if (!userRow.days[dateKey]) {
+                    userRow.days[dateKey] = {
+                        shift: '',
+                        inTime: '',
+                        outTime: '',
+                        inLocation: '',
+                        outLocation: '',
+                        leaveLabel: '',
+                        leaveRangeText: '',
+                        scheduleLabel: '',
+                        inSupplement: false,
+                        outSupplement: false,
+                        _inStamp: 0,
+                        _outStamp: 0
+                    };
+                }
+
+                userRow.days[dateKey].scheduleLabel = getScheduleDisplayLabel(schedule, dateKey);
+            });
+
+            userMap.forEach((userRow) => {
+                for (let day = 1; day <= getMonthDayCount(monthKey); day += 1) {
+                    const dateKey = `${monthKey}-${pad2(day)}`;
+                    if (!userRow.days[dateKey]) {
+                        userRow.days[dateKey] = {
+                            shift: '',
+                            inTime: '',
+                            outTime: '',
+                            inLocation: '',
+                            outLocation: '',
+                            leaveLabel: '',
+                            leaveRangeText: '',
+                            scheduleLabel: getScheduleDisplayLabel(null, dateKey),
+                            inSupplement: false,
+                            outSupplement: false,
+                            _inStamp: 0,
+                            _outStamp: 0
+                        };
+                    } else if (!userRow.days[dateKey].scheduleLabel && !userRow.days[dateKey].leaveLabel && !userRow.days[dateKey].inTime && !userRow.days[dateKey].outTime) {
+                        userRow.days[dateKey].scheduleLabel = getScheduleDisplayLabel(null, dateKey);
+                    }
+                }
+            });
+
+            return Array.from(userMap.values()).map((user) => {
+                const profile = user.profile || getUserProfileForRow(user, directoryIndex);
+                if (profile && shouldExcludeRoleFromTable(profile)) return null;
+                user.companyNamesFromDays = getCompanyNamesFromDays(user.days);
+                user.communityNamesFromDays = getCommunityNamesFromDays(user.days);
+                user.companyIdsFromDays = getCompanyIdsFromDays(user.days);
+                user.communityIdsFromDays = getCommunityIdsFromDays(user.days);
+                user.profile = profile;
+                user.profileCompanyNames = profile ? getProfileCompanyNames(profile) : [];
+                user.profileCommunityNames = profile ? getProfileCommunityNames(profile) : [];
+                user.primaryCompanyName = profile ? getPrimaryCompanyName(profile) : '';
+                user.primaryCommunityName = profile ? getPrimaryCommunityName(profile) : '';
+                user.scope = getUserScope(profile, user.days);
+                Object.values(user.days).forEach((cell) => {
+                    delete cell._inStamp;
+                    delete cell._outStamp;
+                });
+                return user;
+            }).filter(Boolean);
+        }
+
+        async function loadDirectoryData() {
+            const [usersSnap, companiesSnap, communitiesSnap, rolesSnap] = await Promise.all([
+                db.collection('artifacts').doc(appId).collection('public').doc('data').collection('users').get(),
+                db.collection('artifacts').doc(appId).collection('public').doc('data').collection('companies').get(),
+                db.collection('artifacts').doc(appId).collection('public').doc('data').collection('communities').get(),
+                db.collection('artifacts').doc(appId).collection('public').doc('data').collection('roles').get()
+            ]);
+
+            state.directoryUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+            state.companies = companiesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+            state.communities = communitiesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+            state.roles = rolesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+            populateScopeFilterOptions();
+        }
+
+        async function loadAttendance() {
+            setError('');
+            $('loading-box').classList.remove('hidden');
+            $('table-wrap').classList.add('hidden');
+            $('empty-box').classList.add('hidden');
+
+            try {
+                const attendanceRef = db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('attendance')
+                    .orderBy('timestamp', 'desc')
+                    .limit(9000);
+
+                const leavesRef = db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('leaves')
+                    .orderBy('timestamp', 'desc')
+                    .limit(4000);
+
+                const schedulesRef = db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('schedules')
+                    .limit(6000);
+
+                const [attendanceSnap, leavesSnap, schedulesSnap] = await Promise.all([
+                    attendanceRef.get(),
+                    leavesRef.get(),
+                    schedulesRef.get()
+                ]);
+
+                state.rawRecords = attendanceSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+                state.rawLeaves = leavesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+                state.rawSchedules = schedulesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+                state.users = buildMonthlyRows(state.rawRecords, state.selectedMonth);
+                state.filteredUsers = [...state.users];
+                state.lastLoadedAt = new Date();
+                populateScopeFilterOptions();
+                applyFilters();
+            } catch (error) {
+                console.error(error);
+                $('loading-box').classList.add('hidden');
+                setError(`讀取月出勤資料失敗：${error.message || error}`);
+                updateSummary();
+            }
+        }
+
+        function bindEvents() {
+            $('name-filter').addEventListener('input', applyFilters);
+            $('month-filter').addEventListener('change', () => {
+                state.users = buildMonthlyRows(state.rawRecords, $('month-filter').value || getDefaultMonth());
+                populateScopeFilterOptions();
+                applyFilters();
+            });
+            $('scope-filter').addEventListener('change', applyFilters);
+
+            $('clear-filter-btn').addEventListener('click', () => {
+                $('name-filter').value = '';
+                $('scope-filter').value = 'all';
+                $('month-filter').value = getDefaultMonth();
+                state.users = buildMonthlyRows(state.rawRecords, $('month-filter').value);
+                populateScopeFilterOptions();
+                applyFilters();
+            });
+
+            $('profile-avatar-btn').addEventListener('click', () => {
+                setProfileAvatarModal(true);
+            });
+
+            $('profile-avatar-close').addEventListener('click', () => {
+                setProfileAvatarModal(false);
+            });
+
+            $('profile-avatar-modal').addEventListener('click', (event) => {
+                if (event.target === $('profile-avatar-modal')) {
+                    setProfileAvatarModal(false);
+                }
+            });
+
+            $('profile-reset-password-btn').addEventListener('click', handleResetPassword);
+            $('profile-qai-btn').addEventListener('click', handleOpenQai);
+            $('profile-logout-btn').addEventListener('click', handleLogout);
+            $('profile-notify-toggle').addEventListener('change', async (event) => {
+                const isChecked = event.target.checked;
+                state.enableSystemNotification = isChecked;
+                if (isChecked && 'Notification' in window && Notification.permission !== 'granted') {
+                    const permission = await Notification.requestPermission();
+                    state.notificationPermission = permission;
+                    if (permission !== 'granted') {
+                        alert('請允許瀏覽器通知權限');
+                        state.enableSystemNotification = false;
+                    }
+                } else if (isChecked && !('Notification' in window)) {
+                    alert('此裝置不支援通知');
+                    state.enableSystemNotification = false;
+                }
+                localStorage.setItem('enableSystemNotification', state.enableSystemNotification ? '1' : '0');
+                updateNotificationToggleUi();
+            });
+        }
+
+        let app = null;
+        let auth = null;
+        let db = null;
+
+        function initFirebase() {
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps.length) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            app = firebase.app();
+            auth = firebase.auth();
+            db = firebase.firestore();
+        }
+
+        async function bootstrap() {
+            try {
+                $('month-filter').value = getDefaultMonth();
+                state.selectedMonth = $('month-filter').value;
+                state.monthDays = getMonthDayCount(state.selectedMonth);
+
+                if ('serviceWorker' in navigator) {
+                    try {
+                        const reg = await navigator.serviceWorker.register('./sw.js');
+                        try { await reg.update(); } catch (_) {}
+                        if (reg.waiting) {
+                            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        }
+                    } catch (_) {}
+                }
+
+                initFirebase();
+                state.enableSystemNotification = localStorage.getItem('enableSystemNotification') !== '0';
+                bindEvents();
+                updateNotificationToggleUi();
+                populateScopeFilterOptions();
+                lucide.createIcons();
+
+                auth.onAuthStateChanged(async (user) => {
+                    state.authUser = user || null;
+                    state.profileUser = null;
+                    renderProfileAvatarButton();
+                    updateSummary();
+
+                    if (!user) {
+                        setAuthWarning('請先登入後再查看月出勤總覽。');
+                        $('loading-box').classList.add('hidden');
+                        $('table-wrap').classList.add('hidden');
+                        $('empty-box').classList.remove('hidden');
+                        $('table-caption').textContent = '尚未登入';
+                        setProfileAvatarModal(false);
+                        return;
+                    }
+
+                    try {
+                        const userSnap = await db
+                            .collection('artifacts')
+                            .doc(appId)
+                            .collection('public')
+                            .doc('data')
+                            .collection('users')
+                            .where('email', '==', user.email || '')
+                            .get();
+                        if (!userSnap.empty) {
+                            const preferredDoc = userSnap.docs.find((doc) => {
+                                const data = doc.data() || {};
+                                return String(data.status || '在職') !== '離職';
+                            }) || userSnap.docs[0];
+                            state.profileUser = { id: preferredDoc.id, ...preferredDoc.data() };
+                        } else {
+                            state.profileUser = {
+                                id: user.uid,
+                                name: user.displayName || '',
+                                email: user.email || '',
+                                avatarUrl: user.photoURL || ''
+                            };
+                        }
+                    } catch (_) {
+                        state.profileUser = {
+                            id: user.uid,
+                            name: user.displayName || '',
+                            email: user.email || '',
+                            avatarUrl: user.photoURL || ''
+                        };
+                    }
+
+                    renderProfileAvatarButton();
+                    setAuthWarning('');
+                    await loadDirectoryData();
+                    await loadAttendance();
+                });
+            } catch (error) {
+                console.error(error);
+                setError(`頁面初始化失敗：${error.message || error}`);
+                $('loading-box').classList.add('hidden');
+            }
+        }
+
+        bootstrap();
+    </script>
+</body>
+</html>
