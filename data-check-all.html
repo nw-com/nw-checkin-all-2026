@@ -666,6 +666,18 @@
             return '';
         }
 
+        function getScheduledTimeLabel(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            const match = raw.match(/^(\d{1,2}):(\d{2})/);
+            if (!match) return raw;
+            return `${match[1].padStart(2, '0')}:${match[2]}`;
+        }
+
+        function isRestrictedScheduleLabel(label) {
+            return ['假日', '特休', '補休', '指休', '颱風假'].includes(String(label || '').trim());
+        }
+
         function getRecordLocationName(record) {
             return safeText(
                 record?.checkInLocationName ||
@@ -1192,12 +1204,13 @@
 
                     if (status.hasIn || status.hasOut || cell.leaveLabel || cell.scheduleLabel) {
                         const isLeaveOnly = Boolean(cell.leaveLabel && !status.hasIn && !status.hasOut);
+                        const isRestrictedScheduleOnly = Boolean(cell.scheduleLabel && cell.blocksClockDisplay && !cell.leaveLabel);
                         const isScheduleOnly = Boolean(cell.scheduleLabel && !cell.leaveLabel && !status.hasIn && !status.hasOut);
                         const hasLeaveColumn = Boolean(cell.leaveLabel);
                         const wrapper = document.createElement('div');
                         wrapper.className = `status-chip h-full overflow-hidden mx-auto rounded-xl px-1.5 py-1.5 ${hasLeaveColumn && !isLeaveOnly ? 'min-w-[198px]' : ''} ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
 
-                        if (isScheduleOnly) {
+                        if (isRestrictedScheduleOnly || isScheduleOnly) {
                             const scheduleTag = document.createElement('span');
                             scheduleTag.className = `inline-flex items-center justify-center min-w-[58px] rounded-lg px-2 py-0.5 text-xs font-bold leading-none mx-auto ${
                                 cell.scheduleLabel === '假日'
@@ -1237,11 +1250,21 @@
                             tagRow.appendChild(leaveTag);
                         }
 
+                        const scheduledTimeRow = document.createElement('div');
+                        scheduledTimeRow.className = `mt-1 grid ${isLeaveOnly ? 'grid-cols-1' : (hasLeaveColumn ? 'grid-cols-3' : 'grid-cols-2')} gap-1 text-[10px] leading-tight`;
                         const timeRow = document.createElement('div');
                         timeRow.className = `mt-1 grid ${isLeaveOnly ? 'grid-cols-1' : (hasLeaveColumn ? 'grid-cols-3' : 'grid-cols-2')} gap-1 text-[10px] leading-tight`;
                         wrapper.appendChild(tagRow);
 
                         if (!isLeaveOnly) {
+                            const scheduledInTime = document.createElement('span');
+                            scheduledInTime.className = `min-w-[58px] text-center ${isHighlighted ? 'text-red-600' : 'text-gray-500'}`;
+                            scheduledInTime.textContent = cell.scheduledInTime || '--:--';
+
+                            const scheduledOutTime = document.createElement('span');
+                            scheduledOutTime.className = `min-w-[58px] text-center ${isHighlighted ? 'text-red-600' : 'text-gray-500'}`;
+                            scheduledOutTime.textContent = cell.scheduledOutTime || '--:--';
+
                             const inTime = document.createElement('span');
                             inTime.className = `min-w-[58px] text-center ${cell.inTime ? 'text-green-700' : 'text-transparent'}`;
                             inTime.textContent = cell.inTime ? `${cell.inTime}${cell.inSupplement ? '(補)' : ''}` : '';
@@ -1250,16 +1273,24 @@
                             outTime.className = `min-w-[58px] text-center ${cell.outTime ? 'text-red-700' : 'text-transparent'}`;
                             outTime.textContent = cell.outTime ? `${cell.outTime}${cell.outSupplement ? '(補)' : ''}` : '';
 
+                            scheduledTimeRow.appendChild(scheduledInTime);
+                            scheduledTimeRow.appendChild(scheduledOutTime);
                             timeRow.appendChild(inTime);
                             timeRow.appendChild(outTime);
                         }
                         if (hasLeaveColumn) {
+                            const scheduledLeaveSpacer = document.createElement('span');
+                            scheduledLeaveSpacer.className = 'min-w-[58px] text-center text-transparent';
+                            scheduledLeaveSpacer.textContent = '';
+                            scheduledTimeRow.appendChild(scheduledLeaveSpacer);
+
                             const leaveRangeCell = document.createElement('div');
                             leaveRangeCell.className = `text-center text-[10px] leading-tight ${cell.leaveRangeText ? (isHighlighted ? 'text-red-600' : 'text-orange-700') : 'text-transparent'}`;
                             leaveRangeCell.textContent = cell.leaveRangeText || '';
                             timeRow.appendChild(leaveRangeCell);
                         }
 
+                        wrapper.appendChild(scheduledTimeRow);
                         wrapper.appendChild(timeRow);
                         if (!isLeaveOnly) {
                             const locationRow = document.createElement('div');
@@ -1386,6 +1417,9 @@
                         shift: getShift(record),
                         inTime: '',
                         outTime: '',
+                            scheduledInTime: '',
+                            scheduledOutTime: '',
+                            blocksClockDisplay: false,
                         inLocation: '',
                         outLocation: '',
                         leaveLabel: '',
@@ -1450,6 +1484,9 @@
                             shift: '',
                             inTime: '',
                             outTime: '',
+                            scheduledInTime: '',
+                            scheduledOutTime: '',
+                            blocksClockDisplay: false,
                             inLocation: '',
                             outLocation: '',
                             leaveLabel: '',
@@ -1483,6 +1520,9 @@
                         shift: '',
                         inTime: '',
                         outTime: '',
+                            scheduledInTime: '',
+                            scheduledOutTime: '',
+                            blocksClockDisplay: false,
                         inLocation: '',
                         outLocation: '',
                         leaveLabel: '',
@@ -1496,6 +1536,9 @@
                 }
 
                 userRow.days[dateKey].scheduleLabel = getScheduleDisplayLabel(schedule, dateKey);
+                userRow.days[dateKey].scheduledInTime = getScheduledTimeLabel(schedule?.startTime);
+                userRow.days[dateKey].scheduledOutTime = getScheduledTimeLabel(schedule?.endTime);
+                userRow.days[dateKey].blocksClockDisplay = isRestrictedScheduleLabel(userRow.days[dateKey].scheduleLabel);
             });
 
             userMap.forEach((userRow) => {
@@ -1506,8 +1549,13 @@
                             shift: '',
                             inTime: '',
                             outTime: '',
+                            scheduledInTime: '',
+                            scheduledOutTime: '',
+                            blocksClockDisplay: false,
                             inLocation: '',
                             outLocation: '',
+                            leaveLabel: '',
+                            leaveRangeText: '',
                             leaveLabel: '',
                             leaveRangeText: '',
                             scheduleLabel: getScheduleDisplayLabel(null, dateKey),
