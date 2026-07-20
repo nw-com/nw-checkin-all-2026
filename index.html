@@ -2302,10 +2302,12 @@
                                             <option value="">選擇事由</option>
                                             <option value="事假">事假</option>
                                             <option value="病假">病假</option>
+                                            <option value="補休">補休</option>
                                             <option value="公出">公出</option>
                                             <option value="婚喪假">婚喪假</option>
                                             <option value="其他">其他</option>
                                         </select>
+                                        <p className="text-xs text-gray-400 mt-1">請選擇 病假、事假、補休 等請假事由</p>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1">說明</label>
@@ -6104,7 +6106,7 @@
                 setUserId(initUserId);
                 if (initialData) {
                     setCompany(targetCompanyValue);
-                    if (['病假', '事假'].includes(initialData.leaveReason)) {
+                    if (['病假', '事假', '補休'].includes(initialData.leaveReason)) {
                         setReason(initialData.leaveReason);
                         setCustomReason('');
                     } else {
@@ -6247,8 +6249,10 @@
                                     >
                                         <option value="病假">病假</option>
                                         <option value="事假">事假</option>
+                                        <option value="補休">補休</option>
                                         <option value="其他">其他</option>
                                     </select>
+                                    <p className="text-xs text-gray-400 mt-1">請選擇 病假、事假、補休 等請假事由</p>
                                 </div>
                                 {reason === '其他' && (
                                     <div>
@@ -8385,16 +8389,63 @@
                                                                                 if (['work', 'duty', 'card'].includes(type) && schedule.startTime && schedule.endTime) {
                                                                                     const [sH, sM] = schedule.startTime.split(':').map(Number);
                                                                                     const [eH, eM] = schedule.endTime.split(':').map(Number);
-                                                                                    const start = new Date(`${dateStr}T00:00:00`);
-                                                                                    const end = new Date(`${dateStr}T00:00:00`);
-                                                                                    start.setHours(sH, sM, 0, 0);
-                                                                                    end.setHours(eH, eM, 0, 0);
-                                                                                    if (schedule.crossDay || schedule.endTime < schedule.startTime) {
-                                                                                        end.setDate(end.getDate() + 1);
+                                                                                    
+                                                                                    const [dy, dm, dd] = dateStr.split('-').map(Number);
+                                                                                    let sDate = new Date(dy, dm-1, dd, sH, sM);
+                                                                                    let eDate = new Date(dy, dm-1, dd, eH, eM);
+                                                                                    
+                                                                                    if (eDate < sDate) eDate.setDate(eDate.getDate() + 1);
+                                                                                    
+                                                                                    hours = (eDate - sDate) / (1000 * 60 * 60);
+
+                                                                                    let lStart, lEnd;
+                                                                                    
+                                                                                    const parseLocal = (str) => {
+                                                                                        if(!str) return null;
+                                                                                        const [dStr, tStr] = str.split(/[T ]/);
+                                                                                        if(!dStr || !tStr) return null;
+                                                                                        const [y,m,d] = dStr.split('-').map(Number);
+                                                                                        const [h,min,s] = tStr.split(':').map(Number);
+                                                                                        return new Date(y, m-1, d, h, min, s||0);
+                                                                                    };
+
+                                                                                    if (r.leaveStartDate && r.leaveEndDate) {
+                                                                                        lStart = parseLocal(r.leaveStartDate);
+                                                                                        lEnd = parseLocal(r.leaveEndDate);
+                                                                                    } else if (r.leaveDate) {
+                                                                                        let sTime = r.leaveTime;
+                                                                                        let eTime = r.leaveEndTime;
+                                                                                        
+                                                                                        if (sTime && sTime.includes('~') && !eTime) {
+                                                                                            const parts = sTime.split('~').map(s => s.trim());
+                                                                                            sTime = parts[0];
+                                                                                            eTime = parts[1];
+                                                                                        }
+                                                                                        
+                                                                                        if (sTime && eTime) {
+                                                                                            const [ly, lm, ld] = r.leaveDate.split('-').map(Number);
+                                                                                            const [lsh, lsm] = sTime.split(':').map(Number);
+                                                                                            const [leh, lem] = eTime.split(':').map(Number);
+                                                                                            lStart = new Date(ly, lm-1, ld, lsh, lsm);
+                                                                                            lEnd = new Date(ly, lm-1, ld, leh, lem);
+                                                                                        }
                                                                                     }
-                                                                                    const diffMs = Math.max(0, end.getTime() - start.getTime());
-                                                                                    hours = diffMs / (1000 * 60 * 60);
-                                                                                    timeRangeStr = `${schedule.startTime}~${schedule.endTime}`;
+
+                                                                                    if (lStart && lEnd) {
+                                                                                        const overlapStart = new Date(Math.max(sDate.getTime(), lStart.getTime()));
+                                                                                        const overlapEnd = new Date(Math.min(eDate.getTime(), lEnd.getTime()));
+                                                                                        
+                                                                                        if (overlapEnd > overlapStart) {
+                                                                                            hours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
+                                                                                            
+                                                                                            const fmt = (d) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                                                                                            timeRangeStr = `${fmt(overlapStart)}~${fmt(overlapEnd)}`;
+                                                                                        } else {
+                                                                                            hours = 0;
+                                                                                        }
+                                                                                    } else {
+                                                                                        timeRangeStr = `${schedule.startTime}~${schedule.endTime}`;
+                                                                                    }
                                                                                 }
                                                                             } else {
                                                                                 if (nationalHolidays.includes(dateStr)) type = 'holiday';
@@ -22784,6 +22835,19 @@
 
                             {communitySubtab === 'leave' && (
                                 (function() {
+                                    // Helper functions (use existing 'now' variable later)
+                                    const shiftMonthString = (ymd, delta, todayStr) => {
+                                        const base = new Date(`${String(ymd || '').trim() || todayStr}T00:00:00`);
+                                        if (!base || isNaN(base.getTime())) return todayStr;
+                                        base.setDate(1);
+                                        base.setMonth(base.getMonth() + delta);
+                                        return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+                                    };
+                                    const toMonthValue = (ymd) => {
+                                        const value = String(ymd || '').trim();
+                                        return /^\d{4}-\d{2}/.test(value) ? value.slice(0, 7) : '';
+                                    };
+                                    
                                     // Permission check - using 'record' permission as proxy for leave management in community
                                     if (!hasSubPermission('community', 'record')) return <div className="p-8 text-center text-gray-400">無權限查看</div>;
 
@@ -22827,6 +22891,7 @@
                                     }) : [];
                                     
                                     const now = new Date();
+                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                                     const thisMonthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
                                     const isThisMonth = currentMonth === thisMonthStr;
 
@@ -22888,7 +22953,7 @@
                                                 <div className="flex items-center gap-2">
                                                     <button 
                                                         onClick={() => {
-                                                            setCommunityRecordDate(shiftMonthString(communityRecordDate, -1));
+                                                            setCommunityRecordDate(shiftMonthString(communityRecordDate, -1, todayStr));
                                                         }} 
                                                         className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
                                                     >
@@ -22919,7 +22984,7 @@
                                                     </div>
                                                     <button 
                                                         onClick={() => {
-                                                            setCommunityRecordDate(shiftMonthString(communityRecordDate, 1));
+                                                            setCommunityRecordDate(shiftMonthString(communityRecordDate, 1, todayStr));
                                                         }}
                                                         disabled={isThisMonth}
                                                         className={`p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isThisMonth ? 'opacity-30 cursor-not-allowed' : ''}`}
@@ -25089,6 +25154,19 @@
                                         );
                                     })()}
                                     {cadreSubtab === 'leave' && hasSubPermission('cadre', 'leave') && (function() {
+                                        // Helper functions (use existing 'now' variable later)
+                                        const shiftMonthString = (ymd, delta, todayStr) => {
+                                            const base = new Date(`${String(ymd || '').trim() || todayStr}T00:00:00`);
+                                            if (!base || isNaN(base.getTime())) return todayStr;
+                                            base.setDate(1);
+                                            base.setMonth(base.getMonth() + delta);
+                                            return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+                                        };
+                                        const toMonthValue = (ymd) => {
+                                            const value = String(ymd || '').trim();
+                                            return /^\d{4}-\d{2}/.test(value) ? value.slice(0, 7) : '';
+                                        };
+                                        
                                         const targetCompany = companies.find(c => c.name === cadreCompany);
                                         const companyUserIds = targetCompany ? usersList
                                             .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
@@ -25122,6 +25200,7 @@
                                         }) : [];
                                         
                                         const now = new Date();
+                                        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                                         const thisMonthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
                                         const isThisMonth = currentMonth === thisMonthStr;
 
@@ -25131,7 +25210,7 @@
                                                 <div className="flex items-center gap-2">
                                                     <button 
                                                         onClick={() => {
-                                                            setCadreRecordDate(shiftMonthString(cadreRecordDate, -1));
+                                                            setCadreRecordDate(shiftMonthString(cadreRecordDate, -1, todayStr));
                                                         }} 
                                                         className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
                                                     >
@@ -25162,7 +25241,7 @@
                                                     </div>
                                                     <button 
                                                         onClick={() => {
-                                                            setCadreRecordDate(shiftMonthString(cadreRecordDate, 1));
+                                                            setCadreRecordDate(shiftMonthString(cadreRecordDate, 1, todayStr));
                                                         }}
                                                         disabled={isThisMonth}
                                                         className={`p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isThisMonth ? 'opacity-30 cursor-not-allowed' : ''}`}
