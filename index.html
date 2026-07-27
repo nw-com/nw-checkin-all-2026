@@ -10515,7 +10515,7 @@
             const [shareTarget, setShareTarget] = useState('蔡總');
             const [isShareRoleMode, setIsShareRoleMode] = useState(false);
             const [shareItem, setShareItem] = useState(null);
-            const [shareType, setShareType] = useState('leave'); // 'leave' or 'signature'
+            const [shareType, setShareType] = useState('leave'); // 'leave' or 'signature' or 'makeup' or 'modification'
 
             const handleShareClick = (item, type) => {
                 setShareItem(item);
@@ -10531,6 +10531,10 @@
                 
                 if (shareType === 'leave') {
                     await handleShareLeave(shareItem, shareTarget);
+                } else if (shareType === 'makeup') {
+                    await handleShareMakeup(shareItem, shareTarget);
+                } else if (shareType === 'modification') {
+                    await handleShareModification(shareItem, shareTarget);
                 } else {
                     await handleShareSignature(shareItem, shareTarget);
                 }
@@ -15179,6 +15183,137 @@
                 window.open(shareUrl, '_blank');
             };
 
+            const handleShareMakeup = async (req, targetName = '蔡總') => {
+                if (!req) return;
+
+                let token = req.shareToken;
+                if (!token) {
+                    token = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                    try {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id), {
+                            shareToken: token
+                        });
+                    } catch (e) {
+                        console.error('Error generating makeup share token:', e);
+                        alert('產生分享連結失敗，請稍後再試');
+                        return;
+                    }
+                }
+
+                const user = usersList.find(u => u.id === req.userId) || {};
+                const name = user.name || req.userName || '未知';
+                const targetLabel = req.target === 'out' ? '下班補卡' : '上班補卡';
+                const shiftLabel = getMakeupShiftLabel(req);
+                const locationName = req.checkInLocationName || req.address || '未填寫';
+                const reason = req.reasonType === 'other' ? (req.reasonRemark || '其他') : '忘記打卡';
+
+                const resolveCompanyGroupTitle = () => {
+                    let company = null;
+                    if (req.userCompanyId) {
+                        company = companies.find(c => String(c.id) === String(req.userCompanyId)) || null;
+                    }
+                    if (!company && user.companyId) {
+                        company = companies.find(c => String(c.id) === String(user.companyId)) || null;
+                    }
+                    const companyName = company?.name || '';
+                    if (companyName.includes('台北')) return '台北公司';
+                    if (companyName.includes('桃園')) return '桃園公司';
+                    return '公司';
+                };
+                const companyTitle = resolveCompanyGroupTitle();
+
+                let applyTimeStr = '';
+                const seconds = req.createdAt?.seconds || req.timestamp?.seconds;
+                if (seconds) {
+                    const d = new Date(seconds * 1000);
+                    applyTimeStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                }
+
+                const timeStr = `${req.date} ${req.target === 'out' ? (req.endTime || '--:--') : (req.startTime || '--:--')}`;
+                const baseUrl = window.location.href.split('?')[0];
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(targetLabel)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyTitle)}&at=${encodeURIComponent(applyTimeStr)}&rn=${encodeURIComponent(targetName)}`;
+                const approveUrl = `${baseUrl}?action=approve_makeup&id=${req.id}&token=${token}${contextParams}`;
+                const rejectUrl = `${baseUrl}?action=reject_makeup&id=${req.id}&token=${token}${contextParams}`;
+
+                const text = `給親愛的${targetName}，請核示\n\n📋【${companyTitle} 補卡審核】\n\n👤 申請人：${name}\n📌 類型：${targetLabel}\n🌙 班別：${shiftLabel}\n📅 時間：${timeStr}\n📍 地點：${locationName}\n📝 事由：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
+
+                const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+                window.open(shareUrl, '_blank');
+            };
+
+            const handleShareModification = async (r, targetName = '蔡總') => {
+                if (!r || !r.modification) return;
+
+                let token = r.modification?.shareToken;
+                if (!token) {
+                    token = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                    try {
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', r.id), {
+                            modification: {
+                                ...r.modification,
+                                shareToken: token
+                            }
+                        });
+                    } catch (e) {
+                        console.error('Error generating modification share token:', e);
+                        alert('產生分享連結失敗，請稍後再試');
+                        return;
+                    }
+                }
+
+                const user = usersList.find(u => u.id === r.userId) || {};
+                const name = user.name || r.userName || '未知';
+                const typeMap = {
+                    'in': '上班',
+                    'out': '下班',
+                    'outing_start': '外出',
+                    'outing_arrive': '抵達',
+                    'outing_end': '離開',
+                    'late_in': '卡班上班',
+                    'late_out': '卡班下班',
+                    'work_in': '上班(補)',
+                    'work_out': '下班(補)',
+                    'duty_in': '值班(補)',
+                    'duty_out': '值班(補)'
+                };
+                const changeType = typeMap[r.type] || r.type || '打卡修改';
+                const reason = r.modification?.reason || '無';
+                const locationName = r.checkInLocationName || r.address || '未記錄';
+
+                const resolveCompanyGroupTitle = () => {
+                    let company = null;
+                    if (r.companyId) {
+                        company = companies.find(c => String(c.id) === String(r.companyId)) || null;
+                    }
+                    if (!company && user.companyId) {
+                        company = companies.find(c => String(c.id) === String(user.companyId)) || null;
+                    }
+                    const companyName = company?.name || '';
+                    if (companyName.includes('台北')) return '台北公司';
+                    if (companyName.includes('桃園')) return '桃園公司';
+                    return '公司';
+                };
+                const companyTitle = resolveCompanyGroupTitle();
+
+                let applyTimeStr = '';
+                const seconds = r.createdAt?.seconds || r.timestamp?.seconds;
+                if (seconds) {
+                    const d = new Date(seconds * 1000);
+                    applyTimeStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                }
+
+                const timeStr = `${r.modification?.date || ''} ${r.modification?.time || ''}`.trim();
+                const baseUrl = window.location.href.split('?')[0];
+                const contextParams = `&n=${encodeURIComponent(name)}&t=${encodeURIComponent(changeType)}&d=${encodeURIComponent(timeStr)}&r=${encodeURIComponent(reason)}&c=${encodeURIComponent(companyTitle)}&at=${encodeURIComponent(applyTimeStr)}&rn=${encodeURIComponent(targetName)}`;
+                const approveUrl = `${baseUrl}?action=approve_modification&id=${r.id}&token=${token}${contextParams}`;
+                const rejectUrl = `${baseUrl}?action=reject_modification&id=${r.id}&token=${token}${contextParams}`;
+
+                const text = `給親愛的${targetName}，請核示\n\n📋【${companyTitle} 打卡修改審核】\n\n👤 申請人：${name}\n📌 類型：${changeType}\n📅 時間：${timeStr}\n📍 地點：${locationName}\n📝 事由：${reason}\n\n──────────────\n\n✅ 【 點此核准 】\n${approveUrl}\n\n❌ 【 點此駁回 】\n${rejectUrl}`;
+
+                const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+                window.open(shareUrl, '_blank');
+            };
+
             useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const action = params.get('action');
@@ -15227,6 +15362,50 @@
                              window.history.replaceState({}, document.title, window.location.pathname);
                         }
                     }
+                    // 3. Makeup Logic
+                    else if (makeupRequests.length > 0 && action && id && (action === 'approve_makeup' || action === 'reject_makeup')) {
+                        const target = makeupRequests.find(m => m.id === id);
+                        if (target) {
+                            if (target.status !== 'pending') {
+                                const statusText = target.status === 'approved' ? '已核准' : '已駁回';
+                                alert(`此補卡已處理 (${statusText})`);
+                                window.history.replaceState({}, document.title, window.location.pathname);
+                                return;
+                            }
+
+                            const actionName = action === 'approve_makeup' ? '核准' : '駁回';
+                            if (confirm(`系統偵測到來自連結的審核請求：\n\n人員：${target.userName}\n類型：${target.target === 'out' ? '下班補卡' : '上班補卡'}\n\n是否要【${actionName}】此補卡？`)) {
+                                if (action === 'approve_makeup') {
+                                    handleApproveMakeupRequest(target, { companyId: target.userCompanyId || '', communityId: target.userCommunityId || '' });
+                                } else {
+                                    handleRejectMakeupRequest(target);
+                                }
+                            }
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                        }
+                    }
+                    // 4. Modification Logic
+                    else if (attendanceList.length > 0 && action && id && (action === 'approve_modification' || action === 'reject_modification')) {
+                        const target = attendanceList.find(a => a.id === id);
+                        if (target?.modification) {
+                            if (target.modification.status !== 'pending') {
+                                const statusText = target.modification.status === 'approved' ? '已核准' : '已駁回';
+                                alert(`此修改已處理 (${statusText})`);
+                                window.history.replaceState({}, document.title, window.location.pathname);
+                                return;
+                            }
+
+                            const actionName = action === 'approve_modification' ? '核准' : '駁回';
+                            if (confirm(`系統偵測到來自連結的審核請求：\n\n人員：${target.userName}\n類型：打卡修改\n\n是否要【${actionName}】此修改？`)) {
+                                if (action === 'approve_modification') {
+                                    handleQuickApprove(target);
+                                } else {
+                                    handleQuickReject(target);
+                                }
+                            }
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                        }
+                    }
                 } 
                 // If user is NOT logged in and we have a token -> Show Guest Modal
                 else if (!dbUser && action && id && token) {
@@ -15263,7 +15442,7 @@
                         });
                     }
                 }
-            }, [dbUser, leavesList, cadreSignatures]);
+            }, [dbUser, leavesList, cadreSignatures, makeupRequests, attendanceList]);
 
             const handleAddUser = async (userData) => {
                 if (!user) return;
@@ -17194,32 +17373,9 @@
                                     {hasSubPermission('cadre', 'record') && (
                                         <button 
                                             onClick={() => setCadreSubtab('record')} 
-                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} relative whitespace-nowrap`}
+                                            className={`px-3 py-2 text-xs font-bold rounded-2xl ${cadreSubtab === 'record' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-700'} whitespace-nowrap`}
                                         >
                                             紀錄
-                                            {(function(){
-                                                const targetCompany = companies.find(c => c.name === cadreCompany);
-                                                if (!targetCompany) return null;
-                                                const companyUserIds = usersList.filter(u => 
-                                                    ((u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
-                                                ).map(u => u.id);
-                                                const pendingMakeupCount = makeupRequests.filter(req => 
-                                                    req.status === 'pending' && companyUserIds.includes(req.userId)
-                                                ).length;
-                                                const pendingModificationCount = attendanceList.filter(req => 
-                                                    req.modification?.status === 'pending' && companyUserIds.includes(req.userId)
-                                                ).length;
-                                                const totalPending = pendingMakeupCount + pendingModificationCount;
-                                                
-                                                if (totalPending > 0) {
-                                                    return (
-                                                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold leading-none px-1.5 py-1 rounded-full min-w-[18px] text-center">
-                                                            {totalPending}
-                                                        </span>
-                                                    );
-                                                }
-                                                return null;
-                                            })()}
                                         </button>
                                     )}
                                     {hasSubPermission('cadre', 'makeup') && (
@@ -17240,10 +17396,14 @@
                                                         (u.status === '在職' || !u.status);
                                                 }).map(u => u.id);
                                                 const pendingMakeupCount = makeupRequests.filter(req => req.status === 'pending' && companyUserIds.includes(req.userId)).length;
-                                                if (pendingMakeupCount > 0) {
+                                                const pendingModificationCount = attendanceList.filter(req =>
+                                                    req.modification?.status === 'pending' && companyUserIds.includes(req.userId)
+                                                ).length;
+                                                const totalPending = pendingMakeupCount + pendingModificationCount;
+                                                if (totalPending > 0) {
                                                     return (
                                                         <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold leading-none px-1.5 py-1 rounded-full min-w-[18px] text-center">
-                                                            {pendingMakeupCount}
+                                                            {totalPending}
                                                         </span>
                                                     );
                                                 }
@@ -22255,7 +22415,7 @@
                                                                 }
 
                                                                 return (
-                                                                    <div key={r.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm">
+                                                                    <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
                                                                         <div className="flex items-start gap-3">
                                                                             <div className="relative flex-shrink-0">
                                                                                 <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
@@ -23024,14 +23184,21 @@
                                                         return (
                                                             <div key={r.id} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                                                                 <div className="flex items-center justify-between mb-3">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
                                                                             {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">{user.name?.[0]}</div>}
                                                                         </div>
                                                                         <div>
-                                                                            <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                                            <div className="font-bold text-gray-800 text-sm flex items-center gap-2 flex-wrap">
                                                                                 {r.userName}
-                                                                                <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{r.leaveReason || '請假'}</span>
+                                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">{r.leaveReason || '請假'}</span>
+                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${
+                                                                                    r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' :
+                                                                                    r.approvalStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                                                    'bg-orange-100 text-orange-700'
+                                                                                }`}>
+                                                                                    {r.approvalStatus === 'approved' ? '已核准' : r.approvalStatus === 'rejected' ? '已駁回' : '待核准'}
+                                                                                </span>
                                                                             </div>
                                                                             <div className="text-xs text-gray-400">
                                                                                 申請日期 : {new Intl.DateTimeFormat('zh-TW', {
@@ -23043,26 +23210,14 @@
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <span className={`text-xs px-2 py-1 rounded-lg font-bold flex items-center gap-1 ${
-                                                                        r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' :
-                                                                        r.approvalStatus === 'rejected' ? 'bg-red-100 text-red-700' :
-                                                                        'bg-orange-100 text-orange-700'
-                                                                    }`}>
-                                                                        {r.approvalStatus === 'approved' ? (
-                                                                            <>
-                                                                                請假
-                                                                                <span className="text-[9px] bg-white bg-opacity-50 px-1 rounded ml-1">已核准</span>
-                                                                            </>
-                                                                        ) : r.approvalStatus === 'rejected' ? '已駁回' : '待核准'}
-                                                                    </span>
                                                                 </div>
 
-                                                                <div className="text-sm text-gray-500 mb-2">
+                                                                <div className="text-xs text-red-600 mb-2">
                                                                     <div className="flex items-center gap-1 mb-1">
                                                                         <Clock className="w-3 h-3" /> 
                                                                         期間 : {r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}
                                                                     </div>
-                                                                    <div className="pl-5 text-xs text-gray-500 space-y-1 mt-1">
+                                                                    <div className="pl-5 text-[11px] text-red-600 space-y-1 mt-1">
                                                                         {(function() {
                                                                             let dates = [];
                                                                             if (r.leaveStartDate && r.leaveEndDate) {
@@ -23180,7 +23335,7 @@
                                                                                     <div key={dateStr} className="flex items-center gap-2">
                                                                                         <span>{dateStr.replace(/-/g, '/')}</span>
                                                                                         {hours > 0 && <span>{hours.toFixed(1)} hr</span>}
-                                                                                        {timeRangeStr && <span className="text-gray-500 text-xs">({timeRangeStr})</span>}
+                                                                                        {timeRangeStr && <span className="text-red-600 text-[11px]">({timeRangeStr})</span>}
                                                                                     </div>
                                                                                 );
                                                                             }).filter(Boolean);
@@ -23189,9 +23344,9 @@
 
                                                                             return (
                                                                                 <>
-                                                                                    <div className="font-bold text-gray-600 mb-1">實際請假日期</div>
+                                                                                    <div className="font-bold text-red-600 mb-1">實際請假日期</div>
                                                                                     {items}
-                                                                                    <div className="border-t border-gray-200 mt-2 pt-1 font-bold text-gray-600">
+                                                                                    <div className="border-t border-gray-200 mt-2 pt-1 font-bold text-red-600">
                                                                                         總天數及總工時 : 共 {totalDays} 天, {totalHours.toFixed(1)} hr
                                                                                     </div>
                                                                                 </>
@@ -23201,7 +23356,7 @@
                                                                 </div>
 
                                                                 {r.leaveDescription && (
-                                                                    <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 mb-4 whitespace-pre-wrap">
+                                                                    <div className="bg-gray-50 p-3 rounded-lg text-sm text-red-600 mb-4 whitespace-pre-wrap">
                                                                         {r.leaveDescription}
                                                                     </div>
                                                                 )}
@@ -24314,14 +24469,23 @@
                                     )}
                                     {cadreSubtab === 'record' && hasSubPermission('cadre', 'record') && (function() {
                                         const targetCompany = companies.find(c => c.name === cadreCompany);
+                                        const allowedRoleNames = ['系統管理員', '人事', '物業', '幹部', '員工'];
                                         const companyUserIds = targetCompany ? usersList
-                                            .filter(u => (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id))
+                                            .filter(u => {
+                                                const inCompany = (u.companyIds && u.companyIds.some(cid => String(cid) === String(targetCompany.id))) || String(u.companyId) === String(targetCompany.id);
+                                                if (!inCompany) return false;
+                                                const roleName = u.role === 'admin' ? '系統管理員' : (((roles || []).find(r => r.id === u.role)?.name) || u.roleName || u.role || '');
+                                                if (!allowedRoleNames.includes(roleName)) return false;
+                                                if (u.status === '離職') return false;
+                                                return true;
+                                            })
                                             .map(u => u.id) : [];
 
                                         const records = targetCompany ? attendanceList.filter(r => {
                                             if (!companyUserIds.includes(r.userId)) return false;
                                             if (cadreMapSelectedUserId && r.userId !== cadreMapSelectedUserId) return false;
                                             if (r.type === 'leave') return false;
+                                            if (r.modification?.status === 'pending') return false;
 
 
                                             
@@ -24759,114 +24923,6 @@
                                                             );
                                                         })()}
 
-                                                        {(function(){
-                                                            const pendingModifications = attendanceList.filter(req => 
-                                                                req.modification?.status === 'pending' && 
-                                                                companyUserIds.includes(req.userId)
-                                                            );
-                                                            
-                                                            if (pendingModifications.length === 0) return null;
-
-                                                            return (
-                                                                <div className="mb-6 space-y-3">
-                                                                    <div className="flex items-center gap-2 px-1">
-                                                                        <Edit className="w-5 h-5 text-yellow-600" />
-                                                                        <h3 className="font-bold text-gray-800">待核准修改 ({pendingModifications.length})</h3>
-                                                                    </div>
-                                                                    <div className="flex flex-col gap-3">
-                                                                    {pendingModifications.map(r => {
-                                                                        const user = usersList.find(u => u.id === r.userId) || {};
-                                                                        // Safe time parsing
-                                                                        let seconds;
-                                                                        if (r.checkInTime) {
-                                                                            seconds = new Date(r.checkInTime).getTime() / 1000;
-                                                                        } else if (r.timestamp?.seconds) {
-                                                                            seconds = r.timestamp.seconds;
-                                                                        } else if (r.timestamp instanceof Date) {
-                                                                            seconds = Math.floor(r.timestamp.getTime() / 1000);
-                                                                        } else {
-                                                                            seconds = Date.now() / 1000;
-                                                                        }
-                                                                        
-                                                                        const rDate = new Date(seconds * 1000);
-                                                                        const dateStr = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
-                                                                        const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                                                        const modifiedTime = r.modification?.time || timeStr.substring(0, 5);
-                                                                        
-                                                                        const typeMap = {
-                                                                            'in': { text: '上班', class: 'bg-green-100 text-green-700' },
-                                                                            'work_in': { text: '上班(補)', class: 'bg-green-50 text-green-600 border border-green-200' },
-                                                                            'duty_in': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
-                                                                            'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
-                                                                            'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
-                                                                            'out': { text: '下班', class: 'bg-red-100 text-red-700' },
-                                                                            'work_out': { text: '下班(補)', class: 'bg-red-50 text-red-600 border border-red-200' },
-                                                                            'duty_out': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
-                                                                            'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
-                                                                            'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
-                                                                            'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
-                                                                            'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
-                                                                            'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
-                                                                            'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
-                                                                            'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' }
-                                                                        };
-                                                                        const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
-                                                                        
-                                                                        let finalText = config.text;
-                                                                        if (['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address)) {
-                                                                            finalText += ` ${r.checkInLocationName || r.address}`;
-                                                                        }
-
-                                                                        return (
-                                                                            <div key={r.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm">
-                                                                                <div className="flex items-start gap-3">
-                                                                                    <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
-                                                                                        {user.avatarUrl ? (
-                                                                                            <img src={user.avatarUrl} className="w-full h-full object-cover" />
-                                                                                        ) : (
-                                                                                            <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
-                                                                                                {user.name?.[0]}
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                    <div className="flex-1 min-w-0">
-                                                                                        <div className="font-bold text-gray-800">{user.name}</div>
-                                                                                        <div className={`text-xs font-bold mt-1 px-1.5 py-0.5 rounded-lg w-fit ${config.class}`}>
-                                                                                            {finalText}
-                                                                                        </div>
-                                                                                        <div className="text-xs font-bold text-gray-700 mt-1">
-                                                                                            申請修改: {dateStr}
-                                                                                        </div>
-                                                                                        <div className="text-xs font-bold text-blue-600 mt-0.5">
-                                                            補打卡時間: {modifiedTime}
-                                                        </div>
-                                                                                        <div className="text-[11px] text-gray-600 mt-0.5">
-                                                                                            原因: {r.modification?.reason || '無'}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="mt-3 flex gap-2">
-                                                                                    <button 
-                                                                                        onClick={() => handleQuickApprove(r)}
-                                                                                        className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                                    >
-                                                                                        核准
-                                                                                    </button>
-                                                                                    <button 
-                                                                                        onClick={() => handleQuickReject(r)}
-                                                                                        className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                                    >
-                                                                                        拒絕
-                                                                                    </button>
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })()}
-
                                                         {records.length === 0 ? (
                                                             <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
                                                                 本日尚無打卡紀錄
@@ -25281,14 +25337,21 @@
                                                         return (
                                                             <div key={r.id} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                                                                 <div className="flex items-center justify-between mb-3">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
                                                                             {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">{user.name?.[0]}</div>}
                                                                         </div>
                                                                         <div>
-                                                                            <div className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                                            <div className="font-bold text-gray-800 text-sm flex items-center gap-2 flex-wrap">
                                                                                 {r.userName}
-                                                                                <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{r.leaveReason || '請假'}</span>
+                                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">{r.leaveReason || '請假'}</span>
+                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${
+                                                                                    r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' :
+                                                                                    r.approvalStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                                                    'bg-orange-100 text-orange-700'
+                                                                                }`}>
+                                                                                    {r.approvalStatus === 'approved' ? '已核准' : r.approvalStatus === 'rejected' ? '已駁回' : '待核准'}
+                                                                                </span>
                                                                             </div>
                                                                             <div className="text-xs text-gray-400">
                                                                                 申請日期 : {new Intl.DateTimeFormat('zh-TW', {
@@ -25300,26 +25363,14 @@
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <span className={`text-xs px-2 py-1 rounded-lg font-bold flex items-center gap-1 ${
-                                                                        r.approvalStatus === 'approved' ? 'bg-green-100 text-green-700' :
-                                                                        r.approvalStatus === 'rejected' ? 'bg-red-100 text-red-700' :
-                                                                        'bg-orange-100 text-orange-700'
-                                                                    }`}>
-                                                                        {r.approvalStatus === 'approved' ? (
-                                                                            <>
-                                                                                請假
-                                                                                <span className="text-[9px] bg-white bg-opacity-50 px-1 rounded ml-1">已核准</span>
-                                                                            </>
-                                                                        ) : r.approvalStatus === 'rejected' ? '已駁回' : '待核准'}
-                                                                    </span>
                                                                 </div>
 
-                                                                <div className="text-sm text-gray-500 mb-2">
+                                                                <div className="text-xs text-red-600 mb-2">
                                                                     <div className="flex items-center gap-1 mb-1">
                                                                         <Clock className="w-3 h-3" /> 
                                                                         期間 : {r.leaveStartDate ? `${r.leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${r.leaveEndDate ? r.leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}` : `${(r.leaveDate || '').replace(/-/g, '/')} ${r.leaveTime}`}
                                                                     </div>
-                                                                    <div className="pl-5 text-xs text-gray-500 space-y-1 mt-1">
+                                                                    <div className="pl-5 text-[11px] text-red-600 space-y-1 mt-1">
                                                                         {(function() {
                                                                             let dates = [];
                                                                             if (r.leaveStartDate && r.leaveEndDate) {
@@ -25448,7 +25499,7 @@
                                                                                     <div key={dateStr} className="flex items-center gap-2">
                                                                                         <span>{dateStr.replace(/-/g, '/')}</span>
                                                                                         {hours > 0 && <span>{hours.toFixed(1)} hr</span>}
-                                                                                        {timeRangeStr && <span className="text-gray-500 text-xs">({timeRangeStr})</span>}
+                                                                                        {timeRangeStr && <span className="text-red-600 text-[11px]">({timeRangeStr})</span>}
                                                                                     </div>
                                                                                 );
                                                                             }).filter(Boolean);
@@ -25457,9 +25508,9 @@
 
                                                                             return (
                                                                                 <>
-                                                                                    <div className="font-bold text-gray-600 mb-1">實際請假日期</div>
+                                                                                    <div className="font-bold text-red-600 mb-1">實際請假日期</div>
                                                                                     {items}
-                                                                                    <div className="border-t border-gray-200 mt-2 pt-1 font-bold text-gray-600">
+                                                                                    <div className="border-t border-gray-200 mt-2 pt-1 font-bold text-red-600">
                                                                                         總天數及總工時 : 共 {totalDays} 天, {totalHours.toFixed(1)} hr
                                                                                     </div>
                                                                                 </>
@@ -25469,7 +25520,7 @@
                                                                 </div>
 
                                                                 {r.leaveDescription && (
-                                                                    <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700 mb-4 whitespace-pre-wrap">
+                                                                    <div className="bg-gray-50 p-3 rounded-lg text-sm text-red-600 mb-4 whitespace-pre-wrap">
                                                                         {r.leaveDescription}
                                                                     </div>
                                                                 )}
@@ -26584,34 +26635,68 @@
                                                 (!cadreMapSelectedUserId || u.id === cadreMapSelectedUserId);
                                         }) : [];
                                         const companyUserIds = companyUsers.map(u => u.id);
-                                        const records = targetCompany ? (makeupRequests || [])
-                                            .filter(req => companyUserIds.includes(req.userId))
+                                        const pendingMakeupRecords = targetCompany ? (makeupRequests || [])
+                                            .filter(req => companyUserIds.includes(req.userId) && req.status === 'pending')
                                             .sort((a, b) => {
                                                 const aSecs = a.createdAt?.seconds || 0;
                                                 const bSecs = b.createdAt?.seconds || 0;
                                                 return bSecs - aSecs;
                                             }) : [];
-                                        const statusClass = (status) => status === 'approved'
-                                            ? 'bg-green-100 text-green-700'
-                                            : status === 'rejected'
-                                                ? 'bg-red-100 text-red-700'
-                                                : 'bg-yellow-100 text-yellow-700';
-                                        const statusText = (status) => status === 'approved' ? '已核准' : status === 'rejected' ? '已拒絕' : '待核准';
+                                        const pendingModificationRecords = targetCompany ? (attendanceList || [])
+                                            .filter(req =>
+                                                req.modification?.status === 'pending' &&
+                                                companyUserIds.includes(req.userId)
+                                            )
+                                            .sort((a, b) => {
+                                                const aSecs = a.timestamp?.seconds || a.createdAt?.seconds || 0;
+                                                const bSecs = b.timestamp?.seconds || b.createdAt?.seconds || 0;
+                                                return bSecs - aSecs;
+                                            }) : [];
+                                        const hasPendingRecords = pendingMakeupRecords.length > 0 || pendingModificationRecords.length > 0;
                                         return (
                                             <div className="pb-24">
                                                 {!targetCompany ? (
                                                     <div className="text-center text-gray-400 py-8">請選擇公司</div>
                                                 ) : (
                                                     <div className="space-y-3">
-                                                        {records.length === 0 ? (
-                                                            <div className="text-center text-gray-400 py-8">尚無補卡申請紀錄</div>
-                                                        ) : records.map(req => {
+                                                        {!hasPendingRecords ? (
+                                                            <div className="text-center text-gray-400 py-8">目前無待核准補卡紀錄</div>
+                                                        ) : (
+                                                            <>
+                                                        {pendingMakeupRecords.length > 0 && pendingMakeupRecords.map(req => {
                                                             const user = usersList.find(u => u.id === req.userId) || {};
-                                                            const roleName = getResolvedRoleName(user);
                                                             return (
-                                                                <div key={req.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
-                                                                    <div className="flex items-start gap-3">
-                                                                        <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                <div
+                                                                    key={req.id}
+                                                                    className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm"
+                                                                    onContextMenu={(e) => {
+                                                                        if (e.target.closest('button')) return;
+                                                                        e.preventDefault();
+                                                                        handleDeleteMakeupRequest(req);
+                                                                    }}
+                                                                    onTouchStart={(e) => {
+                                                                        if (e.target.closest('button')) return;
+                                                                        e.currentTarget.dataset.pressStart = Date.now();
+                                                                    }}
+                                                                    onTouchEnd={(e) => {
+                                                                        const start = parseInt(e.currentTarget.dataset.pressStart || '0');
+                                                                        if (start && Date.now() - start > 1000 && !e.target.closest('button')) {
+                                                                            handleDeleteMakeupRequest(req);
+                                                                        }
+                                                                    }}
+                                                                    onMouseDown={(e) => {
+                                                                        if (e.target.closest('button')) return;
+                                                                        e.currentTarget.dataset.pressStart = Date.now();
+                                                                    }}
+                                                                    onMouseUp={(e) => {
+                                                                        const start = parseInt(e.currentTarget.dataset.pressStart || '0');
+                                                                        if (start && Date.now() - start > 1000 && !e.target.closest('button')) {
+                                                                            handleDeleteMakeupRequest(req);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <div className="flex justify-between items-center gap-2">
+                                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
                                                                             {user.avatarUrl ? (
                                                                                 <img src={user.avatarUrl} className="w-full h-full object-cover" />
                                                                             ) : (
@@ -26627,57 +26712,202 @@
                                                                                     {req.target === 'out' ? '下班補卡' : '上班補卡'}
                                                                                 </span>
                                                                                 <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700">{getMakeupShiftLabel(req)}</span>
-                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${statusClass(req.status)}`}>{statusText(req.status)}</span>
+                                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-yellow-100 text-yellow-700">待核准</span>
                                                                             </div>
-                                                                            <div className="text-xs text-gray-600 mt-1">{req.date} {req.target === 'out' ? (req.endTime || '--:--') : (req.startTime || '--:--')}</div>
-                                                                            <div className="text-[11px] text-gray-600 mt-0.5">打卡位置: {req.checkInLocationName || '-'}</div>
-                                                                            <div className="text-[11px] text-gray-600 mt-0.5">原因: {req.reasonType === 'other' ? (req.reasonRemark || '其他') : '忘記打卡'}</div>
-                                                                            <div className="text-[11px] text-gray-500 mt-0.5">角色: {roleName || '-'}</div>
-                                                                            {req.status !== 'pending' && (
-                                                                                <div className="text-[11px] text-gray-400 mt-1">
-                                                                                    {req.status === 'approved' ? `核准人: ${req.approvedBy || '-'}`
-                                                                                        : `拒絕人: ${req.rejectedBy || '-'}`}
+                                                                            <div className="text-[10px] text-red-600 mt-0.5 flex items-center gap-2 min-w-0">
+                                                                                <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                                                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                                                                                    <span className="truncate">{req.checkInLocationName || '-'}</span>
                                                                                 </div>
-                                                                            )}
+                                                                                <div className="flex-shrink-0">{req.date}</div>
+                                                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                                                    <Clock className="w-3 h-3" />
+                                                                                    <span>{req.target === 'out' ? (req.endTime || '--:--') : (req.startTime || '--:--')}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-[11px] text-red-600 mt-0.5">原因: {req.reasonType === 'other' ? (req.reasonRemark || '其他') : '忘記打卡'}</div>
                                                                         </div>
-                                                                        <div className="flex flex-col gap-2 ml-auto">
-                                                                            {req.status === 'pending' && (
-                                                                                <button 
-                                                                                    onClick={() => openMakeupEditRequest(req)}
-                                                                                    className="w-12 h-12 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
-                                                                                    title="編輯"
-                                                                                >
-                                                                                    <Edit className="w-5 h-5" />
-                                                                                </button>
-                                                                            )}
-                                                                            <button 
-                                                                                onClick={() => handleDeleteMakeupRequest(req)}
-                                                                                className="w-12 h-12 rounded-lg flex items-center justify-center border transition-opacity bg-red-50 text-red-500 border-red-100 hover:opacity-90"
-                                                                                title="刪除"
+                                                                        <div className="flex items-center gap-2 ml-auto">
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    openMakeupEditRequest(req);
+                                                                                }}
+                                                                                className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                                title="編輯"
                                                                             >
-                                                                                <Trash2 className="w-5 h-5" />
+                                                                                <Edit className="w-4 h-4" />
                                                                             </button>
                                                                         </div>
                                                                     </div>
-                                                                    {req.status === 'pending' && (
-                                                                        <div className="mt-3 flex gap-2">
-                                                                            <button
-                                                                                onClick={() => handleApproveMakeupRequest(req, { companyId: targetCompany?.id || '' })}
-                                                                                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
-                                                                            >
-                                                                                核准
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => handleRejectMakeupRequest(req)}
-                                                                                className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
-                                                                            >
-                                                                                拒絕
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
+                                                                    <div className="mt-3">
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleShareClick(req, 'makeup');
+                                                                            }}
+                                                                            className="w-full py-2 bg-[#06C755] text-white rounded-lg text-sm font-bold hover:bg-[#05b64d] transition-colors flex items-center justify-center gap-2 shadow-sm"
+                                                                        >
+                                                                            <Share className="w-4 h-4" />
+                                                                            分享至 Line (含審核連結)
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="mt-3 flex gap-2">
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleApproveMakeupRequest(req, { companyId: targetCompany?.id || '' });
+                                                                            }}
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                        >
+                                                                            核准
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleRejectMakeupRequest(req);
+                                                                            }}
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                        >
+                                                                            拒絕
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
                                                             );
                                                         })}
+                                                        {pendingModificationRecords.length > 0 && pendingModificationRecords.map(r => {
+                                                            const user = usersList.find(u => u.id === r.userId) || {};
+                                                            let seconds;
+                                                            if (r.checkInTime) {
+                                                                seconds = new Date(r.checkInTime).getTime() / 1000;
+                                                            } else if (r.timestamp?.seconds) {
+                                                                seconds = r.timestamp.seconds;
+                                                            } else if (r.timestamp instanceof Date) {
+                                                                seconds = Math.floor(r.timestamp.getTime() / 1000);
+                                                            } else {
+                                                                seconds = Date.now() / 1000;
+                                                            }
+
+                                                            const rDate = new Date(seconds * 1000);
+                                                            const dateStr = `${rDate.getFullYear()}-${String(rDate.getMonth()+1).padStart(2,'0')}-${String(rDate.getDate()).padStart(2,'0')}`;
+                                                            const timeStr = rDate.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                            const originalTime = timeStr.substring(0, 5);
+                                                            const modifiedDate = r.modification?.date || dateStr;
+                                                            const modifiedTime = r.modification?.time || originalTime;
+
+                                                            const typeMap = {
+                                                                'in': { text: '上班', class: 'bg-green-100 text-green-700' },
+                                                                'work_in': { text: '上班(補)', class: 'bg-green-50 text-green-600 border border-green-200' },
+                                                                'duty_in': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                'card_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                'late_in': { text: '卡上', class: 'bg-green-100 text-green-700' },
+                                                                'out': { text: '下班', class: 'bg-red-100 text-red-700' },
+                                                                'work_out': { text: '下班(補)', class: 'bg-red-50 text-red-600 border border-red-200' },
+                                                                'duty_out': { text: '值班(補)', class: 'bg-yellow-50 text-yellow-600 border border-yellow-200' },
+                                                                'card_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                'late_out': { text: '卡下', class: 'bg-red-100 text-red-700' },
+                                                                'leave_early': { text: '早退', class: 'bg-red-100 text-red-700' },
+                                                                'outing_start': { text: '外出', class: 'bg-blue-100 text-blue-700' },
+                                                                'outing_arrive': { text: '抵達', class: 'bg-blue-100 text-blue-700' },
+                                                                'outing_end': { text: '離開', class: 'bg-blue-100 text-blue-700' },
+                                                                'leave': { text: '請假', class: 'bg-orange-100 text-orange-700' }
+                                                            };
+                                                            const config = typeMap[r.type] || { text: '未知', class: 'bg-gray-100 text-gray-500' };
+
+                                                            let finalText = config.text;
+                                                            if (['outing_start', 'outing_arrive', 'outing_end'].includes(r.type) && (r.checkInLocationName || r.address)) {
+                                                                finalText += ` ${r.checkInLocationName || r.address}`;
+                                                            }
+
+                                                            return (
+                                                                <div key={r.id} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                                                                    <div className="flex justify-between items-center gap-2">
+                                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100">
+                                                                            {user.avatarUrl ? (
+                                                                                <img src={user.avatarUrl} className="w-full h-full object-cover" />
+                                                                            ) : (
+                                                                                <div className="w-full h-full flex items-center justify-center font-bold text-gray-500">
+                                                                                    {user.name?.[0]}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="font-bold text-gray-800 flex items-center gap-2 flex-wrap">
+                                                                                {user.name}
+                                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-lg ${config.class}`}>
+                                                                                    {finalText}
+                                                                                </span>
+                                                                                <span className="text-[10px] px-1.5 py-0.5 rounded-lg bg-yellow-100 text-yellow-700">待核准修改</span>
+                                                                            </div>
+                                                                            <div className="text-[10px] text-gray-800 mt-0.5 flex items-center gap-2 min-w-0">
+                                                                                <div className="flex-shrink-0 font-bold">原打卡</div>
+                                                                                <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                                                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                                                                                    <span className="truncate">{r.checkInLocationName || r.address || '未記錄'}</span>
+                                                                                </div>
+                                                                                <div className="flex-shrink-0">{dateStr}</div>
+                                                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                                                    <Clock className="w-3 h-3" />
+                                                                                    <span>{originalTime}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-[10px] text-red-600 mt-0.5 flex items-center gap-2 min-w-0">
+                                                                                <div className="flex-shrink-0 font-bold">修改後</div>
+                                                                                <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                                                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                                                                                    <span className="truncate">{r.checkInLocationName || r.address || '未記錄'}</span>
+                                                                                </div>
+                                                                                <div className="flex-shrink-0">{modifiedDate}</div>
+                                                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                                                    <Clock className="w-3 h-3" />
+                                                                                    <span>{modifiedTime}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-[11px] text-red-600 mt-0.5">
+                                                                                原因: {r.modification?.reason || '無'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 ml-auto">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setAdminEditData(r);
+                                                                                    setShowAdminEditModal(true);
+                                                                                }}
+                                                                                className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 hover:opacity-90 transition-opacity"
+                                                                                title="編輯"
+                                                                            >
+                                                                                <Edit className="w-4 h-4" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="mt-3">
+                                                                        <button
+                                                                            onClick={() => handleShareClick(r, 'modification')}
+                                                                            className="w-full py-2 bg-[#06C755] text-white rounded-lg text-sm font-bold hover:bg-[#05b64d] transition-colors flex items-center justify-center gap-2 shadow-sm"
+                                                                        >
+                                                                            <Share className="w-4 h-4" />
+                                                                            分享至 Line (含審核連結)
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="mt-3 flex gap-2">
+                                                                        <button
+                                                                            onClick={() => handleQuickApprove(r)}
+                                                                            className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-200 transition-colors"
+                                                                        >
+                                                                            核准
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleQuickReject(r)}
+                                                                            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                                                                        >
+                                                                            拒絕
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                            </>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
