@@ -1299,6 +1299,7 @@
             const [error, setError] = useState('');
             const [step, setStep] = useState('location'); // location, camera, preview
             const [isProcessing, setIsProcessing] = useState(false);
+            const confirmLockRef = useRef(false);
             const [showLocationList, setShowLocationList] = useState(false);
             const [facing, setFacing] = useState('user');
             const [cameraDevices, setCameraDevices] = useState([]);
@@ -1374,6 +1375,7 @@
                     setImage(null);
                     setStep('location');
                     setLocation(null);
+                    confirmLockRef.current = false;
                     setAddress('定位中...');
                     setError('');
                     if (workSiteCircleRef.current) {
@@ -2002,16 +2004,19 @@
 
             const confirm = async () => {
                 if (!image || !location) return;
+                if (confirmLockRef.current || isProcessing) return;
                 if (rangeErrorMessage) {
                     alert(rangeErrorMessage);
                     return;
                 }
+                confirmLockRef.current = true;
                 setIsProcessing(true);
                 try {
                     await onConfirm(image, location, address);
                 } catch (e) {
                     console.error(e);
                 } finally {
+                    confirmLockRef.current = false;
                     if (isMounted.current) {
                         setIsProcessing(false);
                     }
@@ -6662,7 +6667,7 @@
         };
 
         // 4. Staff Dashboard
-        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, hideActionButton = false, showPendingHistoryOnly = false, onOpenMakeupRequest = null, myMakeupRequests = [], mode = 'work', isNightShift = false, setIsNightShift, timeSynced = false, networkTime = null }) => {
+        const StaffDashboard = ({ currentUser, onClockIn, onLeaveSubmit, onDeleteRecord, onDeleteMakeupRequest = null, attendanceHistory, timeOffset, companies, communities, checkInLocation, setCheckInLocation, setMapPreviewTarget, setPreviewImageUrl, roles = [], hideHeaderInfo = false, hideActionButton = false, showPendingHistoryOnly = false, onOpenMakeupRequest = null, myMakeupRequests = [], mode = 'work', isNightShift = false, setIsNightShift, timeSynced = false, networkTime = null }) => {
             const [currentTime, setCurrentTime] = useState(new Date(Date.now() + (timeOffset || 0)));
             const [toast, setToast] = useState(''); // Add toast state to StaffDashboard
             const [showLeaveModal, setShowLeaveModal] = useState(false);
@@ -7076,11 +7081,13 @@
                 const items = [];
                 const targetYear = viewDate.getFullYear();
                 const targetMonth = viewDate.getMonth();
+                const todayDateStr = formatYMD(currentTime);
                 Object.entries(mySchedules || {}).forEach(([dateStr, schedule]) => {
                     const d = new Date(`${dateStr}T00:00:00`);
                     if (!d || isNaN(d.getTime())) return;
                     if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
                     if (!schedule || !['work', 'duty', 'card'].includes(String(schedule.type || ''))) return;
+                    if (dateStr > todayDateStr) return;
 
                     const hasApprovedLeave = (myLeaves || []).some(l => {
                         if (String(l?.approvalStatus || '').trim() !== 'approved') return false;
@@ -7111,8 +7118,11 @@
 
                     const latestInReq = latestMakeupRequestMap.get(`${dateStr}-in`) || null;
                     const latestOutReq = latestMakeupRequestMap.get(`${dateStr}-out`) || null;
+                    const isPastDay = dateStr < todayDateStr;
+                    const inDue = isPastDay || (!!startDateTime && currentTime >= startDateTime);
+                    const outDue = isPastDay || (!!endDateTime && currentTime >= endDateTime);
 
-                    if (startDateTime && currentTime >= startDateTime && !hasIn && latestInReq?.status !== 'approved') {
+                    if (inDue && !hasIn) {
                         items.push({
                             key: `${dateStr}-in`,
                             dateStr,
@@ -7123,7 +7133,7 @@
                             latestMakeupRequest: latestInReq
                         });
                     }
-                    if (endDateTime && currentTime >= endDateTime && !hasOut && latestOutReq?.status !== 'approved') {
+                    if (outDue && !hasOut) {
                         items.push({
                             key: `${dateStr}-out`,
                             dateStr,
@@ -8248,15 +8258,20 @@
                                                                 <div className="flex items-center gap-2">
                                                                     <button
                                                                         type="button"
-                                                                        disabled={isPendingMakeup}
-                                                                        onClick={() => { if (!isPendingMakeup && typeof onOpenMakeupRequest === 'function') onOpenMakeupRequest(item); }}
+                                                                        onClick={() => {
+                                                                            if (isPendingMakeup) {
+                                                                                if (typeof onDeleteMakeupRequest === 'function') onDeleteMakeupRequest(latestMakeupRequest);
+                                                                                return;
+                                                                            }
+                                                                            if (typeof onOpenMakeupRequest === 'function') onOpenMakeupRequest(item);
+                                                                        }}
                                                                         className={`px-3 h-8 rounded-lg flex items-center justify-center border text-xs font-bold whitespace-nowrap transition-opacity ${
                                                                             isPendingMakeup
-                                                                                ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed'
+                                                                                ? 'bg-red-50 text-red-600 border-red-100 hover:opacity-90'
                                                                                 : 'bg-orange-50 text-orange-600 border-orange-100 hover:opacity-90'
                                                                         }`}
                                                                     >
-                                                                        {isPendingMakeup ? '已申請' : '申請補卡'}
+                                                                        {isPendingMakeup ? '取消申請' : '申請補卡'}
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -10921,7 +10936,9 @@
             const [showCameraModal, setShowCameraModal] = useState(false);
             const [clockType, setClockType] = useState('in');
             const [pendingClockMeta, setPendingClockMeta] = useState(null);
+            const [pendingClockSubmissionId, setPendingClockSubmissionId] = useState(null);
             const [pendingClockLocationOverride, setPendingClockLocationOverride] = useState(null);
+            const pendingClockWriteRef = useRef(null);
             const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
             const [timeOffset, setTimeOffset] = useState(0);
             const [timeSynced, setTimeSynced] = useState(false);
@@ -11024,6 +11041,7 @@
             const [makeupForm, setMakeupForm] = useState({ timeType: 'in', locationId: '', reasonType: 'forgot', reasonText: '', customTime: '' });
             const [makeupDateStr, setMakeupDateStr] = useState('');
             const [makeupSchedule, setMakeupSchedule] = useState(null);
+            const cancelledMakeupClientIdsRef = useRef(new Set());
 
             const requireOnline = (message) => {
                 if (isOnline) return true;
@@ -11048,6 +11066,23 @@
                 const ids = [user.communityId, ...((user.communityIds || []).filter(Boolean))].filter(Boolean).map(String);
                 return Array.from(new Set(ids));
             }, []);
+            const matchesMakeupRequestCommunity = useCallback((req, communityId, fallbackUserIds = []) => {
+                const targetId = String(communityId || '').trim();
+                if (!req || !targetId) return false;
+                if (String(req.userCommunityId || '').trim() === targetId) return true;
+                if (String(req.locationId || '').trim() === targetId) return true;
+                if ((fallbackUserIds || []).some(id => String(id) === String(req.userId || ''))) return true;
+                const reqUser = (usersList || []).find(u => String(u.id) === String(req.userId || ''));
+                return getUserCommunityIds(reqUser).includes(targetId);
+            }, [usersList, getUserCommunityIds]);
+            const matchesMakeupRequestCompany = useCallback((req, companyId, fallbackUserIds = []) => {
+                const targetId = String(companyId || '').trim();
+                if (!req || !targetId) return false;
+                if (String(req.userCompanyId || '').trim() === targetId) return true;
+                if ((fallbackUserIds || []).some(id => String(id) === String(req.userId || ''))) return true;
+                const reqUser = (usersList || []).find(u => String(u.id) === String(req.userId || ''));
+                return getUserCompanyIds(reqUser).includes(targetId);
+            }, [usersList, getUserCompanyIds]);
             const resolveScheduleNightShift = useCallback((schedule, fallbackNight = false) => {
                 if (!schedule) return !!fallbackNight;
                 return !!(
@@ -11084,11 +11119,15 @@
                 setShowMakeupModal(true);
             }, [availableClockInLocations, checkInLocation]);
             const mergeOptimisticMakeupRequests = useCallback((prevList = [], remoteList = []) => {
+                const cancelledIds = cancelledMakeupClientIdsRef.current;
+                const filteredRemoteList = (remoteList || []).filter(req => !cancelledIds.has(String(req?.clientRequestId || '')));
                 const temps = (prevList || []).filter(req => String(req?.id || '').startsWith('temp_'));
-                if (temps.length === 0) return remoteList;
+                if (temps.length === 0) return filteredRemoteList;
                 const pendingTemps = temps.filter(temp => {
                     const tempTarget = String(temp?.target === 'out' ? 'out' : 'in');
-                    return !(remoteList || []).some(remote => {
+                    const tempClientRequestId = String(temp?.clientRequestId || '');
+                    return !(filteredRemoteList || []).some(remote => {
+                        if (tempClientRequestId && String(remote?.clientRequestId || '') === tempClientRequestId) return true;
                         const remoteTarget = String(remote?.target === 'out' ? 'out' : 'in');
                         if (String(remote?.userId || '') !== String(temp?.userId || '')) return false;
                         if (String(remote?.date || '') !== String(temp?.date || '')) return false;
@@ -11096,7 +11135,7 @@
                         return String(remote?.status || '') !== 'rejected';
                     });
                 });
-                return [...pendingTemps, ...(remoteList || [])].sort((a, b) => {
+                return [...pendingTemps, ...(filteredRemoteList || [])].sort((a, b) => {
                     const aSecs = a?.createdAt?.seconds || 0;
                     const bSecs = b?.createdAt?.seconds || 0;
                     return bSecs - aSecs;
@@ -12251,11 +12290,39 @@
                 if (!req) return;
                 if (!requireOnline('目前離線，無法刪除補卡申請')) return;
                 if (!confirm('確認刪除此補卡申請？')) return;
+                const clientRequestId = String(req?.clientRequestId || '');
+                const isTempReq = String(req?.id || '').startsWith('temp_');
+                const isSameMakeupRequest = (item) => {
+                    if (!item) return false;
+                    if (clientRequestId && String(item?.clientRequestId || '') === clientRequestId) return true;
+                    return (
+                        String(item?.userId || '') === String(req?.userId || '') &&
+                        String(item?.date || '') === String(req?.date || '') &&
+                        String(item?.target === 'out' ? 'out' : 'in') === String(req?.target === 'out' ? 'out' : 'in') &&
+                        String(item?.status || '') === String(req?.status || '')
+                    );
+                };
+                const matchedRemoteReq = [...(myMakeupRequests || []), ...(makeupRequests || [])].find(item => {
+                    if (!isSameMakeupRequest(item)) return false;
+                    return !String(item?.id || '').startsWith('temp_');
+                }) || null;
                 try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', req.id));
+                    if (clientRequestId) {
+                        cancelledMakeupClientIdsRef.current.add(clientRequestId);
+                    }
+                    setMyMakeupRequests(prev => (prev || []).filter(item => !isSameMakeupRequest(item)));
+                    setMakeupRequests(prev => (prev || []).filter(item => !isSameMakeupRequest(item)));
+
+                    const deleteTargetId = matchedRemoteReq?.id || (!isTempReq ? req.id : '');
+                    if (deleteTargetId) {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'makeup_requests', deleteTargetId));
+                    }
                     setToast('已刪除補卡申請');
                 } catch (e) {
                     console.error(e);
+                    if (clientRequestId) {
+                        cancelledMakeupClientIdsRef.current.delete(clientRequestId);
+                    }
                     alert('刪除失敗: ' + e.message);
                 }
             };
@@ -13649,7 +13716,12 @@
                         orderBy('createdAt', 'desc')
                     );
                     unsubscribes.push(onSnapshot(qMakeup,
-                        (snap) => setMakeupRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+                        (snap) => {
+                            const remoteList = snap.docs
+                                .map(d => ({ id: d.id, ...d.data() }))
+                                .filter(req => !cancelledMakeupClientIdsRef.current.has(String(req?.clientRequestId || '')));
+                            setMakeupRequests(remoteList);
+                        },
                         (e) => handleFetchError(e, 'makeup_requests_snap')
                     ));
                 }
@@ -13865,7 +13937,9 @@
                     );
                     unsubscribes.push(onSnapshot(qMineMakeup,
                         (snap) => {
-                            const remoteList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            const remoteList = snap.docs
+                                .map(d => ({ id: d.id, ...d.data() }))
+                                .filter(req => !cancelledMakeupClientIdsRef.current.has(String(req?.clientRequestId || '')));
                             setMyMakeupRequests(prev => mergeOptimisticMakeupRequests(prev, remoteList));
                         },
                         (e) => handleFetchError(e, 'makeup_mine_snap')
@@ -14385,7 +14459,11 @@
 
             const handleClockIn = (type, locations = [], extra = {}) => {
                 if (!requireOnline('目前離線，無法打卡')) return;
+                const submissionId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                    ? `clock_${Date.now()}_${window.crypto.randomUUID()}`
+                    : `clock_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
                 setClockType(type);
+                setPendingClockSubmissionId(submissionId);
                 const meta = {
                     logicDate: extra?.logicDate,
                     shift: extra?.shift,
@@ -14430,6 +14508,16 @@
                     return;
                 }
                 if (!requireOnline('目前離線，無法打卡')) return;
+                const submissionId = String(
+                    pendingClockSubmissionId ||
+                    ((window.crypto && typeof window.crypto.randomUUID === 'function')
+                        ? `clock_${Date.now()}_${window.crypto.randomUUID()}`
+                        : `clock_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
+                );
+                if (pendingClockWriteRef.current === submissionId) {
+                    return;
+                }
+                pendingClockWriteRef.current = submissionId;
                 
                 const withTimeout = (promise, ms, msg) => {
                     return Promise.race([
@@ -14468,6 +14556,7 @@
                         msg = '連線不穩，已達重試上限';
                     }
                     alert("【步驟1：照片上傳失敗】\n" + msg);
+                    pendingClockWriteRef.current = null;
                     // setIsProcessing is not defined in App scope, handled by CameraModal if needed
                     return; // Stop here
                 }
@@ -14504,6 +14593,7 @@
                         userId: dbUser.id,
                         userName: dbUser.name,
                         userRole: dbUser.role,
+                        clientSubmissionId: submissionId,
                         communityId: resolvedLocationId || (checkInLocation ? checkInLocation.id : dbUser.communityId),
                         checkInLocationName: resolvedLocationName,
                         type: clockType,
@@ -14526,7 +14616,7 @@
                     }
 
                     await withTimeout(
-                        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), payload),
+                        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', submissionId), payload),
                         15000,
                         '資料寫入逾時(15秒)'
                     );
@@ -14534,6 +14624,7 @@
                     setShowCameraModal(false);
                     setToast('打卡完成');
                     setPendingClockMeta(null);
+                    setPendingClockSubmissionId(null);
                     setPendingClockLocationOverride(null);
                 } catch (e) {
                     console.error("Database Error", e);
@@ -14543,7 +14634,7 @@
                     }
                     alert("【步驟2：資料儲存失敗】\n" + msg);
                 } finally {
-                    // setIsProcessing is not defined in App scope
+                    pendingClockWriteRef.current = null;
                 }
             };
 
@@ -16807,7 +16898,10 @@
                                                                 (u.status === '在職' || !u.status);
                                                         })
                                                         .map(u => u.id);
-                                                    const count = (makeupRequests || []).filter(req => req.status === 'pending' && communityUserIds.includes(req.userId)).length;
+                                                    const count = (makeupRequests || []).filter(req =>
+                                                        req.status === 'pending' &&
+                                                        matchesMakeupRequestCommunity(req, selectedCommunity.id, communityUserIds)
+                                                    ).length;
                                                     if (count <= 0) return null;
                                                     return (
                                                         <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] leading-[18px] text-center font-bold">
@@ -17395,7 +17489,10 @@
                                                         (targetRoleIds.includes(u.role) || targetRoleNames.includes(roleName)) &&
                                                         (u.status === '在職' || !u.status);
                                                 }).map(u => u.id);
-                                                const pendingMakeupCount = makeupRequests.filter(req => req.status === 'pending' && companyUserIds.includes(req.userId)).length;
+                                                const pendingMakeupCount = makeupRequests.filter(req =>
+                                                    req.status === 'pending' &&
+                                                    matchesMakeupRequestCompany(req, targetCompany.id, companyUserIds)
+                                                ).length;
                                                 const pendingModificationCount = attendanceList.filter(req =>
                                                     req.modification?.status === 'pending' && companyUserIds.includes(req.userId)
                                                 ).length;
@@ -17755,6 +17852,7 @@
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
                                         onDeleteRecord={handleAdminDeleteRecord} 
+                                        onDeleteMakeupRequest={handleDeleteMakeupRequest}
                                         attendanceHistory={myAttendance.filter(r => r.type !== 'leave')}
                                         timeOffset={timeOffset}
                                         timeSynced={timeSynced}
@@ -18314,6 +18412,7 @@
                                         currentUser={dbUser} 
                                         onClockIn={handleClockIn} 
                                         onDeleteRecord={handleAdminDeleteRecord}
+                                        onDeleteMakeupRequest={handleDeleteMakeupRequest}
                                         attendanceHistory={myAttendance.filter(r => ['in', 'out', 'work_in', 'work_out', 'duty_in', 'duty_out', 'late_in', 'late_out', 'card_in', 'card_out'].includes(r.type))}
                                         timeOffset={timeOffset}
                                         timeSynced={timeSynced}
@@ -18341,6 +18440,7 @@
                                         onClockIn={handleClockIn}
                                         onDeleteRecord={handleAdminDeleteRecord}
                                         onLeaveSubmit={handleLeaveSubmit}
+                                        onDeleteMakeupRequest={handleDeleteMakeupRequest}
                                         attendanceHistory={[]}
                                         timeOffset={timeOffset}
                                         timeSynced={timeSynced}
@@ -19628,22 +19728,10 @@
 
 
                                                                             if (!hasIn && isPastDate && isWorkDay) {
-                                                                                const locs = availableClockInLocations || [];
-                                                                                const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
-                                                                                const defaultTime = schedule?.startTime || '09:00';
                                                                                 return (
-                                                                                    <button
-                                                                                        className="w-full text-sm p-2 rounded-lg border shadow-sm bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center justify-center"
-                                                                                        onClick={() => {
-                                                                                            setMakeupDefaultType('in');
-                                                                                            setMakeupForm(prev => ({ ...prev, timeType: 'in', locationId: defaultLocId, customTime: defaultTime }));
-                                                                                            setMakeupDateStr(dateStr);
-                                                                                            setMakeupSchedule(schedule);
-                                                                                            setShowMakeupModal(true);
-                                                                                        }}
-                                                                                    >
-                                                                                        申請上班補打卡
-                                                                                    </button>
+                                                                                    <div className="w-full flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm h-[56px] bg-gray-50 border-gray-200 text-gray-400 font-bold">
+                                                                                        未打卡
+                                                                                    </div>
                                                                                 );
                                                                             }
                                                                             return null;
@@ -19716,22 +19804,10 @@
                                             const hasOut = attendance.some(r => ['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'leave_early'].includes(r.type));
                                             
                                             if (!hasOut && isPastDate && isWorkDay && dayLeaves.length === 0) {
-                                                                                const locs = availableClockInLocations || [];
-                                                                                const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
-                                                                                const defaultTime = schedule?.endTime || '18:00';
                                                                                 return (
-                                                                                    <button
-                                                                                        className="w-full text-sm p-2 rounded-lg border shadow-sm bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center justify-center"
-                                                                                        onClick={() => {
-                                                                                            setMakeupDefaultType('out');
-                                                                                            setMakeupForm(prev => ({ ...prev, timeType: 'out', locationId: defaultLocId, customTime: defaultTime }));
-                                                                                            setMakeupDateStr(dateStr);
-                                                                                            setMakeupSchedule(schedule);
-                                                                                            setShowMakeupModal(true);
-                                                                                        }}
-                                                                                    >
-                                                                                        申請下班補打卡
-                                                                                    </button>
+                                                                                    <div className="w-full flex flex-col items-center justify-center text-sm p-2 rounded-lg border shadow-sm h-[56px] bg-gray-50 border-gray-200 text-gray-400 font-bold">
+                                                                                        未打卡
+                                                                                    </div>
                                                                                 );
                                                                             }
                                                                             return null;
@@ -19769,22 +19845,9 @@
                                                                                             </button>
                                                                                         )
                                                                                     ) : (
-                                                                                        <button
-                                                                                            onClick={() => { 
-                                                                                                setMakeupDefaultType('in'); 
-                                                                                                const locs = availableClockInLocations || [];
-                                                                                                const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
-                                                                                                const defaultTime = schedule?.startTime || '09:00';
-                                                                                                setMakeupForm(prev => ({ ...prev, timeType: 'in', locationId: defaultLocId, customTime: defaultTime }));
-                                                                                                setMakeupDateStr(dateStr);
-                                                                                                setMakeupSchedule(schedule);
-                                                                                                setShowMakeupModal(true);
-                                                                                            }}
-                                                                                            className="w-full text-sm p-2 rounded-lg border shadow-sm h-[56px] bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center justify-center"
-                                                                                        >
-                                                                                            <ClipboardList className="w-5 h-5 mr-2" />
-                                                                                            申請上班補打卡
-                                                                                        </button>
+                                                                                        <div className="w-full h-[56px] text-sm p-2 rounded-lg border shadow-sm bg-gray-50 border-gray-200 text-gray-400 font-bold flex items-center justify-center">
+                                                                                            未打卡
+                                                                                        </div>
                                                                                     )}
                                                                                 </div>
                                                                                 <div className="w-full">
@@ -19805,61 +19868,11 @@
                                                                                             </button>
                                                                                         )
                                                                                     ) : (
-                                                                                        <button
-                                                                                            onClick={() => { 
-                                                                                                setMakeupDefaultType('out'); 
-                                                                                                const locs = availableClockInLocations || [];
-                                                                                                const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
-                                                                                                const defaultTime = schedule?.endTime || '18:00';
-                                                                                                setMakeupForm(prev => ({ ...prev, timeType: 'out', locationId: defaultLocId, customTime: defaultTime }));
-                                                                                                setMakeupDateStr(dateStr);
-                                                                                                setMakeupSchedule(schedule);
-                                                                                                setShowMakeupModal(true);
-                                                                                            }}
-                                                                                            className="w-full text-sm p-2 rounded-lg border shadow-sm h-[56px] bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center justify-center"
-                                                                                        >
-                                                                                            <ClipboardList className="w-5 h-5 mr-2" />
-                                                                                            申請下班補打卡
-                                                                                        </button>
+                                                                                        <div className="w-full h-[56px] text-sm p-2 rounded-lg border shadow-sm bg-gray-50 border-gray-200 text-gray-400 font-bold flex items-center justify-center">
+                                                                                            未打卡
+                                                                                        </div>
                                                                                     )}
                                                                                 </div>
-                                                                            </div>
-                                                                        );
-
-                                                                        return (
-                                                                            <div className="grid grid-cols-2 gap-2">
-                                                                                <button
-                                                                                    onClick={() => { 
-                                                                                        setMakeupDefaultType('in'); 
-                                                                                        const locs = availableClockInLocations || [];
-                                                                                        const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
-                                                                                        const defaultTime = schedule?.startTime || '09:00';
-                                                                                        setMakeupForm(prev => ({ ...prev, timeType: 'in', locationId: defaultLocId, customTime: defaultTime }));
-                                                                                        setMakeupDateStr(dateStr);
-                                                                                        setMakeupSchedule(schedule);
-                                                                                        setShowMakeupModal(true);
-                                                                                    }}
-                                                                                    className="w-full text-sm p-2 rounded-lg border shadow-sm h-[56px] bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center justify-center"
-                                                                                >
-                                                                                    <ClipboardList className="w-5 h-5 mr-2" />
-                                                                                    申請上班補打卡
-                                                                                </button>
-                                                                                <button
-                                                                                    onClick={() => { 
-                                                                                        setMakeupDefaultType('out'); 
-                                                                                        const locs = availableClockInLocations || [];
-                                                                                        const defaultLocId = (checkInLocation && locs.some(l=>l.id===checkInLocation.id)) ? checkInLocation.id : (locs[0]?.id || '');
-                                                                                        const defaultTime = schedule?.endTime || '18:00';
-                                                                                        setMakeupForm(prev => ({ ...prev, timeType: 'out', locationId: defaultLocId, customTime: defaultTime }));
-                                                                                        setMakeupDateStr(dateStr);
-                                                                                        setMakeupSchedule(schedule);
-                                                                                        setShowMakeupModal(true);
-                                                                                    }}
-                                                                                    className="w-full text-sm p-2 rounded-lg border shadow-sm h-[56px] bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center justify-center"
-                                                                                >
-                                                                                    <ClipboardList className="w-5 h-5 mr-2" />
-                                                                                    申請下班補打卡
-                                                                                </button>
                                                                             </div>
                                                                         );
                                                                     }
@@ -22782,7 +22795,7 @@
                                 }) : [];
                                 const communityUserIds = communityUsers.map(u => u.id);
                                 const records = selectedCommunity ? (makeupRequests || [])
-                                    .filter(req => communityUserIds.includes(req.userId))
+                                    .filter(req => matchesMakeupRequestCommunity(req, selectedCommunity.id, communityUserIds))
                                     .sort((a, b) => {
                                         const aSecs = a.createdAt?.seconds || 0;
                                         const bSecs = b.createdAt?.seconds || 0;
@@ -26636,7 +26649,10 @@
                                         }) : [];
                                         const companyUserIds = companyUsers.map(u => u.id);
                                         const pendingMakeupRecords = targetCompany ? (makeupRequests || [])
-                                            .filter(req => companyUserIds.includes(req.userId) && req.status === 'pending')
+                                            .filter(req =>
+                                                req.status === 'pending' &&
+                                                matchesMakeupRequestCompany(req, targetCompany.id, companyUserIds)
+                                            )
                                             .sort((a, b) => {
                                                 const aSecs = a.createdAt?.seconds || 0;
                                                 const bSecs = b.createdAt?.seconds || 0;
@@ -27996,8 +28012,9 @@
                                             // 2. Record (Pending)
                                             let totalPending = 0;
                                             if (hasSubPermission('cadre', 'record')) {
-                                                const pendingMakeupCount = (makeupRequests || []).filter(req => 
-                                                    req.status === 'pending' && companyUserIds.includes(req.userId)
+                                                const pendingMakeupCount = (makeupRequests || []).filter(req =>
+                                                    req.status === 'pending' &&
+                                                    matchesMakeupRequestCompany(req, targetCompany.id, companyUserIds)
                                                 ).length;
                                                 const pendingModificationCount = (attendanceList || []).filter(req => 
                                                     req.modification?.status === 'pending' && companyUserIds.includes(req.userId)
@@ -28145,8 +28162,8 @@
                     )}
 
                     <CameraModal 
-                        isOpen={showCameraModal} 
-                        onClose={() => { setShowCameraModal(false); setPendingClockMeta(null); setPendingClockLocationOverride(null); }}
+                        isOpen={showCameraModal}
+                        onClose={() => { setShowCameraModal(false); setPendingClockMeta(null); setPendingClockSubmissionId(null); setPendingClockLocationOverride(null); }}
                         onConfirm={handleCameraConfirm}
                         type={clockType}
                         userName={dbUser?.name}
@@ -28245,6 +28262,7 @@
                                             if (!dbUser) return;
                                             if (!requireOnline('目前離線，無法送出補卡申請')) return;
                                             let tempId = '';
+                                            let clientRequestId = '';
                                             try {
                                                 if (!makeupDateStr) {
                                                     alert('找不到補卡日期，請重新操作');
@@ -28261,7 +28279,11 @@
                                                 }
                                                 const loc = availableClockInLocations.find(l => l.id === makeupForm.locationId) || null;
                                                 const isIn = makeupForm.timeType !== 'out';
+                                                clientRequestId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                                                    ? `makeup_${Date.now()}_${window.crypto.randomUUID()}`
+                                                    : `makeup_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
                                                 const reqData = {
+                                                    clientRequestId,
                                                     userId: dbUser.id,
                                                     userName: dbUser.name || 'Unknown',
                                                     userCompanyId: dbUser.companyId || '',
@@ -28290,10 +28312,18 @@
                                                 };
                                                 setMyMakeupRequests(prev => [optimisticReq, ...(prev || []).filter(req => String(req?.id || '') !== tempId)]);
                                                 setMakeupRequests(prev => [optimisticReq, ...(prev || [])]);
-                                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'makeup_requests'), reqData);
+                                                const createdRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'makeup_requests'), reqData);
+                                                if (cancelledMakeupClientIdsRef.current.has(clientRequestId)) {
+                                                    await deleteDoc(createdRef);
+                                                    cancelledMakeupClientIdsRef.current.delete(clientRequestId);
+                                                    return;
+                                                }
                                                 setShowMakeupModal(false);
                                                 alert('已送出補打卡申請');
                                             } catch (err) {
+                                                if (clientRequestId) {
+                                                    cancelledMakeupClientIdsRef.current.delete(clientRequestId);
+                                                }
                                                 if (tempId) {
                                                     setMyMakeupRequests(prev => (prev || []).filter(req => String(req?.id || '') !== tempId));
                                                     setMakeupRequests(prev => (prev || []).filter(req => String(req?.id || '') !== tempId));
