@@ -10577,6 +10577,59 @@
                     createdBy: dbUser?.id || auth?.currentUser?.uid || ''
                 });
 
+                const pad2 = (n) => String(n).padStart(2, '0');
+                const monthStr = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`;
+                const getLeaveMonth = (r) => {
+                    try {
+                        const start = String(r.leaveStartDate || '').trim();
+                        const date = String(r.leaveDate || '').trim();
+                        const base = start ? start.slice(0, 10) : date;
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base.slice(0, 7);
+                        const secs = r.createdAt?.seconds || r.timestamp?.seconds;
+                        if (secs) {
+                            const d = new Date(secs * 1000);
+                            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+                        }
+                    } catch (_) {}
+                    return '';
+                };
+                const isPending = (r) => {
+                    const s = String(r.approvalStatus || 'pending').trim();
+                    return !s || s === 'pending';
+                };
+
+                const sourceLeaves = (leavesList || [])
+                    .filter(isPending)
+                    .filter(r => getLeaveMonth(r) === monthStr)
+                    .filter(r => !companyId || String(r.companyId || '') === String(companyId));
+
+                const batch = writeBatch(db);
+                sourceLeaves.slice(0, 200).forEach((r) => {
+                    const u = (usersList || []).find(x => String(x.id) === String(r.userId)) || {};
+                    const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'leaves', String(r.id));
+                    batch.set(shareRef, {
+                        leaveId: String(r.id),
+                        userId: String(r.userId || ''),
+                        userName: u.name || r.userName || '',
+                        userAvatarUrl: u.avatarUrl || '',
+                        userMobile: u.mobile || u.phone || u.cellphone || u.tel || '',
+                        userCompanyId: u.companyId || '',
+                        userCompanyIds: Array.isArray(u.companyIds) ? u.companyIds : [],
+                        companyId: r.companyId || '',
+                        communityId: r.communityId || '',
+                        approvalStatus: r.approvalStatus || 'pending',
+                        leaveReason: r.leaveReason || '',
+                        leaveDescription: r.leaveDescription || '',
+                        leaveStartDate: r.leaveStartDate || '',
+                        leaveEndDate: r.leaveEndDate || '',
+                        leaveDate: r.leaveDate || '',
+                        leaveTime: r.leaveTime || '',
+                        photoUrl: r.photoUrl || '',
+                        createdAt: r.createdAt || r.timestamp || null
+                    });
+                });
+                await batch.commit();
+
                 const leadBase = new URL('./data-lead.html', window.location.href);
                 leadBase.search = '';
                 leadBase.hash = '';

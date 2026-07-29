@@ -377,6 +377,7 @@
         }
 
         function isAllowedAccount(u) {
+            if (state.shareValid && !state.authUser) return true;
             const status = safeString(u?.status, '在職');
             if (status !== '在職') return false;
             const role = safeString(u?.role);
@@ -391,9 +392,10 @@
             const select = $('user-select');
             const current = select.value;
             while (select.options.length > 1) select.remove(1);
-            const filteredUsers = getCompanyUsers().filter((u) => {
-                return isAllowedAccount(u);
-            });
+            const users = getCompanyUsers();
+            const filteredUsers = state.shareValid && !state.authUser
+                ? users
+                : users.filter((u) => isAllowedAccount(u));
             filteredUsers
                 .slice()
                 .sort((a, b) => safeString(a.name).localeCompare(safeString(b.name), 'zh-Hant'))
@@ -1229,6 +1231,7 @@
         let unsubAttendance = null;
         let unsubSchedules = null;
         let unsubDbUser = null;
+        let unsubShareLeaves = null;
         state.attendanceLoaded = false;
 
         function initFirebase() {
@@ -1269,6 +1272,7 @@
             if (typeof unsubUsers === 'function') unsubUsers();
             if (typeof unsubLeaves === 'function') unsubLeaves();
             if (typeof unsubAttendance === 'function') unsubAttendance();
+            if (typeof unsubShareLeaves === 'function') unsubShareLeaves();
 
             unsubRoles = db
                 .collection('artifacts')
@@ -1335,6 +1339,71 @@
                 });
 
             resubscribeSchedules();
+        }
+
+        function subscribeShareData() {
+            if (typeof unsubRoles === 'function') unsubRoles();
+            if (typeof unsubUsers === 'function') unsubUsers();
+            if (typeof unsubLeaves === 'function') unsubLeaves();
+            if (typeof unsubAttendance === 'function') unsubAttendance();
+            if (typeof unsubSchedules === 'function') unsubSchedules();
+            if (typeof unsubDbUser === 'function') unsubDbUser();
+            if (typeof unsubShareLeaves === 'function') unsubShareLeaves();
+            unsubRoles = null;
+            unsubUsers = null;
+            unsubLeaves = null;
+            unsubAttendance = null;
+            unsubSchedules = null;
+            unsubDbUser = null;
+
+            state.roles = [];
+            state.schedules = [];
+            state.attendance = [];
+            state.attendanceLoaded = true;
+            state.dbUser = null;
+
+            const code = safeString(state.shareCode);
+            if (!code) return;
+            $('loading-box').classList.remove('hidden');
+            $('leave-list').classList.add('hidden');
+            $('empty-box').classList.add('hidden');
+            $('attendance-loading').classList.add('hidden');
+            $('attendance-list').classList.add('hidden');
+            $('attendance-empty').classList.add('hidden');
+
+            unsubShareLeaves = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('share_links')
+                .doc(code)
+                .collection('leaves')
+                .onSnapshot((snap) => {
+                    state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    const userMap = new Map();
+                    state.leaves.forEach((r) => {
+                        const uid = safeString(r.userId);
+                        if (!uid || userMap.has(uid)) return;
+                        userMap.set(uid, {
+                            id: uid,
+                            name: safeString(r.userName),
+                            avatarUrl: safeString(r.userAvatarUrl),
+                            phone: safeString(r.userMobile),
+                            mobile: safeString(r.userMobile),
+                            companyId: safeString(r.userCompanyId),
+                            companyIds: Array.isArray(r.userCompanyIds) ? r.userCompanyIds : []
+                        });
+                    });
+                    state.users = Array.from(userMap.values());
+                    buildUserOptions();
+                    $('loading-box').classList.add('hidden');
+                    render();
+                }, (e) => {
+                    $('loading-box').classList.add('hidden');
+                    setError(`讀取分享資料失敗：${e.message || e}`);
+                    render();
+                });
         }
 
         async function subscribeDbUserByAuth(user) {
@@ -1469,16 +1538,12 @@
                     state.authUser = user || null;
                     setError('');
                     if (!user) {
-                        if (state.shareValid && !state.attemptedAnonymousSignIn) {
-                            state.attemptedAnonymousSignIn = true;
-                            setAuthWarning('正在以分享連結登入...');
-                            auth.signInAnonymously().catch((e) => {
-                                setAuthWarning(`無法以分享連結登入：${e.message || e}`);
-                                render();
-                            });
+                        if (state.shareValid) {
+                            setAuthWarning('');
+                            subscribeShareData();
                             return;
                         }
-                        if (!state.shareValid) setAuthWarning('請先登入後再查看西北公司內部出勤。');
+                        setAuthWarning('請先登入後再查看西北公司內部出勤。');
                         render();
                         return;
                     }
