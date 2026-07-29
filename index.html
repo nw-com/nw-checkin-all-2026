@@ -7597,6 +7597,31 @@
             const shiftStr = useMemo(() => (isNightShift ? 'night' : 'day'), [isNightShift]);
             const logicDateStr = useMemo(() => computeLogicDateStr(currentTime, isNightShift), [currentTime, isNightShift]);
 
+            const workScopedRecords = useMemo(() => {
+                if (mode !== 'work') return [];
+                if (!currentUser?.id) return [];
+
+                const workTypes = new Set(['in', 'work_in', 'duty_in', 'out', 'work_out', 'duty_out']);
+                const sameShiftRecords = sourceHistory.filter(r => {
+                    if (String(r?.userId || '') !== String(currentUser.id)) return false;
+                    if (getRecordShiftStr(r) !== shiftStr) return false;
+                    if (getRecordLogicDateStr(r) !== logicDateStr) return false;
+                    const t = String(r?.type || '');
+                    return workTypes.has(t);
+                });
+
+                if (!sameShiftRecords.length) return [];
+
+                const sameLocationRecords = sameShiftRecords.filter(r =>
+                    String(r?.locationId || r?.communityId || '') === activeLocationId
+                );
+
+                // Prefer records at the currently selected location, but fall back to
+                // the user's actual work records for the same day/shift so the button
+                // state stays correct after a successful clock-in.
+                return sameLocationRecords.length ? sameLocationRecords : sameShiftRecords;
+            }, [mode, sourceHistory, currentUser?.id, shiftStr, logicDateStr, activeLocationId]);
+
             const workCheckState = useMemo(() => {
                 if (mode !== 'work') return { state: 'A', logicDate: logicDateStr, shift: shiftStr };
                 if (!currentUser?.id) return { state: 'A', logicDate: logicDateStr, shift: shiftStr };
@@ -7604,14 +7629,7 @@
                 const inTypes = new Set(['in', 'work_in', 'duty_in']);
                 const outTypes = new Set(['out', 'work_out', 'duty_out']);
 
-                const scoped = sourceHistory.filter(r => {
-                    if (String(r?.userId || '') !== String(currentUser.id)) return false;
-                    if (String(r?.communityId || '') !== activeLocationId) return false;
-                    if (getRecordShiftStr(r) !== shiftStr) return false;
-                    if (getRecordLogicDateStr(r) !== logicDateStr) return false;
-                    const t = String(r?.type || '');
-                    return inTypes.has(t) || outTypes.has(t);
-                });
+                const scoped = workScopedRecords;
 
                 let lastInTime = null;
                 for (const r of scoped) {
@@ -7633,9 +7651,8 @@
                         break;
                     }
                 }
-
                 return { state: hasOutAfterIn ? 'C' : 'B', logicDate: logicDateStr, shift: shiftStr };
-            }, [mode, sourceHistory, currentUser?.id, activeLocationId, shiftStr, logicDateStr]);
+            }, [mode, currentUser?.id, workScopedRecords, logicDateStr, shiftStr]);
 
             const isWorking = useMemo(() => (mode === 'work' && workCheckState.state === 'B'), [mode, workCheckState.state]);
             const hasFinishedWork = useMemo(() => (mode === 'work' && workCheckState.state === 'C'), [mode, workCheckState.state]);
@@ -7847,14 +7864,10 @@
                      if (['out', 'work_out', 'duty_out'].includes(config.type)) {
                          // 下班打卡的邏輯
                          const inTypes = new Set(['in', 'work_in', 'duty_in']);
-                         const scopedIns = sourceHistory.filter(r => {
-                             if (String(r?.userId || '') !== String(currentUser.id)) return false;
-                             if (String(r?.communityId || '') !== activeLocationId) return false;
-                             if (getRecordShiftStr(r) !== shiftStr) return false;
-                             if (getRecordLogicDateStr(r) !== logicDateStr) return false;
-                             const t = String(r?.type || '');
-                             return inTypes.has(t);
-                         });
+                        const scopedIns = workScopedRecords.filter(r => {
+                            const t = String(r?.type || '');
+                            return inTypes.has(t);
+                        });
                          let lastInRecord = null;
                          let lastInTime = null;
                          for (const r of scopedIns) {
