@@ -10620,10 +10620,21 @@
                 );
                 const snap = await getDocs(q);
                 const monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const matchesCompany = (r) => {
+                    if (!companyId) return true;
+                    const direct = String(r.companyId || '').trim();
+                    if (direct && direct === String(companyId)) return true;
+                    const u = (usersList || []).find(x => String(x.id) === String(r.userId)) || {};
+                    const main = String(u.companyId || '').trim();
+                    const subs = Array.isArray(u.companyIds) ? u.companyIds.map(x => String(x)) : [];
+                    if (main && main === String(companyId)) return true;
+                    if (subs.includes(String(companyId))) return true;
+                    return false;
+                };
                 const sourceLeaves = (monthLeaves || [])
                     .filter(isPending)
                     .filter(r => getLeaveMonth(r) === monthStr)
-                    .filter(r => !companyId || String(r.companyId || '') === String(companyId));
+                    .filter(matchesCompany);
 
                 const batch = writeBatch(db);
                 sourceLeaves.slice(0, 200).forEach((r) => {
