@@ -171,6 +171,7 @@
             shareValid: false,
             shareReviewerName: '',
             shareExpiresAt: null,
+            shareLeavesLoaded: false,
             attemptedAnonymousSignIn: false,
             reviewMode: 'pending',
             updatingLeaveId: '',
@@ -1123,7 +1124,7 @@
             if (!state.authUser) {
                 loadingBox.classList.add('hidden');
                 listEl.classList.add('hidden');
-                emptyText.textContent = '請先登入後再查看出勤資料';
+                emptyText.textContent = state.shareValid ? '分享連結僅提供請假審核' : '請先登入後再查看出勤資料';
                 emptyBox.classList.remove('hidden');
                 return;
             }
@@ -1172,10 +1173,17 @@
 
             $('summary-count').textContent = '0';
 
-            if (!state.authUser) {
+            if (!state.authUser && !state.shareValid) {
                 loadingEl.classList.add('hidden');
                 listEl.classList.add('hidden');
                 emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            if (!state.authUser && state.shareValid && !state.shareLeavesLoaded) {
+                emptyEl.classList.add('hidden');
+                listEl.classList.add('hidden');
+                loadingEl.classList.remove('hidden');
                 return;
             }
 
@@ -1362,6 +1370,7 @@
             state.attendance = [];
             state.attendanceLoaded = true;
             state.dbUser = null;
+            state.shareLeavesLoaded = false;
 
             const code = safeString(state.shareCode);
             if (!code) return;
@@ -1382,6 +1391,7 @@
                 .collection('leaves')
                 .onSnapshot((snap) => {
                     state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    state.shareLeavesLoaded = true;
                     const userMap = new Map();
                     state.leaves.forEach((r) => {
                         const uid = safeString(r.userId);
@@ -1401,6 +1411,7 @@
                     $('loading-box').classList.add('hidden');
                     render();
                 }, (e) => {
+                    state.shareLeavesLoaded = true;
                     $('loading-box').classList.add('hidden');
                     setError(`讀取分享資料失敗：${e.message || e}`);
                     render();

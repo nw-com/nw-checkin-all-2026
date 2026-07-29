@@ -10584,6 +10584,19 @@
                     createdBy: dbUser?.id || auth?.currentUser?.uid || ''
                 });
 
+                let usersForShare = Array.isArray(usersList) ? usersList : [];
+                if (!usersForShare.length) {
+                    try {
+                        const usersSnap = await getDocs(
+                            query(
+                                collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+                                limit(4000)
+                            )
+                        );
+                        usersForShare = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    } catch (_) {}
+                }
+
                 const isPending = (r) => {
                     const s = String(r.approvalStatus || 'pending').trim();
                     return !s || s === 'pending';
@@ -10620,7 +10633,7 @@
                     if (!companyId) return true;
                     const direct = String(r.companyId || '').trim();
                     if (direct && direct === String(companyId)) return true;
-                    const u = (usersList || []).find(x => String(x.id) === String(r.userId)) || {};
+                    const u = (usersForShare || []).find(x => String(x.id) === String(r.userId)) || {};
                     const main = String(u.companyId || '').trim();
                     const subs = Array.isArray(u.companyIds) ? u.companyIds.map(x => String(x)) : [];
                     if (main && main === String(companyId)) return true;
@@ -10633,7 +10646,7 @@
 
                 const batch = writeBatch(db);
                 sourceLeaves.slice(0, 200).forEach((r) => {
-                    const u = (usersList || []).find(x => String(x.id) === String(r.userId)) || {};
+                    const u = (usersForShare || []).find(x => String(x.id) === String(r.userId)) || {};
                     const userCompanyId = u.companyId || ((u.companyIds && u.companyIds[0]) || '');
                     const userCompanyIds = Array.isArray(u.companyIds) ? u.companyIds : (userCompanyId ? [userCompanyId] : []);
                     const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'leaves', String(r.id));
@@ -10659,6 +10672,8 @@
                     });
                 });
                 await batch.commit();
+
+                await setDoc(ref, { leaveCount: Math.min(200, sourceLeaves.length) }, { merge: true });
 
                 const leadBase = new URL('./data-lead.html', window.location.href);
                 leadBase.search = '';
