@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>西北公司內部出勤</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; background: #f8fafc; }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800">
+    <div class="min-h-screen h-screen h-[100dvh] grid grid-rows-[8%_14%_70%_8%]">
+        <header class="bg-white border-b border-gray-100 shadow-sm">
+            <div class="max-w-4xl mx-auto px-4 h-full flex items-center">
+                <div class="w-full flex items-center gap-3">
+                    <div class="flex items-center gap-2 text-red-600 text-xl md:text-2xl font-normal min-w-0">
+                        <img src="./logo.svg" class="w-7 h-7" alt="系統 LOGO" />
+                        <span class="truncate">西北公司內部出勤</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="bg-slate-50 overflow-hidden">
+            <div class="max-w-4xl mx-auto px-4 py-2 h-full">
+                <section class="bg-white rounded-2xl border border-gray-100 shadow-sm p-2 h-full flex flex-col gap-1">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                            <button id="company-tp-btn" type="button" class="px-3 py-1.5 rounded-xl font-black text-xs bg-gray-100 text-gray-700">台北</button>
+                            <button id="company-ty-btn" type="button" class="px-3 py-1.5 rounded-xl font-black text-xs bg-gray-100 text-gray-700">桃園</button>
+                        </div>
+                        <div class="text-xs text-gray-400 whitespace-nowrap">
+                            共 <span id="summary-count" class="font-black text-gray-700">0</span> 筆
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+                        <div class="min-w-0">
+                            <label for="user-select" class="sr-only">帳號</label>
+                            <select id="user-select" class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500 bg-white">
+                                <option value="">全部帳號</option>
+                            </select>
+                        </div>
+
+                        <div class="flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
+                            <div id="month-controls" class="flex items-center gap-1">
+                                <button id="prev-month-btn" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                                </button>
+                                <div class="relative">
+                                    <button id="month-display" type="button" class="font-black text-gray-800 text-sm hover:underline"></button>
+                                    <input id="month-input" type="month" class="absolute -left-[9999px] w-px h-px opacity-0" tabindex="-1" aria-hidden="true" />
+                                </div>
+                                <button id="next-month-btn" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+
+                            <div id="date-controls" class="hidden items-center gap-1">
+                                <button id="prev-date-btn" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                                </button>
+                                <div class="relative">
+                                    <button id="date-display" type="button" class="font-black text-gray-800 text-sm hover:underline"></button>
+                                    <input id="date-input" type="date" class="absolute -left-[9999px] w-px h-px opacity-0" tabindex="-1" aria-hidden="true" />
+                                </div>
+                                <button id="next-date-btn" class="p-1 rounded-full hover:bg-gray-100 text-gray-500">
+                                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <main class="overflow-y-auto">
+            <div class="max-w-4xl mx-auto px-4 py-4 space-y-4">
+                <div class="sticky top-0 z-20 bg-slate-50 pt-0">
+                    <div id="leave-review-bar" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="review-pending-btn" type="button" class="w-full px-3 py-1 rounded-xl font-black text-xs bg-gray-100 text-gray-700">待審核</button>
+                            <button id="review-reviewed-btn" type="button" class="w-full px-3 py-1 rounded-xl font-black text-xs bg-gray-100 text-gray-700">已審核</button>
+                        </div>
+                    </div>
+
+                    <div id="attendance-check-bar" class="hidden bg-white rounded-2xl border border-gray-100 shadow-sm p-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="attendance-missing-btn" type="button" class="w-full px-3 py-1 rounded-xl font-black text-xs bg-gray-100 text-gray-700">未出勤</button>
+                            <button id="attendance-checked-btn" type="button" class="w-full px-3 py-1 rounded-xl font-black text-xs bg-gray-100 text-gray-700">已出勤</button>
+                        </div>
+                    </div>
+                </div>
+                <section id="auth-warning" class="hidden bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-2xl p-4"></section>
+                <section id="error-box" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4"></section>
+
+                <section id="leave-panel" class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div id="loading-box" class="p-8 text-center text-gray-400">
+                        <div class="w-10 h-10 border-4 border-red-100 border-t-red-600 rounded-full animate-spin mx-auto mb-3"></div>
+                        <p class="font-bold">正在讀取請假資料...</p>
+                    </div>
+                    <div id="empty-box" class="hidden p-8 text-center text-gray-400">
+                        <i data-lucide="database" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+                        <p class="font-bold">目前沒有符合條件的請假資料</p>
+                    </div>
+                    <div id="leave-list" class="hidden p-4 space-y-3 pb-6"></div>
+                </section>
+
+                <section id="attendance-panel" class="hidden bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div id="attendance-loading" class="p-8 text-center text-gray-400">
+                        <div class="w-10 h-10 border-4 border-red-100 border-t-red-600 rounded-full animate-spin mx-auto mb-3"></div>
+                        <p class="font-bold">正在讀取出勤資料...</p>
+                    </div>
+                    <div id="attendance-empty" class="hidden p-8 text-center text-gray-400">
+                        <i data-lucide="database" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
+                        <p id="attendance-empty-text" class="font-bold">目前沒有符合條件的出勤資料</p>
+                    </div>
+                    <div id="attendance-list" class="hidden p-4 space-y-3 pb-6"></div>
+                </section>
+            </div>
+        </main>
+
+        <footer class="bg-white border-t border-gray-100">
+            <div class="max-w-4xl mx-auto px-3 h-full flex items-center">
+                <div class="w-full grid grid-cols-2 gap-2">
+                    <button id="tab-attendance" type="button" class="relative h-10 rounded-xl bg-gray-100 text-gray-700 font-black flex items-center justify-center gap-2">
+                        <i data-lucide="clipboard-check" class="w-4 h-4"></i>
+                        <span>出勤</span>
+                        <span id="tab-attendance-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center"></span>
+                    </button>
+                    <button id="tab-leave" type="button" class="relative h-10 rounded-xl bg-red-600 text-white font-black flex items-center justify-center gap-2">
+                        <i data-lucide="calendar-check" class="w-4 h-4"></i>
+                        <span>請假</span>
+                        <span id="tab-leave-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center"></span>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <div id="image-modal" class="hidden fixed inset-0 bg-black/70 z-50 items-center justify-center p-4">
+        <div class="max-w-3xl w-full">
+            <div class="flex justify-end mb-2">
+                <button id="close-image-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors">關閉</button>
+            </div>
+            <div class="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-2xl">
+                <img id="image-modal-img" class="w-full h-auto max-h-[75vh] object-contain bg-black" alt="請假照片預覽" />
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
+        const state = {
+            authUser: null,
+            dbUser: null,
+            roles: [],
+            users: [],
+            leaves: [],
+            attendance: [],
+            schedules: [],
+            shareCode: '',
+            shareValid: false,
+            shareReviewerName: '',
+            shareExpiresAt: null,
+            attemptedAnonymousSignIn: false,
+            reviewMode: 'pending',
+            updatingLeaveId: '',
+            pageTab: 'leave',
+            attendanceMode: 'missing',
+            attendanceDate: '',
+            companyId: '',
+            userId: '',
+            month: ''
+        };
+
+        const inTypes = new Set(['in', 'work_in', 'duty_in', 'late_in', 'card_in']);
+        const outTypes = new Set(['out', 'work_out', 'duty_out', 'late_out', 'card_out']);
+
+        const nationalHolidays = new Set([
+            '2025-01-01','2025-01-25','2025-01-26','2025-01-27','2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02',
+            '2025-02-28','2025-04-03','2025-04-04','2025-04-05','2025-04-06','2025-05-01','2025-05-30','2025-05-31','2025-06-01',
+            '2025-10-04','2025-10-05','2025-10-06','2025-10-10','2025-10-11','2025-10-12','2025-12-25',
+            '2026-01-01','2026-01-02','2026-02-14','2026-02-15','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22',
+            '2026-02-27','2026-02-28','2026-03-01','2026-04-03','2026-04-04','2026-04-05','2026-04-06','2026-05-01',
+            '2026-06-19','2026-06-20','2026-06-21','2026-09-25','2026-09-26','2026-09-27','2026-10-09','2026-10-10','2026-10-11','2026-12-25'
+        ]);
+
+        const $ = (id) => document.getElementById(id);
+
+        function setError(message = '') {
+            const box = $('error-box');
+            if (!message) {
+                box.classList.add('hidden');
+                box.textContent = '';
+                return;
+            }
+            box.textContent = message;
+            box.classList.remove('hidden');
+        }
+
+        function setAuthWarning(message = '') {
+            const box = $('auth-warning');
+            if (!message) {
+                box.classList.add('hidden');
+                box.textContent = '';
+                return;
+            }
+            box.textContent = message;
+            box.classList.remove('hidden');
+        }
+
+        function getShareCodeFromUrl() {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                return safeString(params.get('share'));
+            } catch (_) {
+                return '';
+            }
+        }
+
+        async function loadShareLinkFromUrl() {
+            const code = getShareCodeFromUrl();
+            state.shareCode = code;
+            state.shareValid = false;
+            state.shareReviewerName = '';
+            state.shareExpiresAt = null;
+            if (!code) return;
+
+            try {
+                const snap = await db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('share_links')
+                    .doc(code)
+                    .get();
+
+                if (!snap.exists) {
+                    setAuthWarning('分享連結無效或不存在。');
+                    return;
+                }
+                const data = snap.data() || {};
+                if (safeString(data.kind) !== 'data-lead') {
+                    setAuthWarning('分享連結類型不正確。');
+                    return;
+                }
+                const expiresAt = data.expiresAt?.toDate ? data.expiresAt.toDate() : null;
+                if (!expiresAt || Number.isNaN(expiresAt.getTime()) || Date.now() >= expiresAt.getTime()) {
+                    setAuthWarning('分享連結已過期（24 小時）。');
+                    return;
+                }
+
+                state.shareValid = true;
+                state.shareReviewerName = safeString(data.reviewerName);
+                state.shareExpiresAt = expiresAt;
+                state.pageTab = 'leave';
+                state.reviewMode = 'pending';
+                localStorage.setItem('lead_page_tab', 'leave');
+                localStorage.setItem('lead_leave_review_mode', 'pending');
+                const cid = safeString(data.companyId);
+                if (cid) {
+                    state.companyId = cid;
+                    localStorage.setItem('lead_leave_company', cid);
+                }
+                setAuthWarning('');
+            } catch (e) {
+                setAuthWarning(`讀取分享連結失敗：${e.message || e}`);
+            }
+        }
+
+        function toYmd(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function shiftDay(ymd, delta) {
+            const base = new Date(`${String(ymd || '').trim() || toYmd(new Date())}T00:00:00`);
+            if (Number.isNaN(base.getTime())) return toYmd(new Date());
+            base.setDate(base.getDate() + delta);
+            return toYmd(base);
+        }
+
+        function monthFromYmd(ymd) {
+            const v = String(ymd || '').trim();
+            return /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : '';
+        }
+
+        function shiftMonth(ymd, delta) {
+            const baseStr = String(ymd || '').trim();
+            const base = new Date(`${baseStr || toYmd(new Date())}T00:00:00`);
+            if (Number.isNaN(base.getTime())) return toYmd(new Date());
+            base.setDate(1);
+            base.setMonth(base.getMonth() + delta);
+            return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+        }
+
+        function safeString(value, fallback = '') {
+            const v = String(value || '').trim();
+            return v || fallback;
+        }
+
+        function toTelHref(phone) {
+            const raw = safeString(phone);
+            if (!raw) return '';
+            const cleaned = raw.replace(/[^\d+]/g, '');
+            if (!cleaned) return '';
+            return `tel:${cleaned}`;
+        }
+
+        function getMobileNumber(user) {
+            return safeString(user?.mobile) || safeString(user?.phone) || safeString(user?.cellphone) || safeString(user?.tel);
+        }
+
+        function el(tag, className = '', text = '') {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== '') node.textContent = text;
+            return node;
+        }
+
+        function setMonthValue(ym) {
+            const now = new Date();
+            const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const next = ym && /^\d{4}-\d{2}$/.test(ym) ? ym : todayMonth;
+            state.month = next;
+            $('month-display').textContent = next;
+            $('month-input').value = next;
+            $('next-month-btn').disabled = next === todayMonth;
+            $('next-month-btn').className = `p-1 rounded-full hover:bg-gray-100 text-gray-500 ${next === todayMonth ? 'opacity-30 cursor-not-allowed' : ''}`;
+            render();
+            resubscribeSchedules();
+        }
+
+        function setAttendanceDateValue(ymd) {
+            const now = new Date();
+            const todayStr = toYmd(now);
+            const next = /^\d{4}-\d{2}-\d{2}$/.test(String(ymd || '').trim()) ? String(ymd).trim() : todayStr;
+            state.attendanceDate = next;
+            $('date-display').textContent = next;
+            $('date-input').value = next;
+            const isToday = next === todayStr;
+            $('next-date-btn').disabled = isToday;
+            $('next-date-btn').className = `p-1 rounded-full hover:bg-gray-100 text-gray-500 ${isToday ? 'opacity-30 cursor-not-allowed' : ''}`;
+            render();
+        }
+
+        function openMonthPicker() {
+            const input = $('month-input');
+            if (!input) return;
+            if (typeof input.showPicker === 'function') {
+                input.showPicker();
+                return;
+            }
+            input.click();
+        }
+
+        function openDatePicker() {
+            const input = $('date-input');
+            if (!input) return;
+            if (typeof input.showPicker === 'function') {
+                input.showPicker();
+                return;
+            }
+            input.click();
+        }
+
+        function isAllowedAccount(u) {
+            const status = safeString(u?.status, '在職');
+            if (status !== '在職') return false;
+            const role = safeString(u?.role);
+            if (!role) return false;
+            const allowedRoleIds = new Set(['admin', 'hr', 'manager', 'cadre', 'staff']);
+            const roleNameById = new Map((state.roles || []).map(r => [String(r.id || ''), safeString(r.name)]));
+            const roleLabel = roleNameById.get(role) || role;
+            return allowedRoleIds.has(role) || /(系統管理員|人事|物業|幹部|員工)/.test(roleLabel);
+        }
+
+        function buildUserOptions() {
+            const select = $('user-select');
+            const current = select.value;
+            while (select.options.length > 1) select.remove(1);
+            const filteredUsers = getCompanyUsers().filter((u) => {
+                return isAllowedAccount(u);
+            });
+            filteredUsers
+                .slice()
+                .sort((a, b) => safeString(a.name).localeCompare(safeString(b.name), 'zh-Hant'))
+                .forEach((u) => {
+                    const opt = document.createElement('option');
+                    opt.value = String(u.id || '');
+                    opt.textContent = safeString(u.name || u.email || u.phone || u.id, '(未命名)');
+                    select.appendChild(opt);
+                });
+            if (current && filteredUsers.some(u => String(u.id) === String(current))) {
+                select.value = current;
+            } else if (state.userId && filteredUsers.some(u => String(u.id) === String(state.userId))) {
+                select.value = state.userId;
+            } else {
+                select.value = '';
+                state.userId = '';
+            }
+        }
+
+        function getCompanyUsers() {
+            const users = state.users || [];
+            if (!state.companyId) return users;
+            const companyId = String(state.companyId);
+            return users.filter((u) => {
+                const companyIds = Array.isArray(u.companyIds) ? u.companyIds.map(String) : [];
+                return companyIds.includes(companyId) || String(u.companyId || '') === companyId;
+            });
+        }
+
+        function setCompanyFilter(companyId) {
+            state.companyId = safeString(companyId);
+            localStorage.setItem('lead_leave_company', state.companyId);
+            updateCompanyFilterButtons();
+            buildUserOptions();
+            render();
+        }
+
+        function updateCompanyFilterButtons() {
+            const items = [
+                { id: 'TP', el: $('company-tp-btn') },
+                { id: 'TY', el: $('company-ty-btn') }
+            ];
+            items.forEach(({ id, el }) => {
+                if (!el) return;
+                const active = String(state.companyId || '') === String(id || '');
+                el.className = active
+                    ? 'px-3 py-1.5 rounded-xl font-black text-xs bg-red-600 text-white'
+                    : 'px-3 py-1.5 rounded-xl font-black text-xs bg-gray-100 text-gray-700';
+            });
+        }
+
+        function setReviewMode(mode) {
+            const next = mode === 'reviewed' ? 'reviewed' : 'pending';
+            state.reviewMode = next;
+            localStorage.setItem('lead_leave_review_mode', next);
+            updateReviewButtons();
+            render();
+        }
+
+        function updateReviewButtons() {
+            const items = [
+                { id: 'pending', el: $('review-pending-btn') },
+                { id: 'reviewed', el: $('review-reviewed-btn') }
+            ];
+            items.forEach(({ id, el }) => {
+                if (!el) return;
+                const active = String(state.reviewMode || 'pending') === String(id);
+                el.className = active
+                    ? 'px-3 py-1 rounded-xl font-black text-xs bg-red-600 text-white'
+                    : 'px-3 py-1 rounded-xl font-black text-xs bg-gray-100 text-gray-700';
+            });
+        }
+
+        function setPageTab(tab) {
+            const next = tab === 'attendance' ? 'attendance' : 'leave';
+            state.pageTab = next;
+            localStorage.setItem('lead_page_tab', next);
+            updateFooterTabs();
+
+            if (next === 'attendance') {
+                state.attendanceMode = 'missing';
+                localStorage.setItem('lead_attendance_mode', state.attendanceMode);
+                updateAttendanceButtons();
+                setAttendanceDateValue(toYmd(new Date()));
+                localStorage.setItem('lead_attendance_date', state.attendanceDate);
+                return;
+            }
+
+            state.reviewMode = 'pending';
+            localStorage.setItem('lead_leave_review_mode', state.reviewMode);
+            updateReviewButtons();
+            setMonthValue(monthFromYmd(toYmd(new Date())));
+            localStorage.setItem('lead_leave_month', state.month);
+        }
+
+        function updateFooterTabs() {
+            const items = [
+                { id: 'attendance', el: $('tab-attendance') },
+                { id: 'leave', el: $('tab-leave') }
+            ];
+            items.forEach(({ id, el }) => {
+                if (!el) return;
+                const active = String(state.pageTab || 'leave') === String(id);
+                el.className = active
+                    ? 'relative h-10 rounded-xl bg-red-600 text-white font-black flex items-center justify-center gap-2'
+                    : 'relative h-10 rounded-xl bg-gray-100 text-gray-700 font-black flex items-center justify-center gap-2';
+            });
+        }
+
+        function setBadge(id, count) {
+            const el = $(id);
+            if (!el) return;
+            const n = Number(count || 0);
+            if (!n) {
+                el.textContent = '';
+                el.classList.add('hidden');
+                return;
+            }
+            el.textContent = String(n);
+            el.classList.remove('hidden');
+        }
+
+        function getLeavePendingCountThisMonth() {
+            const month = safeString(state.month);
+            if (!/^\d{4}-\d{2}$/.test(month)) return 0;
+            const companyUserIds = getCompanyUserIds();
+            return (state.leaves || []).filter((r) => {
+                const ap = safeString(r?.approvalStatus, 'pending');
+                if (ap !== 'pending') return false;
+                if (state.companyId && !companyUserIds.has(String(r.userId || ''))) return false;
+                if (state.userId && String(r.userId || '') !== String(state.userId)) return false;
+                return getRecordMonth(r) === month;
+            }).length;
+        }
+
+        function updateTabBadges() {
+            if (!state.authUser) {
+                setBadge('tab-attendance-badge', 0);
+                setBadge('tab-leave-badge', 0);
+                return;
+            }
+
+            if (state.attendanceLoaded) {
+                const { missing } = buildAttendanceView();
+                setBadge('tab-attendance-badge', missing.length);
+            } else {
+                setBadge('tab-attendance-badge', 0);
+            }
+
+            const pendingCount = getLeavePendingCountThisMonth();
+            setBadge('tab-leave-badge', pendingCount);
+        }
+
+        function setAttendanceMode(mode) {
+            const next = mode === 'checked' ? 'checked' : 'missing';
+            state.attendanceMode = next;
+            localStorage.setItem('lead_attendance_mode', next);
+            updateAttendanceButtons();
+            render();
+        }
+
+        function updateAttendanceButtons() {
+            const items = [
+                { id: 'missing', el: $('attendance-missing-btn') },
+                { id: 'checked', el: $('attendance-checked-btn') }
+            ];
+            items.forEach(({ id, el }) => {
+                if (!el) return;
+                const active = String(state.attendanceMode || 'missing') === String(id);
+                el.className = active
+                    ? 'w-full px-3 py-1 rounded-xl font-black text-xs bg-red-600 text-white'
+                    : 'w-full px-3 py-1 rounded-xl font-black text-xs bg-gray-100 text-gray-700';
+            });
+        }
+
+        function updateTopControls() {
+            const isAttendance = state.pageTab === 'attendance';
+            const monthControls = $('month-controls');
+            const dateControls = $('date-controls');
+            const leaveReviewBar = $('leave-review-bar');
+            const attendanceCheckBar = $('attendance-check-bar');
+
+            if (monthControls && dateControls) {
+                monthControls.classList.toggle('hidden', isAttendance);
+                dateControls.classList.toggle('hidden', !isAttendance);
+                if (isAttendance) dateControls.classList.add('flex');
+                else dateControls.classList.remove('flex');
+            }
+
+            if (leaveReviewBar && attendanceCheckBar) {
+                leaveReviewBar.classList.toggle('hidden', isAttendance);
+                attendanceCheckBar.classList.toggle('hidden', !isAttendance);
+            }
+        }
+
+        function getCompanyUserIds() {
+            return new Set(getCompanyUsers().map(u => String(u.id)));
+        }
+
+        function getRecordMonth(record) {
+            const dateStr = safeString(record?.leaveStartDate).split('T')[0] ||
+                safeString(record?.leaveDate) ||
+                '';
+            if (dateStr && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.slice(0, 7);
+            const seconds = record?.timestamp?.seconds || 0;
+            if (!seconds) return '';
+            return monthFromYmd(toYmd(new Date(seconds * 1000)));
+        }
+
+        function buildFilteredLeaves() {
+            const companyUserIds = getCompanyUserIds();
+            const month = state.month;
+            return (state.leaves || [])
+                .filter((r) => {
+                    const ap = safeString(r?.approvalStatus, 'pending');
+                    if (state.reviewMode === 'pending') {
+                        if (ap !== 'pending') return false;
+                    } else {
+                        if (ap === 'pending') return false;
+                    }
+                    if (state.companyId && !companyUserIds.has(String(r.userId || ''))) return false;
+                    if (state.userId && String(r.userId || '') !== String(state.userId)) return false;
+                    if (state.reviewMode === 'pending') return true;
+                    if (!month) return true;
+                    return getRecordMonth(r) === month;
+                })
+                .slice()
+                .sort((a, b) => {
+                    const ap = safeString(a.approvalStatus);
+                    const bp = safeString(b.approvalStatus);
+                    if (ap === 'pending' && bp !== 'pending') return -1;
+                    if (ap !== 'pending' && bp === 'pending') return 1;
+                    const da = safeString(a.leaveStartDate || a.leaveDate);
+                    const db = safeString(b.leaveStartDate || b.leaveDate);
+                    return db.localeCompare(da);
+                });
+        }
+
+        function formatApplyDate(record) {
+            const seconds = record?.timestamp?.seconds || 0;
+            const date = seconds ? new Date(seconds * 1000) : new Date();
+            return new Intl.DateTimeFormat('zh-TW', {
+                timeZone: 'Asia/Taipei',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false
+            }).format(date).replace(/\//g, '/');
+        }
+
+        function parseLocalDateTime(str) {
+            const raw = safeString(str);
+            if (!raw) return null;
+            const parts = raw.split(/[T ]/);
+            if (parts.length < 2) return null;
+            const dStr = parts[0];
+            const tStr = parts[1];
+            const [y, m, d] = dStr.split('-').map(Number);
+            const [hh, mm, ss] = tStr.split(':').map(Number);
+            const date = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, ss || 0);
+            if (Number.isNaN(date.getTime())) return null;
+            return date;
+        }
+
+        function ensureTimeRange(record) {
+            const leaveDate = safeString(record?.leaveDate);
+            if (!leaveDate) return { start: null, end: null };
+            let sTime = safeString(record?.leaveTime);
+            let eTime = safeString(record?.leaveEndTime);
+            if (sTime.includes('~') && !eTime) {
+                const parts = sTime.split('~').map(v => safeString(v));
+                sTime = parts[0] || '';
+                eTime = parts[1] || '';
+            }
+            if (!sTime || !eTime) return { start: null, end: null };
+            const [y, m, d] = leaveDate.split('-').map(Number);
+            const [sh, sm] = sTime.split(':').map(Number);
+            const [eh, em] = eTime.split(':').map(Number);
+            const start = new Date(y, (m || 1) - 1, d || 1, sh || 0, sm || 0, 0);
+            const end = new Date(y, (m || 1) - 1, d || 1, eh || 0, em || 0, 0);
+            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { start: null, end: null };
+            return { start, end };
+        }
+
+        function buildLeaveDates(record) {
+            const startStr = safeString(record?.leaveStartDate).split('T')[0];
+            const endStr = safeString(record?.leaveEndDate).split('T')[0];
+            const single = safeString(record?.leaveDate);
+            const dates = [];
+            if (startStr && endStr) {
+                const s = new Date(`${startStr}T00:00:00`);
+                const e = new Date(`${endStr}T00:00:00`);
+                if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return dates;
+                for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+                    dates.push(toYmd(d));
+                }
+                return dates;
+            }
+            if (single) return [single];
+            return dates;
+        }
+
+        function formatHhMm(date) {
+            return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        }
+
+        function getScheduleFor(userId, dateStr) {
+            const uid = String(userId || '');
+            const day = String(dateStr || '');
+            return (state.schedules || []).find(s => String(s.userId || '') === uid && String(s.date || '') === day) || null;
+        }
+
+        function calcLeaveBreakdown(record) {
+            const dates = buildLeaveDates(record);
+            if (!dates.length) return null;
+
+            let leaveStart = null;
+            let leaveEnd = null;
+            if (safeString(record?.leaveStartDate) && safeString(record?.leaveEndDate)) {
+                leaveStart = parseLocalDateTime(record.leaveStartDate);
+                leaveEnd = parseLocalDateTime(record.leaveEndDate);
+            } else {
+                const range = ensureTimeRange(record);
+                leaveStart = range.start;
+                leaveEnd = range.end;
+            }
+
+            let totalDays = 0;
+            let totalHours = 0;
+            const items = [];
+
+            dates.forEach((dateStr) => {
+                const schedule = getScheduleFor(record?.userId, dateStr);
+                let type = 'work';
+                let hours = 0;
+                let timeRangeStr = '';
+
+                if (schedule) {
+                    type = safeString(schedule.type, 'work');
+                    if (['work', 'duty', 'card'].includes(type) && safeString(schedule.startTime) && safeString(schedule.endTime)) {
+                        const [sH, sM] = safeString(schedule.startTime).split(':').map(Number);
+                        const [eH, eM] = safeString(schedule.endTime).split(':').map(Number);
+                        const [dy, dm, dd] = dateStr.split('-').map(Number);
+                        const sDate = new Date(dy, (dm || 1) - 1, dd || 1, sH || 0, sM || 0, 0);
+                        const eDate = new Date(dy, (dm || 1) - 1, dd || 1, eH || 0, eM || 0, 0);
+                        if (eDate < sDate) eDate.setDate(eDate.getDate() + 1);
+
+                        if (leaveStart && leaveEnd) {
+                            const overlapStart = new Date(Math.max(sDate.getTime(), leaveStart.getTime()));
+                            const overlapEnd = new Date(Math.min(eDate.getTime(), leaveEnd.getTime()));
+                            if (overlapEnd > overlapStart) {
+                                hours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
+                                timeRangeStr = `${formatHhMm(overlapStart)}~${formatHhMm(overlapEnd)}`;
+                            } else {
+                                hours = 0;
+                            }
+                        }
+                    }
+                } else {
+                    if (nationalHolidays.has(dateStr)) type = 'holiday';
+                    else {
+                        const w = new Date(`${dateStr}T00:00:00`).getDay();
+                        if (w === 0 || w === 6) type = 'holiday';
+                        else if (w === 5) type = 'off';
+                        else type = 'work';
+                    }
+                }
+
+                if (type === 'off' || type === 'holiday') return;
+                if (hours <= 0) return;
+
+                totalDays += 1;
+                totalHours += hours;
+                items.push({ dateStr, hours, timeRangeStr });
+            });
+
+            if (!items.length) return null;
+            return { items, totalDays, totalHours };
+        }
+
+        function statusLabel(status) {
+            const v = safeString(status);
+            if (v === 'approved') return '已核准';
+            if (v === 'rejected') return '已駁回';
+            return '待核准';
+        }
+
+        function statusClass(status) {
+            const v = safeString(status);
+            if (v === 'approved') return 'bg-green-100 text-green-700';
+            if (v === 'rejected') return 'bg-red-100 text-red-700';
+            return 'bg-orange-100 text-orange-700';
+        }
+
+        function canReviewLeaveByShare() {
+            return state.shareValid === true && !!state.shareCode;
+        }
+
+        function canReviewLeaveByRole() {
+            const u = state.dbUser;
+            if (!u) return false;
+            const roleId = safeString(u.role);
+            if (['admin', 'hr', 'manager', 'cadre'].includes(roleId)) return true;
+            const roleNameById = new Map((state.roles || []).map(r => [String(r.id || ''), safeString(r.name)]));
+            const roleLabel = roleNameById.get(roleId) || roleId;
+            return /(系統管理員|人事|物業|幹部)/.test(roleLabel);
+        }
+
+        function canReviewLeave() {
+            return canReviewLeaveByShare() || canReviewLeaveByRole();
+        }
+
+        async function updateLeaveStatus(status, record) {
+            if (!record || !record.id) return;
+            if (!canReviewLeave()) return;
+
+            const label = status === 'approved' ? '核准' : '拒絕';
+            const reason = safeString(record.leaveReason, '未填寫');
+            const start = safeString(record.leaveStartDate);
+            const end = safeString(record.leaveEndDate);
+            const desc = safeString(record.leaveDescription, '無');
+            const msg = `確定要${label}此請假申請？\n事由: ${reason}\n期間: ${start} ~ ${end}\n說明: ${desc}`;
+            if (!window.confirm(msg)) return;
+
+            try {
+                state.updatingLeaveId = String(record.id);
+                render();
+                const byShare = canReviewLeaveByShare() && !state.dbUser;
+                const payload = {
+                    approvalStatus: status,
+                    approvalTime: firebase.firestore.FieldValue.serverTimestamp(),
+                    approverId: byShare ? 'guest-link' : state.dbUser?.id,
+                    approverName: byShare ? (state.shareReviewerName || '連結審核') : (state.dbUser?.name || state.dbUser?.email || '')
+                };
+                if (byShare) payload.verificationToken = state.shareCode;
+                await db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('leaves')
+                    .doc(String(record.id))
+                    .update(payload);
+            } catch (e) {
+                setError(`更新失敗：${e.message || e}`);
+            } finally {
+                state.updatingLeaveId = '';
+                render();
+            }
+        }
+
+        function buildCard(record) {
+            const user = (state.users || []).find(u => String(u.id || '') === String(record.userId || '')) || {};
+            const root = el('div', 'p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow');
+
+            const header = el('div', 'flex items-center justify-between mb-3');
+            const headerLeft = el('div', 'flex items-center gap-2');
+
+            const avatarWrap = el('div', 'w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100');
+            const avatarUrl = safeString(user.avatarUrl);
+            if (avatarUrl) {
+                const img = el('img', 'w-full h-full object-cover');
+                img.src = avatarUrl;
+                img.alt = 'avatar';
+                avatarWrap.appendChild(img);
+            } else {
+                const initial = safeString(user.name || record.userName, '?').slice(0, 1);
+                avatarWrap.appendChild(el('div', 'w-full h-full flex items-center justify-center font-bold text-gray-500', initial));
+            }
+
+            const headerText = el('div');
+            const title = el('div', 'font-bold text-gray-800 text-sm flex items-center gap-2 flex-wrap');
+            title.appendChild(el('span', '', safeString(record.userName || user.name || '(未命名)')));
+            title.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-indigo-100 text-indigo-700', safeString(record.leaveReason, '請假')));
+            title.appendChild(el('span', `text-[10px] px-1.5 py-0.5 rounded-lg ${statusClass(record.approvalStatus)}`, statusLabel(record.approvalStatus)));
+            headerText.appendChild(title);
+            headerText.appendChild(el('div', 'text-xs text-gray-400', `申請日期 : ${formatApplyDate(record)}`));
+
+            headerLeft.appendChild(avatarWrap);
+            headerLeft.appendChild(headerText);
+            header.appendChild(headerLeft);
+
+            const telHref = toTelHref(getMobileNumber(user));
+            if (telHref) {
+                const callBtn = document.createElement('a');
+                callBtn.href = telHref;
+                callBtn.className = 'w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-100';
+                callBtn.setAttribute('aria-label', '撥打電話');
+                const icon = el('i', 'w-4 h-4');
+                icon.setAttribute('data-lucide', 'phone');
+                callBtn.appendChild(icon);
+                header.appendChild(callBtn);
+            }
+
+            root.appendChild(header);
+
+            const period = el('div', 'text-xs text-red-600 mb-2');
+            const periodLine = el('div', 'flex items-center gap-1 mb-1');
+            const clockIcon = el('i', 'w-3 h-3');
+            clockIcon.setAttribute('data-lucide', 'clock');
+            periodLine.appendChild(clockIcon);
+            const leaveStartDate = safeString(record.leaveStartDate);
+            const leaveEndDate = safeString(record.leaveEndDate);
+            const leaveDate = safeString(record.leaveDate);
+            const leaveTime = safeString(record.leaveTime);
+            if (leaveStartDate) {
+                periodLine.appendChild(el('span', '', `期間 : ${leaveStartDate.replace('T', ' ').replace(/-/g, '/')} ~ ${leaveEndDate ? leaveEndDate.replace('T', ' ').replace(/-/g, '/') : ''}`));
+            } else {
+                periodLine.appendChild(el('span', '', `期間 : ${(leaveDate || '').replace(/-/g, '/')} ${leaveTime}`));
+            }
+            period.appendChild(periodLine);
+
+            const breakdown = calcLeaveBreakdown(record);
+            if (breakdown) {
+                const wrap = el('div', 'pl-5 text-[11px] text-red-600 space-y-1 mt-1');
+                wrap.appendChild(el('div', 'font-bold text-red-600 mb-1', '實際請假日期'));
+                breakdown.items.forEach((it) => {
+                    const row = el('div', 'flex items-center gap-2');
+                    row.appendChild(el('span', '', it.dateStr.replace(/-/g, '/')));
+                    row.appendChild(el('span', '', `${it.hours.toFixed(1)} hr`));
+                    if (it.timeRangeStr) row.appendChild(el('span', 'text-red-600 text-[11px]', `(${it.timeRangeStr})`));
+                    wrap.appendChild(row);
+                });
+                wrap.appendChild(el('div', 'border-t border-gray-200 mt-2 pt-1 font-bold text-red-600', `總天數及總工時 : 共 ${breakdown.totalDays} 天, ${breakdown.totalHours.toFixed(1)} hr`));
+                period.appendChild(wrap);
+            }
+
+            root.appendChild(period);
+
+            const leaveDescription = safeString(record.leaveDescription);
+            if (leaveDescription) {
+                root.appendChild(el('div', 'bg-gray-50 p-3 rounded-lg text-sm text-red-600 mb-4 whitespace-pre-wrap', leaveDescription));
+            }
+
+            const photoUrl = safeString(record.photoUrl);
+            if (photoUrl) {
+                const photoWrap = el('div', 'w-full h-48 bg-gray-100 rounded-lg overflow-hidden mb-4 cursor-pointer border border-gray-200');
+                const img = el('img', 'w-full h-full object-cover');
+                img.src = photoUrl;
+                img.alt = '請假照片';
+                photoWrap.appendChild(img);
+                photoWrap.addEventListener('click', () => openImageModal(photoUrl));
+                root.appendChild(photoWrap);
+            }
+
+            const ap = safeString(record.approvalStatus, 'pending');
+            if (ap === 'pending' && canReviewLeave()) {
+                const busy = String(state.updatingLeaveId || '') === String(record.id || '');
+                const row = el('div', 'flex gap-3 border-t border-gray-100 pt-3');
+                const rejectBtn = el('button', 'flex-1 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-black hover:bg-red-100 transition-colors', '拒絕');
+                const approveBtn = el('button', 'flex-1 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm font-black hover:bg-green-100 transition-colors', '核准');
+                rejectBtn.disabled = busy;
+                approveBtn.disabled = busy;
+                if (busy) {
+                    rejectBtn.className += ' opacity-50 cursor-not-allowed';
+                    approveBtn.className += ' opacity-50 cursor-not-allowed';
+                }
+                rejectBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    updateLeaveStatus('rejected', record);
+                });
+                approveBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    updateLeaveStatus('approved', record);
+                });
+                row.appendChild(rejectBtn);
+                row.appendChild(approveBtn);
+                root.appendChild(row);
+            }
+
+            return root;
+        }
+
+        function getRecordDateObj(record) {
+            const seconds = record?.timestamp?.seconds || record?.createdAt?.seconds || 0;
+            if (!seconds) return null;
+            const d = new Date(seconds * 1000);
+            return Number.isNaN(d.getTime()) ? null : d;
+        }
+
+        function getRecordLogicDateStr(record) {
+            const logicDate = safeString(record?.logicDate);
+            if (logicDate && /^\d{4}-\d{2}-\d{2}$/.test(logicDate)) return logicDate;
+            const date = getRecordDateObj(record);
+            if (!date) return '';
+            const shift = safeString(record?.shift) === 'night' ? 'night' : (record?.isNightShift === true ? 'night' : 'day');
+            if (shift === 'night' && date.getHours() < 12) {
+                return toYmd(new Date(date.getTime() - 24 * 60 * 60 * 1000));
+            }
+            return toYmd(date);
+        }
+
+        function formatTimeOnly(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleTimeString('zh-TW', {
+                timeZone: 'Asia/Taipei',
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function buildAttendanceCard(user, statusTag, inRecord, outRecord) {
+            const root = el('div', 'p-4 bg-white rounded-2xl shadow-sm border border-gray-100');
+            const header = el('div', 'flex items-center justify-between');
+            const left = el('div', 'flex items-center gap-2');
+
+            const avatarWrap = el('div', 'w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden border border-gray-100');
+            const avatarUrl = safeString(user?.avatarUrl);
+            if (avatarUrl) {
+                const img = el('img', 'w-full h-full object-cover');
+                img.src = avatarUrl;
+                img.alt = 'avatar';
+                avatarWrap.appendChild(img);
+            } else {
+                const initial = safeString(user?.name, '?').slice(0, 1);
+                avatarWrap.appendChild(el('div', 'w-full h-full flex items-center justify-center font-bold text-gray-500', initial));
+            }
+
+            const text = el('div');
+            const line = el('div', 'font-bold text-gray-800 text-sm flex items-center gap-2 flex-wrap');
+            line.appendChild(el('span', '', safeString(user?.name || user?.email || user?.phone || user?.id, '(未命名)')));
+            if (statusTag === 'missing') {
+                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-red-100 text-red-700', '未打卡'));
+            } else {
+                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-green-100 text-green-700', '已打卡'));
+            }
+            text.appendChild(line);
+
+            if (statusTag === 'checked' && inRecord) {
+                const inDt = getRecordDateObj(inRecord);
+                const inLocation = safeString(inRecord?.checkInLocationName) || safeString(inRecord?.address) || '-';
+                const inMeta = el('div', 'text-xs text-gray-400 mt-1');
+                inMeta.textContent = `上班打卡：${formatTimeOnly(inDt)}｜${inLocation}`;
+                text.appendChild(inMeta);
+
+                if (outRecord) {
+                    const outDt = getRecordDateObj(outRecord);
+                    const outLocation = safeString(outRecord?.checkInLocationName) || safeString(outRecord?.address) || '-';
+                    const outMeta = el('div', 'text-xs text-gray-400 mt-1');
+                    outMeta.textContent = `下班打卡：${formatTimeOnly(outDt)}｜${outLocation}`;
+                    text.appendChild(outMeta);
+                }
+            }
+
+            left.appendChild(avatarWrap);
+            left.appendChild(text);
+            header.appendChild(left);
+
+            const telHref = toTelHref(getMobileNumber(user));
+            if (telHref) {
+                const callBtn = document.createElement('a');
+                callBtn.href = telHref;
+                callBtn.className = 'w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-100';
+                callBtn.setAttribute('aria-label', '撥打電話');
+                const icon = el('i', 'w-4 h-4');
+                icon.setAttribute('data-lucide', 'phone');
+                callBtn.appendChild(icon);
+                header.appendChild(callBtn);
+            }
+
+            root.appendChild(header);
+            return root;
+        }
+
+        function buildAttendanceView() {
+            const dateStr = safeString(state.attendanceDate);
+            const all = state.attendance || [];
+            const inByUserId = new Map();
+            const outByUserId = new Map();
+
+            const updateLatest = (map, uid, record) => {
+                const prev = map.get(uid);
+                if (!prev) {
+                    map.set(uid, record);
+                    return;
+                }
+                const pD = getRecordDateObj(prev);
+                const nD = getRecordDateObj(record);
+                if (!pD || !nD) return;
+                if (nD.getTime() > pD.getTime()) map.set(uid, record);
+            };
+
+            all.forEach((r) => {
+                if (getRecordLogicDateStr(r) !== dateStr) return;
+                const uid = safeString(r?.userId);
+                if (!uid) return;
+                const t = safeString(r?.type);
+                if (inTypes.has(t)) updateLatest(inByUserId, uid, r);
+                if (outTypes.has(t)) updateLatest(outByUserId, uid, r);
+            });
+
+            const baseUsers = getCompanyUsers().filter(isAllowedAccount);
+            const users = state.userId
+                ? baseUsers.filter(u => String(u.id || '') === String(state.userId))
+                : baseUsers;
+
+            const missing = [];
+            const checked = [];
+            users.forEach((u) => {
+                const uid = String(u.id || '');
+                const inRecord = inByUserId.get(uid) || null;
+                const outRecord = outByUserId.get(uid) || null;
+                if (inRecord) checked.push({ user: u, inRecord, outRecord });
+                else missing.push({ user: u, inRecord: null, outRecord });
+            });
+
+            missing.sort((a, b) => safeString(a.user?.name).localeCompare(safeString(b.user?.name), 'zh-Hant'));
+            checked.sort((a, b) => safeString(a.user?.name).localeCompare(safeString(b.user?.name), 'zh-Hant'));
+
+            return { missing, checked };
+        }
+
+        function renderAttendance() {
+            const panel = $('attendance-panel');
+            const loadingBox = $('attendance-loading');
+            const emptyBox = $('attendance-empty');
+            const emptyText = $('attendance-empty-text');
+            const listEl = $('attendance-list');
+
+            $('leave-panel').classList.add('hidden');
+            panel.classList.remove('hidden');
+
+            if (!state.authUser) {
+                loadingBox.classList.add('hidden');
+                listEl.classList.add('hidden');
+                emptyText.textContent = '請先登入後再查看出勤資料';
+                emptyBox.classList.remove('hidden');
+                return;
+            }
+
+            if (!state.attendanceLoaded) {
+                emptyBox.classList.add('hidden');
+                listEl.classList.add('hidden');
+                loadingBox.classList.remove('hidden');
+                return;
+            }
+
+            const { missing, checked } = buildAttendanceView();
+            const showList = state.attendanceMode === 'checked' ? checked : missing;
+            $('summary-count').textContent = String(showList.length);
+
+            listEl.innerHTML = '';
+            loadingBox.classList.add('hidden');
+
+            if (!showList.length) {
+                listEl.classList.add('hidden');
+                emptyText.textContent = state.attendanceMode === 'checked' ? '當日尚無上班打卡紀錄' : '當日無未打卡帳號';
+                emptyBox.classList.remove('hidden');
+                lucide.createIcons();
+                return;
+            }
+
+            emptyBox.classList.add('hidden');
+            listEl.classList.remove('hidden');
+            const frag = document.createDocumentFragment();
+            showList.forEach((item) => {
+                frag.appendChild(buildAttendanceCard(item.user, state.attendanceMode, item.inRecord, item.outRecord));
+            });
+            listEl.appendChild(frag);
+            lucide.createIcons();
+        }
+
+        function renderLeaves() {
+            const leavePanel = $('leave-panel');
+            const panel = $('attendance-panel');
+            const listEl = $('leave-list');
+            const loadingEl = $('loading-box');
+            const emptyEl = $('empty-box');
+
+            panel.classList.add('hidden');
+            leavePanel.classList.remove('hidden');
+
+            $('summary-count').textContent = '0';
+
+            if (!state.authUser) {
+                loadingEl.classList.add('hidden');
+                listEl.classList.add('hidden');
+                emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            const filtered = buildFilteredLeaves();
+            $('summary-count').textContent = String(filtered.length);
+
+            listEl.innerHTML = '';
+            loadingEl.classList.add('hidden');
+
+            if (!filtered.length) {
+                listEl.classList.add('hidden');
+                emptyEl.classList.remove('hidden');
+                lucide.createIcons();
+                return;
+            }
+
+            emptyEl.classList.add('hidden');
+            listEl.classList.remove('hidden');
+
+            const frag = document.createDocumentFragment();
+            filtered.forEach((r) => frag.appendChild(buildCard(r)));
+            listEl.appendChild(frag);
+            lucide.createIcons();
+        }
+
+        function openImageModal(url) {
+            $('image-modal-img').src = url;
+            $('image-modal').classList.remove('hidden');
+            $('image-modal').classList.add('flex');
+        }
+
+        function closeImageModal() {
+            $('image-modal').classList.add('hidden');
+            $('image-modal').classList.remove('flex');
+            $('image-modal-img').src = '';
+        }
+
+        function render() {
+            updateTopControls();
+            updateTabBadges();
+            if (state.pageTab === 'attendance') {
+                renderAttendance();
+            } else {
+                renderLeaves();
+            }
+        }
+
+        let app = null;
+        let auth = null;
+        let db = null;
+        let unsubRoles = null;
+        let unsubUsers = null;
+        let unsubLeaves = null;
+        let unsubAttendance = null;
+        let unsubSchedules = null;
+        let unsubDbUser = null;
+        state.attendanceLoaded = false;
+
+        function initFirebase() {
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+            app = firebase.app();
+            auth = firebase.auth();
+            db = firebase.firestore();
+        }
+
+        function resubscribeSchedules() {
+            if (!db || !state.authUser) return;
+            if (typeof unsubSchedules === 'function') unsubSchedules();
+            const month = state.month || monthFromYmd(toYmd(new Date()));
+            const [y, m] = month.split('-').map(Number);
+            const start = `${y}-${String(m).padStart(2, '0')}-01`;
+            const lastDay = new Date(y, m, 0).getDate();
+            const end = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+            unsubSchedules = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('schedules')
+                .where('date', '>=', start)
+                .where('date', '<=', end)
+                .onSnapshot((snap) => {
+                    state.schedules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    render();
+                }, (e) => {
+                    setError(`讀取班表失敗：${e.message || e}`);
+                });
+        }
+
+        function subscribeData() {
+            if (typeof unsubRoles === 'function') unsubRoles();
+            if (typeof unsubUsers === 'function') unsubUsers();
+            if (typeof unsubLeaves === 'function') unsubLeaves();
+            if (typeof unsubAttendance === 'function') unsubAttendance();
+
+            unsubRoles = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('roles')
+                .onSnapshot((snap) => {
+                    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    list.sort((a, b) => (a.order || 0) - (b.order || 0));
+                    state.roles = list;
+                    buildUserOptions();
+                    render();
+                }, (e) => {
+                    setError(`讀取角色資料失敗：${e.message || e}`);
+                });
+
+            unsubUsers = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('users')
+                .onSnapshot((snap) => {
+                    state.users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    buildUserOptions();
+                    render();
+                }, (e) => {
+                    setError(`讀取帳號資料失敗：${e.message || e}`);
+                });
+
+            unsubLeaves = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('leaves')
+                .orderBy('timestamp', 'desc')
+                .limit(2000)
+                .onSnapshot((snap) => {
+                    state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    render();
+                }, (e) => {
+                    setError(`讀取請假資料失敗：${e.message || e}`);
+                });
+
+            state.attendanceLoaded = false;
+            unsubAttendance = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('attendance')
+                .orderBy('timestamp', 'desc')
+                .limit(4000)
+                .onSnapshot((snap) => {
+                    state.attendance = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    state.attendanceLoaded = true;
+                    render();
+                }, (e) => {
+                    state.attendanceLoaded = true;
+                    setError(`讀取出勤資料失敗：${e.message || e}`);
+                    render();
+                });
+
+            resubscribeSchedules();
+        }
+
+        async function subscribeDbUserByAuth(user) {
+            if (typeof unsubDbUser === 'function') unsubDbUser();
+            unsubDbUser = null;
+            state.dbUser = null;
+            if (!user || !user.email) return;
+
+            try {
+                const q = await db
+                    .collection('artifacts')
+                    .doc(appId)
+                    .collection('public')
+                    .doc('data')
+                    .collection('users')
+                    .where('email', '==', user.email)
+                    .get();
+
+                if (q.empty) return;
+                const preferred = q.docs.find(d => safeString(d.data()?.status, '在職') !== '離職') || q.docs[0];
+                unsubDbUser = preferred.ref.onSnapshot((snap) => {
+                    if (!snap.exists) return;
+                    state.dbUser = { id: snap.id, ...(snap.data() || {}) };
+                    render();
+                });
+            } catch (e) {
+                setError(`讀取登入者資料失敗：${e.message || e}`);
+            }
+        }
+
+        function loadInitialState() {
+            const savedCompanyId = safeString(localStorage.getItem('lead_leave_company'));
+            const savedUserId = safeString(localStorage.getItem('lead_leave_user'));
+            const savedMonth = safeString(localStorage.getItem('lead_leave_month'));
+            const savedReviewMode = safeString(localStorage.getItem('lead_leave_review_mode'));
+            const savedPageTab = safeString(localStorage.getItem('lead_page_tab'));
+            const savedAttendanceMode = safeString(localStorage.getItem('lead_attendance_mode'));
+            const savedAttendanceDate = safeString(localStorage.getItem('lead_attendance_date'));
+            state.companyId = savedCompanyId || 'TP';
+            state.userId = savedUserId;
+            state.month = savedMonth;
+            state.reviewMode = savedReviewMode === 'reviewed' ? 'reviewed' : 'pending';
+            state.pageTab = savedPageTab === 'attendance' ? 'attendance' : 'leave';
+            state.attendanceMode = savedAttendanceMode === 'checked' ? 'checked' : 'missing';
+            state.attendanceDate = savedAttendanceDate;
+        }
+
+        function bindEvents() {
+            $('review-pending-btn').addEventListener('click', () => setReviewMode('pending'));
+            $('review-reviewed-btn').addEventListener('click', () => setReviewMode('reviewed'));
+            $('attendance-missing-btn').addEventListener('click', () => setAttendanceMode('missing'));
+            $('attendance-checked-btn').addEventListener('click', () => setAttendanceMode('checked'));
+            $('company-tp-btn').addEventListener('click', () => setCompanyFilter('TP'));
+            $('company-ty-btn').addEventListener('click', () => setCompanyFilter('TY'));
+            $('tab-attendance').addEventListener('click', () => setPageTab('attendance'));
+            $('tab-leave').addEventListener('click', () => setPageTab('leave'));
+            $('user-select').addEventListener('change', (e) => {
+                state.userId = safeString(e.target.value);
+                localStorage.setItem('lead_leave_user', state.userId);
+                render();
+            });
+            $('prev-month-btn').addEventListener('click', () => {
+                setMonthValue(monthFromYmd(shiftMonth(`${state.month}-01`, -1)));
+                localStorage.setItem('lead_leave_month', state.month);
+            });
+            $('next-month-btn').addEventListener('click', () => {
+                if ($('next-month-btn').disabled) return;
+                setMonthValue(monthFromYmd(shiftMonth(`${state.month}-01`, 1)));
+                localStorage.setItem('lead_leave_month', state.month);
+            });
+            $('month-display').addEventListener('click', openMonthPicker);
+            $('month-input').addEventListener('change', (e) => {
+                const v = safeString(e.target.value);
+                if (!v) return;
+                setMonthValue(v);
+                localStorage.setItem('lead_leave_month', state.month);
+            });
+
+            $('prev-date-btn').addEventListener('click', () => {
+                setAttendanceDateValue(shiftDay(state.attendanceDate, -1));
+                localStorage.setItem('lead_attendance_date', state.attendanceDate);
+            });
+            $('next-date-btn').addEventListener('click', () => {
+                if ($('next-date-btn').disabled) return;
+                setAttendanceDateValue(shiftDay(state.attendanceDate, 1));
+                localStorage.setItem('lead_attendance_date', state.attendanceDate);
+            });
+            $('date-display').addEventListener('click', openDatePicker);
+            $('date-input').addEventListener('change', (e) => {
+                const v = safeString(e.target.value);
+                if (!v) return;
+                setAttendanceDateValue(v);
+                localStorage.setItem('lead_attendance_date', state.attendanceDate);
+            });
+
+            $('close-image-btn').addEventListener('click', closeImageModal);
+            $('image-modal').addEventListener('click', (e) => {
+                if (e.target && e.target.id === 'image-modal') closeImageModal();
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeImageModal();
+            });
+        }
+
+        async function bootstrap() {
+            try {
+                initFirebase();
+                loadInitialState();
+                bindEvents();
+                lucide.createIcons();
+                updateCompanyFilterButtons();
+                updateReviewButtons();
+                updateFooterTabs();
+                updateAttendanceButtons();
+                updateTopControls();
+                await loadShareLinkFromUrl();
+
+                const now = new Date();
+                const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                setMonthValue(state.month && /^\d{4}-\d{2}$/.test(state.month) ? state.month : defaultMonth);
+                setAttendanceDateValue(state.attendanceDate || toYmd(now));
+
+                auth.onAuthStateChanged((user) => {
+                    state.authUser = user || null;
+                    setError('');
+                    if (!user) {
+                        if (state.shareValid && !state.attemptedAnonymousSignIn) {
+                            state.attemptedAnonymousSignIn = true;
+                            setAuthWarning('正在以分享連結登入...');
+                            auth.signInAnonymously().catch((e) => {
+                                setAuthWarning(`無法以分享連結登入：${e.message || e}`);
+                                render();
+                            });
+                            return;
+                        }
+                        if (!state.shareValid) setAuthWarning('請先登入後再查看西北公司內部出勤。');
+                        render();
+                        return;
+                    }
+                    setAuthWarning('');
+                    $('loading-box').classList.remove('hidden');
+                    $('leave-list').classList.add('hidden');
+                    $('empty-box').classList.add('hidden');
+                    $('attendance-loading').classList.remove('hidden');
+                    $('attendance-list').classList.add('hidden');
+                    $('attendance-empty').classList.add('hidden');
+                    subscribeDbUserByAuth(user);
+                    subscribeData();
+                    buildUserOptions();
+                    render();
+                });
+            } catch (error) {
+                setError(`頁面初始化失敗：${error.message || error}`);
+                $('loading-box').classList.add('hidden');
+            }
+        }
+
+        bootstrap();
+    </script>
+</body>
+</html>

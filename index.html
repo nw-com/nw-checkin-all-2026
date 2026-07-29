@@ -487,6 +487,7 @@
             serverTimestamp,
             getDocs,
             getDoc,
+            Timestamp,
             updateDoc,
             setDoc,
             deleteDoc,
@@ -10540,20 +10541,59 @@
                 setShareModalOpen(true);
             };
 
-            const handleShareConfirm = async () => {
-                if (!shareItem) return;
-                setShareModalOpen(false);
-                
-                if (shareType === 'leave') {
-                    await handleShareLeave(shareItem, shareTarget);
-                } else if (shareType === 'makeup') {
-                    await handleShareMakeup(shareItem, shareTarget);
-                } else if (shareType === 'modification') {
-                    await handleShareModification(shareItem, shareTarget);
-                } else {
-                    await handleShareSignature(shareItem, shareTarget);
+            const createLeadShareCode = async () => {
+                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                const make = () => {
+                    let out = '';
+                    for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+                    return out;
+                };
+
+                for (let i = 0; i < 6; i++) {
+                    const code = make();
+                    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code);
+                    const snap = await getDoc(ref);
+                    if (snap.exists()) continue;
+                    return { code, ref };
                 }
-                setShareItem(null);
+                throw new Error('產生分享碼失敗，請稍後再試');
+            };
+
+            const handleShareLeadPage = async (targetName = 'Line') => {
+                const { code, ref } = await createLeadShareCode();
+                const now = Date.now();
+                const expiresAt = Timestamp.fromMillis(now + 24 * 60 * 60 * 1000);
+                const companyId =
+                    (shareItem && (shareItem.companyId || shareItem.userCompanyId)) ||
+                    (dbUser && (dbUser.companyId || dbUser.userCompanyId)) ||
+                    '';
+
+                await setDoc(ref, {
+                    kind: 'data-lead',
+                    companyId,
+                    reviewerName: targetName,
+                    createdAt: serverTimestamp(),
+                    expiresAt,
+                    createdBy: dbUser?.id || auth?.currentUser?.uid || ''
+                });
+
+                const base = window.location.origin;
+                const url = `${base}/data-lead.html?share=${encodeURIComponent(code)}`;
+                const text = `給親愛的${targetName}，\n西北公司內部出勤（24 小時有效）\n\n${url}`;
+                const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+                window.open(shareUrl, '_blank');
+            };
+
+            const handleShareConfirm = async () => {
+                setShareModalOpen(false);
+                try {
+                    await handleShareLeadPage(shareTarget);
+                } catch (e) {
+                    console.error(e);
+                    alert(e?.message || '分享失敗，請稍後再試');
+                } finally {
+                    setShareItem(null);
+                }
             };
 
             const openAppealOverlay = () => {

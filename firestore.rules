@@ -1,16 +1,64 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isNonAnonymousAuth() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function leadShareDoc(appId) {
+      return get(/databases/$(database)/documents/artifacts/$(appId)/public/data/share_links/$(request.resource.data.verificationToken));
+    }
+
+    function hasValidLeadShare(appId) {
+      return request.resource.data.verificationToken is string
+        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/share_links/$(request.resource.data.verificationToken))
+        && leadShareDoc(appId).data.kind == 'data-lead'
+        && leadShareDoc(appId).data.expiresAt is timestamp
+        && request.time < leadShareDoc(appId).data.expiresAt;
+    }
+
+    function onlyLeaveApprovalFieldsChanged() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        'approvalStatus',
+        'approvalTime',
+        'approverId',
+        'approverName',
+        'verificationToken'
+      ]);
+    }
+
+    function onlySignatureReviewFieldsChanged() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        'status',
+        'reviewedAt',
+        'reviewedBy',
+        'reviewerName',
+        'reviewComment',
+        'verificationToken'
+      ]);
+    }
+
     // Special rule for Leaves collection to allow unauthenticated approval with valid token
     match /artifacts/{appId}/public/data/leaves/{document=**} {
-      allow update: if request.resource.data.verificationToken == resource.data.shareToken;
-      allow read, write: if request.auth != null;
+      allow update: if onlyLeaveApprovalFieldsChanged()
+        && (
+          request.resource.data.verificationToken == resource.data.shareToken
+          || hasValidLeadShare(appId)
+        );
+      allow read: if request.auth != null;
+      allow write: if isNonAnonymousAuth();
     }
     
     // Special rule for Signatures collection to allow unauthenticated approval with valid token
     match /artifacts/{appId}/public/data/signatures/{document=**} {
-      allow update: if request.resource.data.verificationToken == resource.data.shareToken;
-      allow read, write: if request.auth != null;
+      allow update: if onlySignatureReviewFieldsChanged()
+        && (
+          request.resource.data.verificationToken == resource.data.shareToken
+          || hasValidLeadShare(appId)
+        );
+      allow read: if request.auth != null;
+      allow write: if isNonAnonymousAuth();
     }
 
     // Allow public read for patrol logs sharing page (write still requires auth)
@@ -57,7 +105,8 @@ service cloud.firestore {
 
     // Allow authenticated users to read and write under the app's public data path
     match /artifacts/{appId}/public/data/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isNonAnonymousAuth();
     }
 
     // Special rule for Users collection to allow phone number lookup before login
@@ -65,6 +114,11 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/users/{document=**} {
       allow read: if true;
       allow write: if request.auth != null;
+    }
+
+    match /artifacts/{appId}/public/data/share_links/{document=**} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null;
     }
 
     // Allow public read of community list for registration lookup (community code -> name)
