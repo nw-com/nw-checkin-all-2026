@@ -10584,36 +10584,6 @@
                     createdBy: dbUser?.id || auth?.currentUser?.uid || ''
                 });
 
-                const pad2 = (n) => String(n).padStart(2, '0');
-                const monthStr = `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`;
-                const getLeaveMonth = (r) => {
-                    try {
-                        const start = String(r.leaveStartDate || '').trim();
-                        const date = String(r.leaveDate || '').trim();
-                        const base = start ? start.slice(0, 10) : date;
-                        if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base.slice(0, 7);
-                        const pickDate = (v) => {
-                            if (!v) return null;
-                            if (typeof v === 'string') {
-                                const d = new Date(v);
-                                return Number.isNaN(d.getTime()) ? null : d;
-                            }
-                            if (typeof v?.toDate === 'function') {
-                                const d = v.toDate();
-                                return Number.isNaN(d.getTime()) ? null : d;
-                            }
-                            const secs = v?.seconds;
-                            if (secs) {
-                                const d = new Date(secs * 1000);
-                                return Number.isNaN(d.getTime()) ? null : d;
-                            }
-                            return null;
-                        };
-                        const d = pickDate(r.createdAt) || pickDate(r.timestamp);
-                        if (d) return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-                    } catch (_) {}
-                    return '';
-                };
                 const isPending = (r) => {
                     const s = String(r.approvalStatus || 'pending').trim();
                     return !s || s === 'pending';
@@ -10629,13 +10599,22 @@
                     const snap = await getDocs(q);
                     monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 } catch (_) {
-                    const q2 = query(
-                        collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
-                        orderBy('createdAt', 'desc'),
-                        limit(2000)
-                    );
-                    const snap2 = await getDocs(q2);
-                    monthLeaves = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+                    try {
+                        const q2 = query(
+                            collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                            orderBy('createdAt', 'desc'),
+                            limit(2000)
+                        );
+                        const snap2 = await getDocs(q2);
+                        monthLeaves = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+                    } catch (_) {
+                        const q3 = query(
+                            collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                            limit(2000)
+                        );
+                        const snap3 = await getDocs(q3);
+                        monthLeaves = snap3.docs.map(d => ({ id: d.id, ...d.data() }));
+                    }
                 }
                 const matchesCompany = (r) => {
                     if (!companyId) return true;
@@ -10650,7 +10629,6 @@
                 };
                 const sourceLeaves = (monthLeaves || [])
                     .filter(isPending)
-                    .filter(r => getLeaveMonth(r) === monthStr)
                     .filter(matchesCompany);
 
                 const batch = writeBatch(db);
