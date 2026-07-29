@@ -10563,10 +10563,17 @@
                 const { code, ref } = await createLeadShareCode();
                 const now = Date.now();
                 const expiresAt = Timestamp.fromMillis(now + 24 * 60 * 60 * 1000);
-                const companyId =
-                    (shareItem && (shareItem.companyId || shareItem.userCompanyId)) ||
-                    (dbUser && (dbUser.companyId || dbUser.userCompanyId)) ||
-                    '';
+                const companyId = (function () {
+                    try {
+                        const v = String(localStorage.getItem('lead_leave_company') || '').trim();
+                        if (v) return v;
+                    } catch (_) {}
+                    return (
+                        (shareItem && (shareItem.companyId || shareItem.userCompanyId)) ||
+                        (dbUser && (dbUser.companyId || dbUser.userCompanyId)) ||
+                        'TP'
+                    );
+                })();
 
                 await setDoc(ref, {
                     kind: 'data-lead',
@@ -10598,7 +10605,22 @@
                     return !s || s === 'pending';
                 };
 
-                const sourceLeaves = (leavesList || [])
+                const nowDate = new Date();
+                const startOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
+                startOfMonth.setHours(0, 0, 0, 0);
+                const startOfNextMonth = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 1);
+                startOfNextMonth.setHours(0, 0, 0, 0);
+
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                    where('timestamp', '>=', startOfMonth),
+                    where('timestamp', '<', startOfNextMonth),
+                    orderBy('timestamp', 'desc'),
+                    limit(2000)
+                );
+                const snap = await getDocs(q);
+                const monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const sourceLeaves = (monthLeaves || [])
                     .filter(isPending)
                     .filter(r => getLeaveMonth(r) === monthStr)
                     .filter(r => !companyId || String(r.companyId || '') === String(companyId));
@@ -10606,6 +10628,8 @@
                 const batch = writeBatch(db);
                 sourceLeaves.slice(0, 200).forEach((r) => {
                     const u = (usersList || []).find(x => String(x.id) === String(r.userId)) || {};
+                    const userCompanyId = u.companyId || ((u.companyIds && u.companyIds[0]) || '');
+                    const userCompanyIds = Array.isArray(u.companyIds) ? u.companyIds : (userCompanyId ? [userCompanyId] : []);
                     const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'leaves', String(r.id));
                     batch.set(shareRef, {
                         leaveId: String(r.id),
@@ -10613,9 +10637,9 @@
                         userName: u.name || r.userName || '',
                         userAvatarUrl: u.avatarUrl || '',
                         userMobile: u.mobile || u.phone || u.cellphone || u.tel || '',
-                        userCompanyId: u.companyId || '',
-                        userCompanyIds: Array.isArray(u.companyIds) ? u.companyIds : [],
-                        companyId: r.companyId || '',
+                        userCompanyId,
+                        userCompanyIds,
+                        companyId: r.companyId || userCompanyId,
                         communityId: r.communityId || '',
                         approvalStatus: r.approvalStatus || 'pending',
                         leaveReason: r.leaveReason || '',
