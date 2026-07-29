@@ -10592,11 +10592,25 @@
                         const date = String(r.leaveDate || '').trim();
                         const base = start ? start.slice(0, 10) : date;
                         if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base.slice(0, 7);
-                        const secs = r.createdAt?.seconds || r.timestamp?.seconds;
-                        if (secs) {
-                            const d = new Date(secs * 1000);
-                            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-                        }
+                        const pickDate = (v) => {
+                            if (!v) return null;
+                            if (typeof v === 'string') {
+                                const d = new Date(v);
+                                return Number.isNaN(d.getTime()) ? null : d;
+                            }
+                            if (typeof v?.toDate === 'function') {
+                                const d = v.toDate();
+                                return Number.isNaN(d.getTime()) ? null : d;
+                            }
+                            const secs = v?.seconds;
+                            if (secs) {
+                                const d = new Date(secs * 1000);
+                                return Number.isNaN(d.getTime()) ? null : d;
+                            }
+                            return null;
+                        };
+                        const d = pickDate(r.createdAt) || pickDate(r.timestamp);
+                        if (d) return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
                     } catch (_) {}
                     return '';
                 };
@@ -10605,21 +10619,24 @@
                     return !s || s === 'pending';
                 };
 
-                const nowDate = new Date();
-                const startOfMonth = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
-                startOfMonth.setHours(0, 0, 0, 0);
-                const startOfNextMonth = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 1);
-                startOfNextMonth.setHours(0, 0, 0, 0);
-
-                const q = query(
-                    collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
-                    where('timestamp', '>=', startOfMonth),
-                    where('timestamp', '<', startOfNextMonth),
-                    orderBy('timestamp', 'desc'),
-                    limit(2000)
-                );
-                const snap = await getDocs(q);
-                const monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                let monthLeaves = [];
+                try {
+                    const q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                        orderBy('timestamp', 'desc'),
+                        limit(2000)
+                    );
+                    const snap = await getDocs(q);
+                    monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                } catch (_) {
+                    const q2 = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                        orderBy('createdAt', 'desc'),
+                        limit(2000)
+                    );
+                    const snap2 = await getDocs(q2);
+                    monthLeaves = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+                }
                 const matchesCompany = (r) => {
                     if (!companyId) return true;
                     const direct = String(r.companyId || '').trim();
