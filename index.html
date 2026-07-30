@@ -329,6 +329,32 @@
             animation: bg-red-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
+        @keyframes cadre-overview-attention {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.00);
+                background-color: #fef2f2;
+            }
+            35% {
+                transform: scale(1.08);
+                box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.16);
+                background-color: #eff6ff;
+            }
+            70% {
+                transform: scale(1.03);
+                box-shadow: 0 0 0 10px rgba(59, 130, 246, 0.00);
+                background-color: #dbeafe;
+            }
+        }
+
+        .cadre-overview-cta {
+            position: relative;
+            animation: cadre-overview-attention 1.8s ease-in-out infinite;
+            transform-origin: center;
+            will-change: transform, box-shadow, background-color;
+            border: 1px solid rgba(59, 130, 246, 0.18);
+        }
+
         html, body {
             height: 100%;
         }
@@ -1305,6 +1331,12 @@
             const [facing, setFacing] = useState('user');
             const [cameraDevices, setCameraDevices] = useState([]);
             const [selectedDeviceId, setSelectedDeviceId] = useState(null);
+            const [locationAccuracy, setLocationAccuracy] = useState(null);
+            const [isLocating, setIsLocating] = useState(false);
+            const locationWatchRef = useRef(null);
+            const locationTimerRef = useRef(null);
+            const locationBestRef = useRef(null);
+            const locationSessionRef = useRef(0);
 
             const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
                 const R = 6371e3;
@@ -1359,23 +1391,46 @@
                     targetInfo.location.lng
                 );
             }, [location, targetInfo]);
+            const rangeBufferMeters = useMemo(() => {
+                if (!Number.isFinite(locationAccuracy)) return 0;
+                const baseRadius = Number(targetInfo?.radius || 0);
+                return Math.min(
+                    locationAccuracy,
+                    Math.max(60, Math.min(baseRadius * 1.5 || 60, 150))
+                );
+            }, [locationAccuracy, targetInfo]);
             const isOutOfRange = useMemo(() => {
                 if (distanceMeters === null || !targetInfo?.radius) return false;
-                return distanceMeters > targetInfo.radius;
-            }, [distanceMeters, targetInfo]);
-            const rangeErrorMessage = (!isOtherPlace && !error && location && targetInfo?.location && isOutOfRange)
+                return distanceMeters > (targetInfo.radius + rangeBufferMeters);
+            }, [distanceMeters, targetInfo, rangeBufferMeters]);
+            const rangeErrorMessage = (!isOtherPlace && !error && location && targetInfo?.location && !isLocating && isOutOfRange)
                 ? '您不在打卡範圍'
                 : '';
+
+            const stopLocationTracking = () => {
+                if (locationWatchRef.current !== null && navigator.geolocation) {
+                    navigator.geolocation.clearWatch(locationWatchRef.current);
+                    locationWatchRef.current = null;
+                }
+                if (locationTimerRef.current) {
+                    clearTimeout(locationTimerRef.current);
+                    locationTimerRef.current = null;
+                }
+            };
 
             useEffect(() => {
                 if (isOpen) {
                     setStep('location');
                     startLocation();
                 } else {
+                    stopLocationTracking();
                     stopCamera();
                     setImage(null);
                     setStep('location');
                     setLocation(null);
+                    setLocationAccuracy(null);
+                    setIsLocating(false);
+                    locationBestRef.current = null;
                     confirmLockRef.current = false;
                     setAddress('定位中...');
                     setError('');
@@ -1507,67 +1562,20 @@
                                 radius: targetRadius
                             });
 
-                            if (userAvatar) {
-                                const img2 = new Image();
-                                img2.crossOrigin = "Anonymous";
-                                img2.src = userAvatar;
-                                img2.onload = () => {
-                                    try {
-                                        const canvas2 = document.createElement('canvas');
-                                        canvas2.width = 80;
-                                        canvas2.height = 80;
-                                        const ctx2 = canvas2.getContext('2d');
-                                        ctx2.beginPath();
-                                        ctx2.arc(40, 40, 40, 0, Math.PI * 2, true);
-                                        ctx2.fillStyle = '#ffffff';
-                                        ctx2.fill();
-                                        ctx2.save();
-                                        ctx2.beginPath();
-                                        ctx2.arc(40, 40, 36, 0, Math.PI * 2, true);
-                                        ctx2.closePath();
-                                        ctx2.clip();
-                                        const scale2 = Math.max(80 / img2.width, 80 / img2.height);
-                                        const x2 = (80 - img2.width * scale2) / 2;
-                                        const y2 = (80 - img2.height * scale2) / 2;
-                                        ctx2.drawImage(img2, x2, y2, img2.width * scale2, img2.height * scale2);
-                                        ctx2.restore();
-                                        ctx2.beginPath();
-                                        ctx2.lineWidth = 4;
-                                        ctx2.strokeStyle = '#4285F4';
-                                        ctx2.arc(40, 40, 38, 0, Math.PI * 2, true);
-                                        ctx2.stroke();
-                                        new google.maps.Marker({
-                                            position: targetLocation,
-                                            map: map,
-                                            title: targetName,
-                                            icon: {
-                                                url: canvas2.toDataURL(),
-                                                scaledSize: new google.maps.Size(48, 48),
-                                                anchor: new google.maps.Point(24, 24)
-                                            }
-                                        });
-                                    } catch (e) {
-                                        new google.maps.Marker({
-                                            position: targetLocation,
-                                            map: map,
-                                            title: targetName
-                                        });
-                                    }
-                                };
-                                img2.onerror = () => {
-                                    new google.maps.Marker({
-                                        position: targetLocation,
-                                        map: map,
-                                        title: targetName
-                                    });
-                                };
-                            } else {
-                                new google.maps.Marker({
-                                    position: targetLocation,
-                                    map: map,
-                                    title: targetName
-                                });
-                            }
+                            new google.maps.Marker({
+                                position: targetLocation,
+                                map: map,
+                                title: targetName,
+                                icon: {
+                                    path: google.maps.SymbolPath.CIRCLE,
+                                    scale: 8,
+                                    fillColor: "#DC2626",
+                                    fillOpacity: 1,
+                                    strokeColor: "white",
+                                    strokeWeight: 2
+                                },
+                                zIndex: 900
+                            });
                         }
                     }
                 } catch (err) {
@@ -1629,23 +1637,38 @@
             };
 
             const startLocation = () => {
+                stopLocationTracking();
+                locationSessionRef.current += 1;
+                const currentSession = locationSessionRef.current;
+                locationBestRef.current = null;
+                setLocation(null);
+                setLocationAccuracy(null);
+                setIsLocating(true);
                 setAddress('定位中...');
                 setError('');
                 if (!navigator.geolocation) {
+                    setIsLocating(false);
                     setAddress('瀏覽器不支援定位');
                     return;
                 }
 
-                const successCallback = async (pos) => {
-                    const { latitude, longitude } = pos.coords;
-                    setLocation({ lat: latitude, lng: longitude });
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                const targetRadius = Number(targetInfo?.radius || 0);
+                const desiredAccuracy = isIOS
+                    ? Math.max(20, Math.min(targetRadius || 50, 50))
+                    : Math.max(25, Math.min(targetRadius || 80, 80));
+                const maxWaitMs = isIOS ? 18000 : (isMobile ? 14000 : 10000);
+
+                const updateAddress = (latitude, longitude) => {
+                    if (locationSessionRef.current !== currentSession) return;
                     setError('');
-                    // Reverse Geocoding
                     try {
                         if (window.google && window.google.maps) {
                             const gc = new google.maps.Geocoder();
                             const latlng = { lat: latitude, lng: longitude };
                             gc.geocode({ location: latlng }, (results, status) => {
+                                if (locationSessionRef.current !== currentSession) return;
                                 if (status === 'OK' && results[0]) {
                                     setAddress(results[0].formatted_address);
                                 } else {
@@ -1660,73 +1683,127 @@
                     }
                 };
 
-                const errorCallback = (err) => {
+                const getSampleDistance = (sample) => {
+                    if (!targetInfo?.location) return Number.POSITIVE_INFINITY;
+                    return calculateDistanceMeters(
+                        sample.lat,
+                        sample.lng,
+                        targetInfo.location.lat,
+                        targetInfo.location.lng
+                    );
+                };
+
+                const isBetterSample = (nextSample, currentSample) => {
+                    if (!currentSample) return true;
+                    const nextAccuracy = Number.isFinite(nextSample.accuracy) ? nextSample.accuracy : Number.POSITIVE_INFINITY;
+                    const currentAccuracy = Number.isFinite(currentSample.accuracy) ? currentSample.accuracy : Number.POSITIVE_INFINITY;
+                    if (nextAccuracy + 15 < currentAccuracy) return true;
+                    if (currentAccuracy + 15 < nextAccuracy) return false;
+                    const nextDistance = getSampleDistance(nextSample);
+                    const currentDistance = getSampleDistance(currentSample);
+                    if (nextDistance + 30 < currentDistance) return true;
+                    if (currentDistance + 30 < nextDistance) return false;
+                    return nextSample.timestamp > currentSample.timestamp;
+                };
+
+                const applySample = (sample) => {
+                    if (locationSessionRef.current !== currentSession) return;
+                    setLocation({ lat: sample.lat, lng: sample.lng });
+                    setLocationAccuracy(sample.accuracy);
+                    updateAddress(sample.lat, sample.lng);
+                };
+
+                const finalizeSuccess = () => {
+                    if (locationSessionRef.current !== currentSession) return;
+                    setIsLocating(false);
+                    stopLocationTracking();
+                    if (locationBestRef.current) {
+                        applySample(locationBestRef.current);
+                    }
+                };
+
+                const handleFatalError = (err) => {
                     console.error(err);
                     let msg = '定位失敗';
                     switch(err.code) {
-                        case err.PERMISSION_DENIED:
+                        case 1:
                             msg = '定位權限被拒絕，請允許存取位置';
                             break;
-                        case err.POSITION_UNAVAILABLE:
+                        case 2:
                             msg = '無法偵測位置資訊';
                             break;
-                        case err.TIMEOUT:
+                        case 3:
                             msg = '定位逾時，請重試或確認訊號';
                             break;
                     }
+                    stopLocationTracking();
+                    setIsLocating(false);
                     setAddress(msg);
                     setError(msg);
                 };
 
-                // 策略：根據裝置類型決定優先順序
-                // 手機 (Mobile)：優先嘗試高精準度 (GPS)，失敗降級
-                // 電腦 (Desktop)：優先使用 Wi-Fi/IP 定位，避免 GPS 逾時
-                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                
-                if (isMobile) {
-                    // Mobile: High Accuracy Priority
-                    navigator.geolocation.getCurrentPosition(
-                        successCallback,
-                        (err) => {
-                            console.warn("Mobile GPS failed, falling back to low accuracy...", err);
+                const handleSample = (pos) => {
+                    if (locationSessionRef.current !== currentSession) return;
+                    const sample = {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
+                        timestamp: Number(pos.timestamp || Date.now())
+                    };
+
+                    if (!isBetterSample(sample, locationBestRef.current)) return;
+
+                    locationBestRef.current = sample;
+                    applySample(sample);
+
+                    const sampleDistance = getSampleDistance(sample);
+                    const sampleBuffer = Number.isFinite(sample.accuracy)
+                        ? Math.min(sample.accuracy, Math.max(60, Math.min(targetRadius * 1.5 || 60, 150)))
+                        : 0;
+                    const withinBufferedRange = Number.isFinite(sampleDistance)
+                        ? sampleDistance <= ((targetRadius || 0) + sampleBuffer)
+                        : false;
+                    const accurateEnough = Number.isFinite(sample.accuracy) && sample.accuracy <= desiredAccuracy;
+
+                    if (accurateEnough || withinBufferedRange) {
+                        finalizeSuccess();
+                    }
+                };
+
+                locationTimerRef.current = setTimeout(() => {
+                    if (locationSessionRef.current !== currentSession) return;
+                    if (locationBestRef.current) {
+                        finalizeSuccess();
+                        return;
+                    }
+                    handleFatalError({ code: 3 });
+                }, maxWaitMs);
+
+                const watchOptions = isMobile
+                    ? { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
+                    : { enableHighAccuracy: false, timeout: maxWaitMs, maximumAge: 5000 };
+
+                locationWatchRef.current = navigator.geolocation.watchPosition(
+                    handleSample,
+                    (err) => {
+                        if (locationSessionRef.current !== currentSession) return;
+                        if (err.code === 1) {
+                            handleFatalError(err);
+                            return;
+                        }
+                        if (locationBestRef.current) return;
+                        if (!isMobile) {
                             navigator.geolocation.getCurrentPosition(
-                                successCallback,
-                                errorCallback,
-                                { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+                                handleSample,
+                                handleFatalError,
+                                { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
                             );
-                        },
-                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-                    );
-                } else {
-                    // Desktop: Low Accuracy Priority
-                    // We can optionally try to refine with High Accuracy afterwards, but let's stick to stable Low Accuracy first
-                    navigator.geolocation.getCurrentPosition(
-                        (lowPos) => {
-                            successCallback(lowPos);
-                            // Optional: Silently try to upgrade to High Accuracy for better precision
-                            navigator.geolocation.getCurrentPosition(
-                                (highPos) => {
-                                    console.log("Desktop High Accuracy refinement success");
-                                    successCallback(highPos);
-                                },
-                                (err) => {
-                                    console.log("Desktop High Accuracy refinement failed (expected), keeping low accuracy");
-                                },
-                                { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
-                            );
-                        },
-                        (err) => {
-                             // If Low Accuracy fails, try High Accuracy as last resort
-                             console.warn("Desktop Low Accuracy failed, trying High Accuracy...", err);
-                             navigator.geolocation.getCurrentPosition(
-                                successCallback,
-                                errorCallback,
-                                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-                             );
-                        },
-                        { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
-                    );
-                }
+                            return;
+                        }
+                        console.warn('Location sample pending:', err.code, err.message);
+                    },
+                    watchOptions
+                );
             };
 
             const handleRelocate = () => {
@@ -2133,7 +2210,7 @@
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-500 flex-col gap-2">
                                                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-red-600"></div>
-                                                <div>定位中...</div>
+                                                <div>{isLocating ? '定位校正中...' : '定位中...'}</div>
                                             </div>
                                         )}
                                     </div>
@@ -2153,10 +2230,18 @@
                                                     {targetInfo?.radius ? (
                                                         <>
                                                             <div>打卡範圍：{Math.round(targetInfo.radius)}m</div>
+                                                            {Number.isFinite(locationAccuracy) && (
+                                                                <div className={locationAccuracy > Math.max(targetInfo.radius || 0, 80) ? 'text-amber-600 font-bold' : ''}>
+                                                                    定位誤差：約 {Math.round(locationAccuracy)}m
+                                                                </div>
+                                                            )}
                                                             {distanceMeters !== null && (
                                                                 <div className={isOutOfRange ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>
                                                                     目前距離：{Math.round(distanceMeters)}m
                                                                 </div>
+                                                            )}
+                                                            {isLocating && (
+                                                                <div className="text-blue-600 font-bold">系統持續校正定位中，請停留原地數秒</div>
                                                             )}
                                                         </>
                                                     ) : null}
@@ -3186,7 +3271,7 @@
                         });
                         setLineFriends(list);
                         setLineFriendsLoading(false);
-                    });
+                    }, () => setLineFriendsLoading(false));
                     return () => unsubscribe();
                 }
             }, [subtab, appId]);
@@ -6736,6 +6821,8 @@
                         newSchedules[data.date] = data;
                     });
                     setMySchedules(newSchedules);
+                }, (error) => {
+                    console.error('Error fetching my schedules:', error);
                 });
 
                 // Leaves (All Status)
@@ -6747,6 +6834,8 @@
                     const leaves = [];
                     snapshot.forEach(doc => leaves.push({ id: doc.id, ...doc.data() }));
                     setMyLeaves(leaves);
+                }, (error) => {
+                    console.error('Error fetching my leaves:', error);
                 });
 
                 return () => {
@@ -7029,6 +7118,71 @@
                 return d;
             };
 
+            const buildLeaveDateTime = (dateValue, timeValue, defaultTime) => {
+                if (!dateValue) return null;
+                const normalizedDate = String(dateValue).replace(/\//g, '-');
+                if (normalizedDate.includes('T') || (normalizedDate.includes(' ') && normalizedDate.includes(':'))) {
+                    const directDate = new Date(normalizedDate.replace(' ', 'T'));
+                    if (!isNaN(directDate.getTime())) return directDate;
+                }
+                const normalizedTime = String(timeValue || defaultTime || '').trim() || defaultTime;
+                const value = normalizedTime.length === 5 ? `${normalizedTime}:00` : normalizedTime;
+                const parsed = new Date(`${normalizedDate}T${value}`);
+                return isNaN(parsed.getTime()) ? null : parsed;
+            };
+
+            const getApprovedLeaveOverlapMinutes = (leaveRecord, rangeStart, rangeEnd) => {
+                if (!leaveRecord || String(leaveRecord?.approvalStatus || '').trim() !== 'approved') return 0;
+                if (leaveRecord.type && leaveRecord.type !== 'leave') return 0;
+
+                const leaveStart = leaveRecord.leaveStartDate
+                    ? buildLeaveDateTime(leaveRecord.leaveStartDate, leaveRecord.leaveStartTime, '00:00:00')
+                    : leaveRecord.startDate
+                        ? buildLeaveDateTime(leaveRecord.startDate, leaveRecord.startTime, '00:00:00')
+                        : leaveRecord.leaveDate
+                            ? buildLeaveDateTime(leaveRecord.leaveDate, leaveRecord.leaveTime, '00:00:00')
+                            : null;
+                const leaveEnd = leaveRecord.leaveEndDate
+                    ? buildLeaveDateTime(leaveRecord.leaveEndDate, leaveRecord.leaveEndTime, '23:59:59')
+                    : leaveRecord.endDate
+                        ? buildLeaveDateTime(leaveRecord.endDate, leaveRecord.endTime, '23:59:59')
+                        : leaveStart
+                            ? new Date(leaveStart.getFullYear(), leaveStart.getMonth(), leaveStart.getDate(), 23, 59, 59)
+                            : null;
+
+                if (!leaveStart || !leaveEnd || isNaN(leaveStart.getTime()) || isNaN(leaveEnd.getTime())) return 0;
+
+                const overlapStart = Math.max(rangeStart.getTime(), leaveStart.getTime());
+                const overlapEnd = Math.min(rangeEnd.getTime(), leaveEnd.getTime());
+                if (overlapEnd <= overlapStart) return 0;
+                return (overlapEnd - overlapStart) / 60000;
+            };
+
+            const hasFullDayApprovedLeaveOnDate = (dateStr, schedule, isCrossDay) => {
+                const scheduleStart = buildScheduleDateTime(dateStr, schedule?.startTime);
+                const scheduleEnd = buildScheduleDateTime(dateStr, schedule?.endTime);
+
+                let rangeStart = scheduleStart || new Date(`${dateStr}T00:00:00`);
+                let rangeEnd = scheduleEnd || new Date(`${dateStr}T23:59:59`);
+                if (scheduleEnd && scheduleStart && isCrossDay) {
+                    rangeEnd = new Date(scheduleEnd);
+                    rangeEnd.setDate(rangeEnd.getDate() + 1);
+                }
+
+                if (!rangeStart || !rangeEnd || isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime()) || rangeEnd <= rangeStart) {
+                    return false;
+                }
+
+                const requiredMinutes = (rangeEnd.getTime() - rangeStart.getTime()) / 60000;
+                let approvedLeaveMinutes = 0;
+
+                (myLeaves || []).forEach((leaveRecord) => {
+                    approvedLeaveMinutes += getApprovedLeaveOverlapMinutes(leaveRecord, rangeStart, rangeEnd);
+                });
+
+                return approvedLeaveMinutes >= (requiredMinutes - 1);
+            };
+
             const isToday = isSameDay(viewDate, new Date());
             const isCurrentMonth = viewMonthValue === todayMonthValue;
             const sourceHistory = mode === 'leave' ? myLeaves : attendanceHistory;
@@ -7090,14 +7244,6 @@
                     if (!schedule || !['work', 'duty', 'card'].includes(String(schedule.type || ''))) return;
                     if (dateStr > todayDateStr) return;
 
-                    const hasApprovedLeave = (myLeaves || []).some(l => {
-                        if (String(l?.approvalStatus || '').trim() !== 'approved') return false;
-                        const start = String(l?.leaveStartDate || l?.leaveDate || '').slice(0, 10);
-                        const end = String(l?.leaveEndDate || l?.leaveDate || '').slice(0, 10);
-                        return start && end && dateStr >= start && dateStr <= end;
-                    });
-                    if (hasApprovedLeave) return;
-
                     const startDateTime = buildScheduleDateTime(dateStr, schedule.startTime);
                     const endDateTime = buildScheduleDateTime(dateStr, schedule.endTime);
                     const startMin = parseTimeMinutes(schedule.startTime);
@@ -7112,6 +7258,8 @@
                     if (endDateTime && isCrossDay) {
                         endDateTime.setDate(endDateTime.getDate() + 1);
                     }
+
+                    if (hasFullDayApprovedLeaveOnDate(dateStr, schedule, isCrossDay)) return;
 
                     const recordsForDate = (attendanceHistory || []).filter(r => getRecordLogicDateStr(r) === dateStr);
                     const hasIn = recordsForDate.some(r => inTypes.has(String(r?.type || '')));
@@ -11092,7 +11240,15 @@
             const [pendingClockSubmissionId, setPendingClockSubmissionId] = useState(null);
             const [pendingClockLocationOverride, setPendingClockLocationOverride] = useState(null);
             const pendingClockWriteRef = useRef(null);
-            const [gpsStatus, setGpsStatus] = useState({ type: 'loading', message: 'GPS 偵測中...' });
+            const [gpsStatus, setGpsStatus] = useState({ type: 'idle', message: 'GPS 待命中，進入打卡頁啟用' });
+            const permissionAutoCheckRef = useRef(false);
+            const [permissionGuard, setPermissionGuard] = useState({
+                open: false,
+                checking: false,
+                location: 'unknown',
+                camera: 'unknown',
+                message: ''
+            });
             const [timeOffset, setTimeOffset] = useState(0);
             const [timeSynced, setTimeSynced] = useState(false);
             const [networkTime, setNetworkTime] = useState(null);
@@ -11158,15 +11314,15 @@
             }, [dbUser, roles]);
 
             useEffect(() => {
-                if (!dbUser || !communityTabSelectedId) return;
+                if (!user || !dbUser || !communityTabSelectedId) return;
                 const commId = String(communityTabSelectedId);
                 const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'community_avatar_orders', commId);
                 return onSnapshot(orderRef, (snap) => {
                     const data = snap.exists() ? snap.data() : null;
                     const order = data && Array.isArray(data.order) ? data.order.map(x => String(x)) : [];
                     setCommunityAvatarOrders(prev => ({ ...prev, [commId]: order }));
-                });
-            }, [dbUser?.id, communityTabSelectedId]);
+                }, (err) => handleFetchError(err, 'community_avatar_orders_snap'));
+            }, [user, dbUser?.id, communityTabSelectedId]);
 
             const [showDescriptionModal, setShowDescriptionModal] = useState(false);
             const [selectedDescription, setSelectedDescription] = useState('');
@@ -11600,6 +11756,8 @@
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                     setMyLeaves(list);
+                }, (error) => {
+                    console.error('Error fetching my leave list:', error);
                 });
                 return () => unsubscribe();
             }, [dbUser]);
@@ -11620,6 +11778,8 @@
                         return t2 - t1;
                     });
                     setSignatures(list);
+                }, (error) => {
+                    console.error('Error fetching signatures:', error);
                 });
                 return () => unsubscribe();
             }, [dbUser]);
@@ -11671,7 +11831,7 @@
 
             // Fetch Cadre Signatures (All)
             useEffect(() => {
-                if (activeTab !== 'cadre' && !showSignOffReportModal) return;
+                if (!user || !dbUser || (activeTab !== 'cadre' && !showSignOffReportModal)) return;
                 
                 const q = query(
                     collection(db, 'artifacts', appId, 'public', 'data', 'signatures'),
@@ -11681,9 +11841,11 @@
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                     setCadreSignatures(list);
+                }, (error) => {
+                    console.error('Error fetching cadre signatures:', error);
                 });
                 return () => unsubscribe();
-            }, [activeTab, showSignOffReportModal]);
+            }, [user, dbUser, activeTab, showSignOffReportModal]);
 
             const handleUpdateSignatureStatus = async (signatureId, newStatus, comment = '') => {
                 if (!signatureId) return;
@@ -11844,7 +12006,7 @@
 
             // Fetch Today's Schedules for Cadre Map Status
             useEffect(() => {
-                if (activeTab !== 'cadre' || cadreSubtab !== 'map') return;
+                if (!user || !dbUser || activeTab !== 'cadre' || cadreSubtab !== 'map') return;
                 
                 // Get today's date string YYYY-MM-DD (Local Time)
                 const now = new Date();
@@ -11867,10 +12029,10 @@
                         }
                     });
                     setTodaySchedules(scheds);
-                });
+                }, (err) => handleFetchError(err, 'cadre_today_schedules_snap'));
 
                 return () => unsub();
-            }, [activeTab, cadreSubtab]);
+            }, [user, dbUser?.id, activeTab, cadreSubtab]);
 
             const hasSubPermission = (pageKey, subKey) => {
                 if (!dbUser) return false;
@@ -11965,7 +12127,7 @@
 
 
             useEffect(() => {
-                if (activeTab !== 'cadre') return;
+                if (!user || !dbUser || activeTab !== 'cadre') return;
 
                 // Clear schedules immediately when user changes to prevent ghost data
                 setUserSchedules({});
@@ -11997,7 +12159,7 @@
 
             // Fetch My Schedules for Clock Tab
             useEffect(() => {
-                if (!dbUser) return;
+                if (!user || !dbUser) return;
                 
                 const q = query(
                     collection(db, 'artifacts', appId, 'public', 'data', 'schedules'),
@@ -12011,13 +12173,13 @@
                         newSchedules[data.date] = data;
                     });
                     setMySchedules(newSchedules);
-                });
+                }, (err) => handleFetchError(err, 'my_schedules_snap'));
 
                 return () => unsubscribe();
-            }, [dbUser]);
+            }, [user, dbUser]);
 
             useEffect(() => {
-                if (activeTab !== 'cadre') return;
+                if (!user || !dbUser || activeTab !== 'cadre') return;
 
                 setUserAttendanceRecords([]);
                 setUserLeaveRequests([]);
@@ -12034,7 +12196,7 @@
                     const records = [];
                     snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
                     setUserAttendanceRecords(records);
-                });
+                }, (err) => handleFetchError(err, 'cadre_user_attendance_snap'));
 
                 // Fetch Leaves
                 const qLeaves = query(
@@ -12046,13 +12208,13 @@
                     const records = [];
                     snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
                     setUserLeaveRequests(records);
-                });
+                }, (err) => handleFetchError(err, 'cadre_user_leaves_snap'));
 
                 return () => {
                     unsubAttendance();
                     unsubLeaves();
                 };
-            }, [cadreMapSelectedUserId, activeTab]);
+            }, [user, dbUser?.id, cadreMapSelectedUserId, activeTab]);
 
             // Reset community selected user when community changes
             useEffect(() => {
@@ -12060,7 +12222,7 @@
             }, [communityTabSelectedId]);
 
             useEffect(() => {
-                if (activeTab !== 'community' || communitySubtab !== 'schedule') return;
+                if (!user || !dbUser || activeTab !== 'community' || communitySubtab !== 'schedule') return;
                 
                 setUserSchedules({});
                 setUserAttendanceRecords([]);
@@ -12099,7 +12261,7 @@
                         newSchedules[data.date] = data;
                     });
                     setUserSchedules(newSchedules);
-                });
+                }, (err) => handleFetchError(err, 'community_user_schedules_snap'));
 
                 const qAttendance = query(
                     collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
@@ -12109,7 +12271,7 @@
                     const records = [];
                     snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
                     setUserAttendanceRecords(records);
-                });
+                }, (err) => handleFetchError(err, 'community_user_attendance_snap'));
 
                 const qLeaves = query(
                     collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
@@ -12119,14 +12281,14 @@
                     const records = [];
                     snapshot.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
                     setUserLeaveRequests(records);
-                });
+                }, (err) => handleFetchError(err, 'community_user_leaves_snap'));
 
                 return () => {
                     unsubSchedules();
                     unsubAttendance();
                     unsubLeaves();
                 };
-            }, [communityMapSelectedUserId, activeTab, communitySubtab, communityTabSelectedId, usersList, roles, communities]);
+            }, [user, dbUser?.id, communityMapSelectedUserId, activeTab, communitySubtab, communityTabSelectedId, usersList, roles, communities]);
 
             const handleSaveSchedule = async () => {
                 if (!requireOnline('目前離線，無法儲存排班')) return;
@@ -12707,23 +12869,24 @@
             // Helper to suppress network noise - Defined at component level for reuse
             const handleFetchError = (err, context) => {
                 const msg = (err.message || '').toLowerCase();
-                // Ignore common network/offline errors
-                if (
-                    msg.includes('offline') || 
-                    msg.includes('network') || 
+                const isPermissionDenied = msg.includes('permission') || err.code === 'permission-denied';
+                // Ignore common network/offline errors, but keep permission errors visible
+                if (!isPermissionDenied && (
+                    msg.includes('offline') ||
+                    msg.includes('network') ||
                     msg.includes('fetch') ||
                     msg.includes('aborted') ||
                     err.code === 'unavailable' ||
                     err.code === 'resource-exhausted' ||
-                    err.name === 'FirebaseError' // Often wraps network issues
-                ) {
-                    return; 
+                    err.name === 'FirebaseError'
+                )) {
+                    return;
                 }
                 // Only log critical application errors
                 console.error(`Error fetching ${context}:`, err);
                 // Only show UI error for permission issues
-                if (msg.includes('permission') || err.code === 'permission-denied') {
-                        setFetchError('資料讀取權限不足，請更新 Firestore 規則');
+                if (isPermissionDenied) {
+                        setFetchError('資料讀取權限不足，請重新登入或檢查 Firestore 規則');
                 }
             };
 
@@ -13506,6 +13669,14 @@
             }, [dbUser, roles, activeTab]);
 
             useEffect(() => {
+                const shouldWatchGps = !!dbUser && activeTab === 'clock' && clockSubtab === 'work';
+                if (!shouldWatchGps) {
+                    setGpsStatus({
+                        type: 'idle',
+                        message: activeTab === 'home' ? 'GPS 待命中，進入打卡頁啟用' : 'GPS 未啟用'
+                    });
+                    return;
+                }
                 if (!navigator.geolocation) {
                     setGpsStatus({ type: 'error', message: '不支援 GPS' });
                     return;
@@ -13603,7 +13774,133 @@
                     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
                     clearTimeout(loadingTimeout);
                 };
+            }, [dbUser, activeTab, clockSubtab]);
+
+            const isStandalonePwa = useMemo(() => {
+                try {
+                    return !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                        || !!window.navigator.standalone;
+                } catch (_) {
+                    return false;
+                }
             }, []);
+
+            const permissionLabelMap = {
+                granted: '已允許',
+                prompt: '待允許',
+                denied: '已拒絕',
+                unavailable: '裝置不可用',
+                unsupported: '瀏覽器不支援',
+                error: '檢查失敗',
+                unknown: '待檢查'
+            };
+
+            const queryPermissionState = useCallback(async (name) => {
+                try {
+                    if (name === 'location') {
+                        if (!navigator.geolocation) return 'unsupported';
+                        if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
+                        const result = await navigator.permissions.query({ name: 'geolocation' });
+                        return result?.state || 'unknown';
+                    }
+                    if (name === 'camera') {
+                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'unsupported';
+                        if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
+                        const result = await navigator.permissions.query({ name: 'camera' });
+                        return result?.state || 'unknown';
+                    }
+                    return 'unknown';
+                } catch (_) {
+                    return 'unknown';
+                }
+            }, []);
+
+            const requestLocationPermission = useCallback(async () => {
+                if (!navigator.geolocation) return 'unsupported';
+                return await new Promise((resolve) => {
+                    navigator.geolocation.getCurrentPosition(
+                        () => resolve('granted'),
+                        (err) => {
+                            if (err && err.code === 1) resolve('denied');
+                            else if (err && err.code === 2) resolve('unavailable');
+                            else resolve('error');
+                        },
+                        { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 }
+                    );
+                });
+            }, []);
+
+            const requestCameraPermission = useCallback(async () => {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'unsupported';
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    stream.getTracks().forEach((track) => track.stop());
+                    return 'granted';
+                } catch (err) {
+                    if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || err?.name === 'SecurityError') {
+                        return 'denied';
+                    }
+                    if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError' || err?.name === 'OverconstrainedError') {
+                        return 'unavailable';
+                    }
+                    return 'error';
+                }
+            }, []);
+
+            const checkRequiredPermissions = useCallback(async ({ requestMissing = false } = {}) => {
+                setPermissionGuard((prev) => ({ ...prev, checking: true, message: '' }));
+
+                let locationState = await queryPermissionState('location');
+                let cameraState = await queryPermissionState('camera');
+
+                if (requestMissing && locationState !== 'granted' && locationState !== 'unsupported') {
+                    locationState = await requestLocationPermission();
+                }
+                if (requestMissing && cameraState !== 'granted' && cameraState !== 'unsupported') {
+                    cameraState = await requestCameraPermission();
+                }
+
+                if (locationState === 'unknown') {
+                    const retryLocationState = await queryPermissionState('location');
+                    if (retryLocationState !== 'unknown') locationState = retryLocationState;
+                }
+                if (cameraState === 'unknown') {
+                    const retryCameraState = await queryPermissionState('camera');
+                    if (retryCameraState !== 'unknown') cameraState = retryCameraState;
+                }
+
+                const needsAttention = locationState !== 'granted' || cameraState !== 'granted';
+                const guideText = isStandalonePwa
+                    ? '若已拒絕權限，請從系統的 App 權限或瀏覽器站台權限中開啟定位與相機。'
+                    : '若已拒絕權限，請從網址列站台權限或瀏覽器設定中開啟定位與相機。';
+
+                setPermissionGuard({
+                    open: needsAttention,
+                    checking: false,
+                    location: locationState,
+                    camera: cameraState,
+                    message: needsAttention ? guideText : ''
+                });
+
+                return { location: locationState, camera: cameraState };
+            }, [isStandalonePwa, queryPermissionState, requestCameraPermission, requestLocationPermission]);
+
+            useEffect(() => {
+                if (!user || !dbUser) {
+                    permissionAutoCheckRef.current = false;
+                    setPermissionGuard({
+                        open: false,
+                        checking: false,
+                        location: 'unknown',
+                        camera: 'unknown',
+                        message: ''
+                    });
+                    return;
+                }
+                if (permissionAutoCheckRef.current) return;
+                permissionAutoCheckRef.current = true;
+                checkRequiredPermissions({ requestMissing: true });
+            }, [user, dbUser, checkRequiredPermissions]);
 
             useEffect(() => {
                 let mounted = true;
@@ -13679,6 +13976,8 @@
                                         setDbUser(data);
                                         setView('dashboard');
                                         if (window.__dbgSend) window.__dbgSend('B', 'dbUser.snapshot.ok', { userDocId: userSnap.id, role: data.role, status: data.status });
+                                    }, (error) => {
+                                        if (window.__dbgSend) window.__dbgSend('B', 'dbUser.snapshot.err', { code: error && error.code, message: error && error.message });
                                     });
                                 } else {
                                     setView('dashboard');
@@ -14195,7 +14494,7 @@
                                 const targetRoles = data.targetRoles || [];
                                 const targetUserIds = data.targetUserIds || [];
                                 const targetCommunityId = data.communityId;
-                                
+
                                 const customRole = (roles || []).find(r => r.id === dbUser.role);
                                 const myRole = dbUser.role;
                                 const isRoleMatch = targetRoles.includes(myRole) || 
@@ -14220,7 +14519,7 @@
                                 }
                             }
                         });
-                    });
+                    }, (err) => handleFetchError(err, 'notifications_receiver_snap'));
 
                     timer = setTimeout(() => {
                         checkDailyAnomalies().catch(console.error);
@@ -16821,14 +17120,16 @@
                             {activeTab === 'home' && (
                                 <div className="w-full flex justify-center">
                                     <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium ${
-                                        gpsStatus.type === 'success' ? 'bg-green-100 text-green-700' : 
+                                        gpsStatus.type === 'success' ? 'bg-green-100 text-green-700' :
                                         gpsStatus.type === 'loading' ? 'bg-yellow-100 text-yellow-700' :
                                         gpsStatus.type === 'warning' ? 'bg-blue-100 text-blue-700' :
+                                        gpsStatus.type === 'idle' ? 'bg-gray-100 text-gray-600' :
                                         'bg-red-100 text-red-700'
                                     }`}>
                                         {gpsStatus.type === 'success' ? <CheckCircle className="w-3 h-3 text-green-600" /> :
                                          gpsStatus.type === 'loading' ? <RefreshCw className="w-3 h-3 animate-spin text-yellow-600" /> :
                                          gpsStatus.type === 'warning' ? <AlertCircle className="w-3 h-3 text-blue-600" /> :
+                                         gpsStatus.type === 'idle' ? <AlertCircle className="w-3 h-3 text-gray-500" /> :
                                          <AlertCircle className="w-3 h-3 text-red-600" />}
                                         {gpsStatus.message}
                                     </div>
@@ -27335,6 +27636,12 @@
                                                     </>
                                                 ) : (
                                                     <>
+                                                        <button
+                                                            onClick={() => window.open('data-check-all.html', '_blank', 'noopener,noreferrer')}
+                                                            className="cadre-overview-cta px-3 py-2 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]"
+                                                        >
+                                                            總覽
+                                                        </button>
                                                         <button onClick={() => { setReportContext('cadre'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
                                                         <button onClick={() => { setReportContext('cadre'); setShowSignOffReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">簽呈</button>
                                                         <button onClick={() => { setReportContext('cadre'); setShowLeaveReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
@@ -28314,7 +28621,78 @@
                         </div>
                     )}
 
-                    <CameraModal 
+                    {permissionGuard.open && (
+                        <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">請先開啟必要權限</h3>
+                                <p className="text-sm text-gray-600 mb-4">
+                                    登入後系統需要使用「定位」與「相機」來完成打卡與拍照驗證。
+                                </p>
+                                <div className="space-y-3 mb-4">
+                                    <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="font-bold text-gray-800">定位權限</div>
+                                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                                                permissionGuard.location === 'granted' ? 'bg-green-100 text-green-700' :
+                                                permissionGuard.location === 'denied' ? 'bg-red-100 text-red-700' :
+                                                permissionGuard.location === 'prompt' ? 'bg-yellow-100 text-yellow-700' :
+                                                'bg-gray-200 text-gray-600'
+                                            }`}>
+                                                {permissionLabelMap[permissionGuard.location] || permissionGuard.location}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={() => checkRequiredPermissions({ requestMissing: true })}
+                                            disabled={permissionGuard.checking}
+                                            className="w-full px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-60"
+                                        >
+                                            開啟定位權限
+                                        </button>
+                                    </div>
+                                    <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="font-bold text-gray-800">相機權限</div>
+                                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                                                permissionGuard.camera === 'granted' ? 'bg-green-100 text-green-700' :
+                                                permissionGuard.camera === 'denied' ? 'bg-red-100 text-red-700' :
+                                                permissionGuard.camera === 'prompt' ? 'bg-yellow-100 text-yellow-700' :
+                                                'bg-gray-200 text-gray-600'
+                                            }`}>
+                                                {permissionLabelMap[permissionGuard.camera] || permissionGuard.camera}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={() => checkRequiredPermissions({ requestMissing: true })}
+                                            disabled={permissionGuard.checking}
+                                            className="w-full px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-60"
+                                        >
+                                            開啟相機權限
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="rounded-2xl bg-amber-50 text-amber-800 text-sm p-4 mb-4">
+                                    {permissionGuard.message || '若瀏覽器已拒絕權限，請改從系統或瀏覽器站台權限中開啟後，再回來按重新檢查。'}
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => checkRequiredPermissions({ requestMissing: false })}
+                                        disabled={permissionGuard.checking}
+                                        className="flex-1 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-bold disabled:opacity-60"
+                                    >
+                                        {permissionGuard.checking ? '檢查中...' : '重新檢查'}
+                                    </button>
+                                    <button
+                                        onClick={() => setPermissionGuard(prev => ({ ...prev, open: false }))}
+                                        className="flex-1 px-4 py-2 rounded-xl bg-gray-800 text-white font-bold"
+                                    >
+                                        我知道了
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <CameraModal
                         isOpen={showCameraModal}
                         onClose={() => { setShowCameraModal(false); setPendingClockMeta(null); setPendingClockSubmissionId(null); setPendingClockLocationOverride(null); }}
                         onConfirm={handleCameraConfirm}

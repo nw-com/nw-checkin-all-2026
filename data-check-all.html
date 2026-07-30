@@ -1118,6 +1118,129 @@
             };
         }
 
+        const monthlySummaryHeaders = ['上班時數', '請假時數', '特休天數', '曠職時數', '遲到次數', '早退次數'];
+
+        function parseTimeToMinutes(value) {
+            const raw = String(value || '').trim();
+            const match = raw.match(/^(\d{1,2}):(\d{2})/);
+            if (!match) return null;
+            return Number(match[1]) * 60 + Number(match[2]);
+        }
+
+        function diffMinutes(startMinutes, endMinutes) {
+            if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return 0;
+            let diff = endMinutes - startMinutes;
+            if (diff < 0) diff += 24 * 60;
+            return diff;
+        }
+
+        function getScheduledMinutes(cell) {
+            const startMinutes = parseTimeToMinutes(cell?.scheduledInTime);
+            const endMinutes = parseTimeToMinutes(cell?.scheduledOutTime);
+            if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return 0;
+            return diffMinutes(startMinutes, endMinutes);
+        }
+
+        function getWorkedMinutes(cell) {
+            const inMinutes = parseTimeToMinutes(cell?.inTime);
+            const outMinutes = parseTimeToMinutes(cell?.outTime);
+            if (!Number.isFinite(inMinutes) || !Number.isFinite(outMinutes)) return 0;
+            return diffMinutes(inMinutes, outMinutes);
+        }
+
+        function getLeaveMinutes(cell) {
+            if (!cell?.leaveLabel) return 0;
+            const rangeText = safeText(cell.leaveRangeText, '');
+            const scheduledStart = parseTimeToMinutes(cell?.scheduledInTime);
+            const scheduledEnd = parseTimeToMinutes(cell?.scheduledOutTime);
+            const scheduledMinutes = getScheduledMinutes(cell);
+
+            if (!rangeText || rangeText === '全天') {
+                return scheduledMinutes || (8 * 60);
+            }
+
+            const betweenMatch = rangeText.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/);
+            if (betweenMatch) {
+                return diffMinutes(parseTimeToMinutes(betweenMatch[1]), parseTimeToMinutes(betweenMatch[2]));
+            }
+
+            const startMatch = rangeText.match(/^(\d{2}:\d{2})起$/);
+            if (startMatch) {
+                const startMinutes = parseTimeToMinutes(startMatch[1]);
+                if (Number.isFinite(startMinutes) && Number.isFinite(scheduledEnd)) {
+                    return diffMinutes(startMinutes, scheduledEnd);
+                }
+            }
+
+            const endMatch = rangeText.match(/^至(\d{2}:\d{2})$/);
+            if (endMatch) {
+                const endMinutes = parseTimeToMinutes(endMatch[1]);
+                if (Number.isFinite(scheduledStart) && Number.isFinite(endMinutes)) {
+                    return diffMinutes(scheduledStart, endMinutes);
+                }
+            }
+
+            return scheduledMinutes || (4 * 60);
+        }
+
+        function isPastDateKey(dateKey) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const targetDate = new Date(`${dateKey}T00:00:00`);
+            if (Number.isNaN(targetDate.getTime())) return false;
+            return targetDate.getTime() < today.getTime();
+        }
+
+        function formatHours(minutes) {
+            return (Math.max(0, minutes) / 60).toFixed(1);
+        }
+
+        function buildMonthlySummary(user) {
+            const summary = {
+                workMinutes: 0,
+                leaveMinutes: 0,
+                specialLeaveDays: 0,
+                absentMinutes: 0,
+                lateCount: 0,
+                earlyCount: 0
+            };
+
+            Object.entries(user?.days || {}).forEach(([dateKey, cell]) => {
+                const workedMinutes = getWorkedMinutes(cell);
+                const leaveMinutes = getLeaveMinutes(cell);
+                const scheduledMinutes = getScheduledMinutes(cell);
+                const restrictedSchedule = isRestrictedScheduleLabel(cell?.scheduleLabel);
+                const hasClock = Boolean(cell?.inTime || cell?.outTime);
+
+                summary.workMinutes += workedMinutes;
+                summary.leaveMinutes += leaveMinutes;
+
+                if (cell?.scheduleLabel === '特休') {
+                    summary.specialLeaveDays += 1;
+                }
+
+                if (!hasClock && !cell?.leaveLabel && !restrictedSchedule && isPastDateKey(dateKey)) {
+                    summary.absentMinutes += scheduledMinutes || (8 * 60);
+                }
+
+                if (!cell?.leaveLabel) {
+                    const scheduledIn = parseTimeToMinutes(cell?.scheduledInTime);
+                    const actualIn = parseTimeToMinutes(cell?.inTime);
+                    if (Number.isFinite(scheduledIn) && Number.isFinite(actualIn) && actualIn > (scheduledIn + 10)) {
+                        summary.lateCount += 1;
+                    }
+
+                    const scheduledOut = parseTimeToMinutes(cell?.scheduledOutTime);
+                    const actualOut = parseTimeToMinutes(cell?.outTime);
+                    if (Number.isFinite(scheduledOut) && Number.isFinite(actualOut) && diffMinutes(actualOut, scheduledOut) > 0) {
+                        summary.earlyCount += 1;
+                    }
+                }
+            });
+
+            return summary;
+        }
+
         function buildTableHead() {
             const head = $('table-head');
             const dayHeaders = Array.from({ length: state.monthDays }, (_, index) => {
@@ -1134,11 +1257,15 @@
                     : '';
                 return `<th class="sticky-head px-2 py-3 font-black text-center min-w-[86px] border-r border-b border-gray-200 ${holidayClass}"><div class="flex flex-col items-center leading-tight"><span>${day}</span><span class="mt-1 text-[11px] font-bold ${weekdayClass}">${weekdayLabel}</span>${holidayNameHtml}</div></th>`;
             }).join('');
+            const summaryHeaders = monthlySummaryHeaders
+                .map((label) => `<th class="sticky-head px-3 py-3 font-black text-center min-w-[90px] border-r border-b border-gray-200 bg-gray-100 whitespace-nowrap">${label}</th>`)
+                .join('');
 
             head.innerHTML = `
                 <tr>
                     <th class="sticky-corner px-4 py-3 font-black text-left whitespace-nowrap border-r border-b border-gray-200 min-w-[150px]">姓名</th>
                     ${dayHeaders}
+                    ${summaryHeaders}
                 </tr>
             `;
         }
@@ -1167,6 +1294,7 @@
             state.filteredUsers.forEach((user) => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50 transition-colors';
+                const monthlySummary = buildMonthlySummary(user);
 
                 const nameTd = document.createElement('td');
                 nameTd.className = 'attendance-td sticky-col px-4 py-3 font-bold text-gray-800 whitespace-nowrap border-r border-b border-gray-200 align-top';
@@ -1328,6 +1456,20 @@
                     }
                     tr.appendChild(td);
                 }
+
+                [
+                    formatHours(monthlySummary.workMinutes),
+                    formatHours(monthlySummary.leaveMinutes),
+                    String(monthlySummary.specialLeaveDays),
+                    formatHours(monthlySummary.absentMinutes),
+                    String(monthlySummary.lateCount),
+                    String(monthlySummary.earlyCount)
+                ].forEach((value, index) => {
+                    const td = document.createElement('td');
+                    td.className = `attendance-td px-3 py-3 text-center align-middle border-r border-b border-gray-200 font-bold ${index === 3 ? 'text-red-600' : 'text-gray-700'}`;
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
 
                 fragment.appendChild(tr);
             });
