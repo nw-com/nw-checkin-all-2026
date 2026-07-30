@@ -47,15 +47,13 @@
             min-width: 132px;
         }
         .attendance-td {
-            height: 96px;
-            min-height: 96px;
-            max-height: 96px;
-            overflow: hidden;
+            min-height: 148px;
+            height: auto;
+            overflow: visible;
+            vertical-align: top;
         }
         .attendance-td .status-chip {
-            height: 100%;
-            max-height: 100%;
-            overflow: hidden;
+            overflow: visible;
         }
         .table-scroll-area {
             flex: 1 1 auto;
@@ -1148,6 +1146,15 @@
             return diffMinutes(inMinutes, outMinutes);
         }
 
+        function getDailyWorkMinutes(cell) {
+            const scheduledMinutes = getScheduledMinutes(cell);
+            const hasInClock = Boolean(cell?.inTime);
+            const hasOutClock = Boolean(cell?.outTime);
+            if (!hasInClock || !hasOutClock) return 0;
+            const workedMinutes = getWorkedMinutes(cell);
+            return scheduledMinutes > 0 ? Math.min(workedMinutes, scheduledMinutes) : workedMinutes;
+        }
+
         function getLeaveMinutes(cell) {
             if (!cell?.leaveLabel) return 0;
             const rangeText = safeText(cell.leaveRangeText, '');
@@ -1210,16 +1217,20 @@
                 const leaveMinutes = getLeaveMinutes(cell);
                 const scheduledMinutes = getScheduledMinutes(cell);
                 const restrictedSchedule = isRestrictedScheduleLabel(cell?.scheduleLabel);
-                const hasClock = Boolean(cell?.inTime || cell?.outTime);
+                const hasInClock = Boolean(cell?.inTime);
+                const hasOutClock = Boolean(cell?.outTime);
+                const hasCompleteClock = hasInClock && hasOutClock;
+                const hasMissingClock = !hasInClock || !hasOutClock;
+                const dailyWorkMinutes = getDailyWorkMinutes(cell);
 
-                summary.workMinutes += workedMinutes;
+                summary.workMinutes += dailyWorkMinutes;
                 summary.leaveMinutes += leaveMinutes;
 
                 if (cell?.scheduleLabel === '特休') {
                     summary.specialLeaveDays += 1;
                 }
 
-                if (!hasClock && !cell?.leaveLabel && !restrictedSchedule && isPastDateKey(dateKey)) {
+                if (hasMissingClock && !cell?.leaveLabel && !restrictedSchedule && isPastDateKey(dateKey)) {
                     summary.absentMinutes += scheduledMinutes || (8 * 60);
                 }
 
@@ -1336,7 +1347,7 @@
                         const isScheduleOnly = Boolean(cell.scheduleLabel && !cell.leaveLabel && !status.hasIn && !status.hasOut);
                         const hasLeaveColumn = Boolean(cell.leaveLabel);
                         const wrapper = document.createElement('div');
-                        wrapper.className = `status-chip h-full overflow-hidden mx-auto rounded-xl px-1.5 py-1.5 ${hasLeaveColumn && !isLeaveOnly ? 'min-w-[198px]' : ''} ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
+                        wrapper.className = `status-chip flex flex-col overflow-visible mx-auto rounded-xl px-1.5 py-1.5 ${hasLeaveColumn && !isLeaveOnly ? 'min-w-[198px]' : ''} ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
 
                         if (isRestrictedScheduleOnly || isScheduleOnly) {
                             const scheduleTag = document.createElement('span');
@@ -1348,7 +1359,7 @@
                                     : 'bg-violet-50 border border-violet-100 text-violet-700'
                             }`;
                             scheduleTag.textContent = cell.scheduleLabel;
-                            wrapper.className = `status-chip h-full overflow-hidden flex items-start justify-center mx-auto rounded-xl px-1.5 py-1.5 ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
+                            wrapper.className = `status-chip min-h-[78px] flex items-start justify-center overflow-visible mx-auto rounded-xl px-1.5 py-1.5 ${isHighlighted ? 'bg-gray-100 border border-gray-200' : 'bg-gray-50 border border-gray-100'}`;
                             wrapper.appendChild(scheduleTag);
                             td.appendChild(wrapper);
                             tr.appendChild(td);
@@ -1441,6 +1452,13 @@
                                 leaveLocationSpacer.textContent = '';
                                 locationRow.appendChild(leaveLocationSpacer);
                             }
+                        }
+
+                        if (!isLeaveOnly) {
+                            const workHoursRow = document.createElement('div');
+                            workHoursRow.className = `mt-2 rounded-lg px-2 py-1.5 text-[11px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-100 text-blue-800 border border-blue-200'}`;
+                            workHoursRow.textContent = `上班工時 ${formatHours(getDailyWorkMinutes(cell))} h`;
+                            wrapper.appendChild(workHoursRow);
                         }
 
                         const details = [];
