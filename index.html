@@ -7760,14 +7760,10 @@
 
                 if (!sameShiftRecords.length) return [];
 
-                const sameLocationRecords = sameShiftRecords.filter(r =>
-                    String(r?.locationId || r?.communityId || '') === activeLocationId
-                );
-
-                // Prefer records at the currently selected location, but fall back to
-                // the user's actual work records for the same day/shift so the button
-                // state stays correct after a successful clock-in.
-                return sameLocationRecords.length ? sameLocationRecords : sameShiftRecords;
+                // Button state must follow the user's full same-day/same-shift work
+                // history. Restricting it to the currently selected location can
+                // misread cross-location workdays as "still on duty".
+                return sameShiftRecords;
             }, [mode, sourceHistory, currentUser?.id, shiftStr, logicDateStr, activeLocationId]);
 
             const workCheckState = useMemo(() => {
