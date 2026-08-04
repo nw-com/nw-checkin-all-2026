@@ -36,6 +36,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         html, body {
@@ -215,7 +216,12 @@
                     <span id="table-month-label" class="inline-flex items-center rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs font-black text-red-700 whitespace-nowrap">----</span>
                     <h2 class="font-black text-gray-800 whitespace-nowrap">月出勤表</h2>
                 </div>
-                <span id="table-caption" class="text-xs text-gray-500">載入中...</span>
+                <div class="flex items-center gap-2">
+                    <button id="download-excel-btn" type="button" class="h-8 px-3 rounded-lg bg-green-600 text-white text-xs font-black hover:bg-green-700 transition-colors whitespace-nowrap">
+                        下載Excel
+                    </button>
+                    <span id="table-caption" class="text-xs text-gray-500 whitespace-nowrap">載入中...</span>
+                </div>
             </div>
 
             <div id="loading-box" class="flex-1 p-8 text-center text-gray-400">
@@ -239,7 +245,7 @@
 
     <script>
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
-        const swScriptVersion = 'v2.0.121';
+        const swScriptVersion = 'v2.0.123';
         const inTypes = new Set(['in', 'work_in', 'duty_in', 'late_in', 'card_in']);
         const outTypes = new Set(['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'leave_early']);
         const holidayNameMap = {
@@ -1284,6 +1290,71 @@
             return Math.max(0, Math.round(minutes / 6) * 6);
         }
 
+        function getDailyExportText(cell) {
+            const parts = [];
+            const scheduleLabel = safeText(cell?.scheduleLabel, '').trim();
+            if (scheduleLabel) parts.push(scheduleLabel);
+            if (cell?.leaveLabel) {
+                const leaveRange = safeText(cell?.leaveRangeText, '').trim();
+                parts.push(leaveRange ? `請假 ${leaveRange}` : '請假');
+            }
+            if (cell?.inTime) {
+                parts.push(`上 ${formatActualTimeText(cell.inTime, { isSupplement: cell.inSupplement, isLate: isLateInCell(cell) })}`);
+            }
+            if (cell?.outTime) {
+                parts.push(`下 ${formatActualTimeText(cell.outTime, { isSupplement: cell.outSupplement, isEarly: isEarlyOutCell(cell) })}`);
+            }
+            if (cell?.inLocation) parts.push(`上地點 ${cell.inLocation}`);
+            if (cell?.outLocation) parts.push(`下地點 ${cell.outLocation}`);
+            return parts.filter(Boolean).join('\n');
+        }
+
+        function handleDownloadExcel() {
+            if (!window.XLSX || !window.XLSX.utils || !window.XLSX.writeFile) {
+                alert('Excel 模組尚未載入，請稍後再試');
+                return;
+            }
+
+            const monthKey = state.selectedMonth || getDefaultMonth();
+            const headers = ['姓名'];
+            for (let day = 1; day <= state.monthDays; day += 1) {
+                const dateKey = `${monthKey}-${pad2(day)}`;
+                const weekdayLabel = getWeekdayLabel(dateKey);
+                const holidayName = getHolidayName(dateKey);
+                headers.push(`${pad2(day)}${weekdayLabel}${holidayName ? ` ${holidayName}` : ''}`);
+            }
+            headers.push(...monthlySummaryHeaders);
+
+            const rows = [headers];
+            (state.filteredUsers || []).forEach((user) => {
+                const row = [safeText(user?.name, '未命名')];
+                for (let day = 1; day <= state.monthDays; day += 1) {
+                    const dateKey = `${monthKey}-${pad2(day)}`;
+                    row.push(getDailyExportText(user?.days?.[dateKey] || {}));
+                }
+                const monthlySummary = buildMonthlySummary(user);
+                row.push(
+                    formatHours(monthlySummary.scheduledMinutes),
+                    formatHours(monthlySummary.workMinutes),
+                    formatHours(monthlySummary.leaveMinutes),
+                    String(monthlySummary.specialLeaveDays),
+                    formatHours(monthlySummary.absentMinutes),
+                    String(monthlySummary.lateCount),
+                    String(monthlySummary.earlyCount)
+                );
+                rows.push(row);
+            });
+
+            const ws = window.XLSX.utils.aoa_to_sheet(rows);
+            const wb = window.XLSX.utils.book_new();
+            window.XLSX.utils.book_append_sheet(wb, ws, monthKey);
+
+            const scopeText = $('scope-filter')?.selectedOptions?.[0]?.textContent || '全部';
+            const safeScope = String(scopeText).replace(/[\\/:*?"<>|]/g, '').trim() || '全部';
+            const filename = `${monthKey}_${safeScope}_月出勤表.xlsx`;
+            window.XLSX.writeFile(wb, filename);
+        }
+
         function buildMonthlySummary(user) {
             const summary = {
                 scheduledMinutes: 0,
@@ -1593,15 +1664,15 @@
 
                             if (shouldShowWorkHours) {
                                 const workHoursRow = document.createElement('div');
-                                workHoursRow.className = `w-[58px] min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm whitespace-pre-line ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-100 text-blue-800 border border-blue-200'}`;
-                                workHoursRow.textContent = `上班工時\n${formatHours(getDailyWorkMinutes(cell))}h`;
+                                workHoursRow.className = `w-[58px] min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-100 text-blue-800 border border-blue-200'}`;
+                                workHoursRow.textContent = `${formatHours(getDailyWorkMinutes(cell))}h`;
                                 hoursRow.appendChild(workHoursRow);
                             }
 
                             if (shouldShowLeaveHours) {
                                 const leaveHoursRow = document.createElement('div');
-                                leaveHoursRow.className = `w-[58px] min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm whitespace-pre-line ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-orange-100 text-orange-800 border border-orange-200'}`;
-                                leaveHoursRow.textContent = `請假時數\n${formatHours(getLeaveMinutes(cell))}h`;
+                                leaveHoursRow.className = `w-[58px] min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-orange-100 text-orange-800 border border-orange-200'}`;
+                                leaveHoursRow.textContent = `${formatHours(getLeaveMinutes(cell))}h`;
                                 hoursRow.appendChild(leaveHoursRow);
                             }
 
@@ -2006,6 +2077,7 @@
                 applyFilters();
             });
             $('scope-filter').addEventListener('change', applyFilters);
+            $('download-excel-btn').addEventListener('click', handleDownloadExcel);
 
             $('clear-filter-btn').addEventListener('click', () => {
                 $('name-filter').value = '';
