@@ -2,7 +2,7 @@
 const ICON_URL = './logo.svg';
 const BADGE_URL = './badge.svg';
 
-const CACHE_VERSION = 'v2.0.108';
+const CACHE_VERSION = 'v2.0.121';
 const APP_SHELL_CACHE = `nw-checkin-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `nw-checkin-runtime-${CACHE_VERSION}`;
 
@@ -68,7 +68,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const res = await fetch(req);
+          const res = await fetch(new Request(req, { cache: 'no-store' }));
           const cache = await caches.open(APP_SHELL_CACHE);
           cache.put(req, res.clone());
           return res;
