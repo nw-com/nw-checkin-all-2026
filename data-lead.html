@@ -792,7 +792,7 @@
         }
 
         function canReviewLeaveByShare() {
-            return state.shareValid === true && !!state.shareCode;
+            return false;
         }
 
         function canReviewLeaveByRole() {
@@ -806,7 +806,7 @@
         }
 
         function canReviewLeave() {
-            return canReviewLeaveByShare() || canReviewLeaveByRole();
+            return canReviewLeaveByRole();
         }
 
         async function updateLeaveStatus(status, record) {
@@ -824,14 +824,12 @@
             try {
                 state.updatingLeaveId = String(record.id);
                 render();
-                const byShare = canReviewLeaveByShare() && !state.dbUser;
                 const payload = {
                     approvalStatus: status,
                     approvalTime: firebase.firestore.FieldValue.serverTimestamp(),
-                    approverId: byShare ? 'guest-link' : state.dbUser?.id,
-                    approverName: byShare ? (state.shareReviewerName || '連結審核') : (state.dbUser?.name || state.dbUser?.email || '')
+                    approverId: state.dbUser?.id,
+                    approverName: state.dbUser?.name || state.dbUser?.email || ''
                 };
-                if (byShare) payload.verificationToken = state.shareCode;
                 await db
                     .collection('artifacts')
                     .doc(appId)
@@ -1539,22 +1537,18 @@
                 updateFooterTabs();
                 updateAttendanceButtons();
                 updateTopControls();
-                await loadShareLinkFromUrl();
 
                 const now = new Date();
                 const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
                 setMonthValue(state.month && /^\d{4}-\d{2}$/.test(state.month) ? state.month : defaultMonth);
                 setAttendanceDateValue(state.attendanceDate || toYmd(now));
 
-                auth.onAuthStateChanged((user) => {
+                auth.onAuthStateChanged(async (user) => {
                     state.authUser = user || null;
                     setError('');
                     if (!user) {
-                        if (state.shareValid) {
-                            setAuthWarning('');
-                            subscribeShareData();
-                            return;
-                        }
+                        state.shareCode = '';
+                        state.shareValid = false;
                         setAuthWarning('請先登入後再查看西北公司內部出勤。');
                         render();
                         return;
@@ -1566,6 +1560,7 @@
                     $('attendance-loading').classList.remove('hidden');
                     $('attendance-list').classList.add('hidden');
                     $('attendance-empty').classList.add('hidden');
+                    await loadShareLinkFromUrl();
                     subscribeDbUserByAuth(user);
                     subscribeData();
                     buildUserOptions();
