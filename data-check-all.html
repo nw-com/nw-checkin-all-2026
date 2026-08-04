@@ -217,7 +217,7 @@
     <script>
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-attendance-app';
         const inTypes = new Set(['in', 'work_in', 'duty_in', 'late_in', 'card_in']);
-        const outTypes = new Set(['out', 'work_out', 'duty_out', 'late_out', 'card_out']);
+        const outTypes = new Set(['out', 'work_out', 'duty_out', 'late_out', 'card_out', 'leave_early']);
         const holidayNameMap = {
             '2025-01-01': '元旦',
             '2025-01-25': '春節', '2025-01-26': '春節', '2025-01-27': '春節', '2025-01-28': '春節', '2025-01-29': '春節', '2025-01-30': '春節', '2025-01-31': '春節', '2025-02-01': '春節', '2025-02-02': '春節',
@@ -1190,6 +1190,32 @@
             return scheduledMinutes || (4 * 60);
         }
 
+        function isLateInCell(cell) {
+            if (cell?.leaveLabel) return false;
+            const scheduledIn = parseTimeToMinutes(cell?.scheduledInTime);
+            const actualIn = parseTimeToMinutes(cell?.inTime);
+            if (!Number.isFinite(scheduledIn) || !Number.isFinite(actualIn)) return false;
+            return actualIn > scheduledIn;
+        }
+
+        function isEarlyOutCell(cell) {
+            if (cell?.leaveLabel) return false;
+            const scheduledOut = parseTimeToMinutes(cell?.scheduledOutTime);
+            const actualOut = parseTimeToMinutes(cell?.outTime);
+            if (!Number.isFinite(scheduledOut) || !Number.isFinite(actualOut)) return false;
+            return actualOut < scheduledOut;
+        }
+
+        function formatActualTimeText(timeText, options = {}) {
+            const text = String(timeText || '').trim();
+            if (!text) return '';
+            const suffixes = [];
+            if (options.isSupplement) suffixes.push('(補)');
+            if (options.isLate) suffixes.push('(遲)');
+            if (options.isEarly) suffixes.push('(早)');
+            return `${text}${suffixes.join('')}`;
+        }
+
         function isPastDateKey(dateKey) {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -1237,13 +1263,13 @@
                 if (!cell?.leaveLabel) {
                     const scheduledIn = parseTimeToMinutes(cell?.scheduledInTime);
                     const actualIn = parseTimeToMinutes(cell?.inTime);
-                    if (Number.isFinite(scheduledIn) && Number.isFinite(actualIn) && actualIn > (scheduledIn + 10)) {
+                    if (Number.isFinite(scheduledIn) && Number.isFinite(actualIn) && actualIn > scheduledIn) {
                         summary.lateCount += 1;
                     }
 
                     const scheduledOut = parseTimeToMinutes(cell?.scheduledOutTime);
                     const actualOut = parseTimeToMinutes(cell?.outTime);
-                    if (Number.isFinite(scheduledOut) && Number.isFinite(actualOut) && diffMinutes(actualOut, scheduledOut) > 0) {
+                    if (Number.isFinite(scheduledOut) && Number.isFinite(actualOut) && actualOut < scheduledOut) {
                         summary.earlyCount += 1;
                     }
                 }
@@ -1406,11 +1432,21 @@
 
                             const inTime = document.createElement('span');
                             inTime.className = `min-w-[58px] text-center ${cell.inTime ? 'text-green-700' : 'text-transparent'}`;
-                            inTime.textContent = cell.inTime ? `${cell.inTime}${cell.inSupplement ? '(補)' : ''}` : '';
+                            inTime.textContent = cell.inTime
+                                ? formatActualTimeText(cell.inTime, {
+                                    isSupplement: cell.inSupplement,
+                                    isLate: isLateInCell(cell)
+                                })
+                                : '';
 
                             const outTime = document.createElement('span');
                             outTime.className = `min-w-[58px] text-center ${cell.outTime ? 'text-red-700' : 'text-transparent'}`;
-                            outTime.textContent = cell.outTime ? `${cell.outTime}${cell.outSupplement ? '(補)' : ''}` : '';
+                            outTime.textContent = cell.outTime
+                                ? formatActualTimeText(cell.outTime, {
+                                    isSupplement: cell.outSupplement,
+                                    isEarly: isEarlyOutCell(cell)
+                                })
+                                : '';
 
                             scheduledTimeRow.appendChild(scheduledInTime);
                             scheduledTimeRow.appendChild(scheduledOutTime);

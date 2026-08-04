@@ -7131,26 +7131,64 @@
                 return isNaN(parsed.getTime()) ? null : parsed;
             };
 
+            const extractLeaveTimeRange = (leaveRecord) => {
+                const startTime = String(leaveRecord?.leaveStartTime || leaveRecord?.startTime || '').trim();
+                const endTime = String(leaveRecord?.leaveEndTime || leaveRecord?.endTime || '').trim();
+                if (startTime || endTime) {
+                    return { startTime, endTime };
+                }
+
+                const rawLeaveTime = String(leaveRecord?.leaveTime || '').trim();
+                if (!rawLeaveTime) {
+                    return { startTime: '', endTime: '' };
+                }
+
+                const match = rawLeaveTime.match(/(\d{1,2}:\d{2})\s*(?:~|～|-|至)\s*(\d{1,2}:\d{2})/);
+                if (match) {
+                    return {
+                        startTime: match[1],
+                        endTime: match[2]
+                    };
+                }
+
+                if (/^\d{1,2}:\d{2}$/.test(rawLeaveTime)) {
+                    return {
+                        startTime: rawLeaveTime,
+                        endTime: ''
+                    };
+                }
+
+                return { startTime: '', endTime: '' };
+            };
+
             const getApprovedLeaveOverlapMinutes = (leaveRecord, rangeStart, rangeEnd) => {
                 if (!leaveRecord || String(leaveRecord?.approvalStatus || '').trim() !== 'approved') return 0;
                 if (leaveRecord.type && leaveRecord.type !== 'leave') return 0;
+                const { startTime: parsedStartTime, endTime: parsedEndTime } = extractLeaveTimeRange(leaveRecord);
 
                 const leaveStart = leaveRecord.leaveStartDate
-                    ? buildLeaveDateTime(leaveRecord.leaveStartDate, leaveRecord.leaveStartTime, '00:00:00')
+                    ? buildLeaveDateTime(leaveRecord.leaveStartDate, parsedStartTime, '00:00:00')
                     : leaveRecord.startDate
-                        ? buildLeaveDateTime(leaveRecord.startDate, leaveRecord.startTime, '00:00:00')
+                        ? buildLeaveDateTime(leaveRecord.startDate, parsedStartTime, '00:00:00')
                         : leaveRecord.leaveDate
-                            ? buildLeaveDateTime(leaveRecord.leaveDate, leaveRecord.leaveTime, '00:00:00')
+                            ? buildLeaveDateTime(leaveRecord.leaveDate, parsedStartTime, '00:00:00')
                             : null;
                 const leaveEnd = leaveRecord.leaveEndDate
-                    ? buildLeaveDateTime(leaveRecord.leaveEndDate, leaveRecord.leaveEndTime, '23:59:59')
+                    ? buildLeaveDateTime(leaveRecord.leaveEndDate, parsedEndTime, '23:59:59')
                     : leaveRecord.endDate
-                        ? buildLeaveDateTime(leaveRecord.endDate, leaveRecord.endTime, '23:59:59')
+                        ? buildLeaveDateTime(leaveRecord.endDate, parsedEndTime, '23:59:59')
                         : leaveStart
-                            ? new Date(leaveStart.getFullYear(), leaveStart.getMonth(), leaveStart.getDate(), 23, 59, 59)
+                            ? parsedEndTime
+                                ? buildLeaveDateTime(
+                                    formatYMD(leaveStart),
+                                    parsedEndTime,
+                                    '23:59:59'
+                                )
+                                : new Date(leaveStart.getFullYear(), leaveStart.getMonth(), leaveStart.getDate(), 23, 59, 59)
                             : null;
 
                 if (!leaveStart || !leaveEnd || isNaN(leaveStart.getTime()) || isNaN(leaveEnd.getTime())) return 0;
+                if (leaveEnd < leaveStart) return 0;
 
                 const overlapStart = Math.max(rangeStart.getTime(), leaveStart.getTime());
                 const overlapEnd = Math.min(rangeEnd.getTime(), leaveEnd.getTime());
@@ -27121,6 +27159,21 @@
                                         const hasPendingRecords = pendingMakeupRecords.length > 0 || pendingModificationRecords.length > 0;
                                         return (
                                             <div className="pb-24">
+                                                {cadreMapSelectedUserId && (
+                                                    <div className="mb-4 flex items-center justify-between bg-blue-50 p-3 rounded-xl text-blue-700 text-sm">
+                                                        <div className="flex items-center gap-2">
+                                                            <Users className="w-4 h-4" />
+                                                            <span>帳號: <span className="font-bold">{usersList.find(u => u.id === cadreMapSelectedUserId)?.name || '未知'}</span></span>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => setCadreMapSelectedUserId(null)}
+                                                            className="px-3 py-1 bg-white border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-50 transition shadow-sm"
+                                                        >
+                                                            取消選取
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                                 {!targetCompany ? (
                                                     <div className="text-center text-gray-400 py-8">請選擇公司</div>
                                                 ) : (
@@ -27638,9 +27691,6 @@
                                                         >
                                                             總覽
                                                         </button>
-                                                        <button onClick={() => { setReportContext('cadre'); setReportModalType('attendance'); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">報表</button>
-                                                        <button onClick={() => { setReportContext('cadre'); setShowSignOffReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">簽呈</button>
-                                                        <button onClick={() => { setReportContext('cadre'); setShowLeaveReportModal(true); }} className="px-3 py-2 bg-red-50 text-red-600 rounded-2xl text-xs font-bold min-w-[60px]">請假</button>
                                                     </>
                                                 )}
                                             </div>
