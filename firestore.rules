@@ -51,6 +51,16 @@ service cloud.firestore {
       ]);
     }
 
+    function onlyShareLeaveApprovalFieldsChanged() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        'approvalStatus',
+        'approvalTime',
+        'approverId',
+        'approverName',
+        'verificationToken'
+      ]);
+    }
+
     match /artifacts/{appId}/public/data/leaves/{leaveId} {
       allow update: if onlyLeaveApprovalFieldsChanged()
         && (
@@ -126,6 +136,15 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/users/{document=**} {
       allow read: if true;
       allow write: if request.auth != null;
+    }
+
+    match /artifacts/{appId}/public/data/share_links/{token}/leaves/{leaveId} {
+      allow read: if true;
+      allow update: if onlyShareLeaveApprovalFieldsChanged()
+        && request.resource.data.verificationToken is string
+        && request.resource.data.verificationToken == token
+        && hasValidLeadShare(appId, token);
+      allow create, delete: if request.auth != null;
     }
 
     match /artifacts/{appId}/public/data/share_links/{document=**} {

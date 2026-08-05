@@ -418,7 +418,6 @@
 
         function getCompanyUsers() {
             const users = state.users || [];
-            if (state.shareValid && !state.authUser) return users;
             if (!state.companyId) return users;
             const companyId = String(state.companyId);
             return users.filter((u) => {
@@ -534,12 +533,6 @@
         }
 
         function updateTabBadges() {
-            if (!state.authUser) {
-                setBadge('tab-attendance-badge', 0);
-                setBadge('tab-leave-badge', 0);
-                return;
-            }
-
             if (state.attendanceLoaded) {
                 const { missing } = buildAttendanceView();
                 setBadge('tab-attendance-badge', missing.length);
@@ -547,8 +540,12 @@
                 setBadge('tab-attendance-badge', 0);
             }
 
-            const pendingCount = getLeavePendingCountThisMonth();
-            setBadge('tab-leave-badge', pendingCount);
+            if (!state.authUser && !state.shareValid) {
+                setBadge('tab-leave-badge', 0);
+                return;
+            }
+
+            setBadge('tab-leave-badge', getLeavePendingCountThisMonth());
         }
 
         function setAttendanceMode(mode) {
@@ -809,6 +806,20 @@
             return canReviewLeaveByShare() || canReviewLeaveByRole();
         }
 
+        function applyLocalLeaveStatus(leaveId, status, approverName = '') {
+            const id = String(leaveId || '').trim();
+            if (!id) return;
+            const list = Array.isArray(state.leaves) ? state.leaves : [];
+            const idx = list.findIndex(x => String(x?.id || '').trim() === id);
+            if (idx < 0) return;
+            const next = { ...(list[idx] || {}) };
+            next.approvalStatus = status;
+            next.approverName = approverName || next.approverName;
+            next.approvalTime = new Date();
+            list[idx] = next;
+            state.leaves = list;
+        }
+
         async function updateLeaveStatus(status, record) {
             if (!record || !record.id) return;
             if (!canReviewLeave()) return;
@@ -840,6 +851,27 @@
                     .collection('leaves')
                     .doc(String(record.id))
                     .update(payload);
+
+                applyLocalLeaveStatus(record.id, status, payload.approverName);
+
+                if (byShare) {
+                    await db
+                        .collection('artifacts')
+                        .doc(appId)
+                        .collection('public')
+                        .doc('data')
+                        .collection('share_links')
+                        .doc(String(state.shareCode))
+                        .collection('leaves')
+                        .doc(String(record.id))
+                        .update({
+                            approvalStatus: status,
+                            approvalTime: firebase.firestore.FieldValue.serverTimestamp(),
+                            approverId: payload.approverId,
+                            approverName: payload.approverName,
+                            verificationToken: state.shareCode
+                        });
+                }
             } catch (e) {
                 setError(`更新失敗：${e.message || e}`);
             } finally {
@@ -1121,10 +1153,10 @@
             $('leave-panel').classList.add('hidden');
             panel.classList.remove('hidden');
 
-            if (!state.authUser) {
+            if (!state.authUser && !state.shareValid) {
                 loadingBox.classList.add('hidden');
                 listEl.classList.add('hidden');
-                emptyText.textContent = state.shareValid ? '分享連結僅提供請假審核' : '請先登入後再查看出勤資料';
+                emptyText.textContent = '請先登入後再查看出勤資料';
                 emptyBox.classList.remove('hidden');
                 return;
             }
@@ -1241,6 +1273,7 @@
         let unsubSchedules = null;
         let unsubDbUser = null;
         let unsubShareLeaves = null;
+        let unsubShareAttendance = null;
         state.attendanceLoaded = false;
 
         function initFirebase() {
@@ -1358,17 +1391,19 @@
             if (typeof unsubSchedules === 'function') unsubSchedules();
             if (typeof unsubDbUser === 'function') unsubDbUser();
             if (typeof unsubShareLeaves === 'function') unsubShareLeaves();
+            if (typeof unsubShareAttendance === 'function') unsubShareAttendance();
             unsubRoles = null;
             unsubUsers = null;
             unsubLeaves = null;
             unsubAttendance = null;
             unsubSchedules = null;
             unsubDbUser = null;
+            unsubShareAttendance = null;
 
             state.roles = [];
             state.schedules = [];
             state.attendance = [];
-            state.attendanceLoaded = true;
+            state.attendanceLoaded = false;
             state.dbUser = null;
             state.shareLeavesLoaded = false;
 
@@ -1381,6 +1416,20 @@
             $('attendance-list').classList.add('hidden');
             $('attendance-empty').classList.add('hidden');
 
+            unsubUsers = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('users')
+                .onSnapshot((snap) => {
+                    state.users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    buildUserOptions();
+                    render();
+                }, (e) => {
+                    setError(`讀取帳號資料失敗：${e.message || e}`);
+                });
+
             unsubShareLeaves = db
                 .collection('artifacts')
                 .doc(appId)
@@ -1392,28 +1441,32 @@
                 .onSnapshot((snap) => {
                     state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     state.shareLeavesLoaded = true;
-                    const userMap = new Map();
-                    state.leaves.forEach((r) => {
-                        const uid = safeString(r.userId);
-                        if (!uid || userMap.has(uid)) return;
-                        userMap.set(uid, {
-                            id: uid,
-                            name: safeString(r.userName),
-                            avatarUrl: safeString(r.userAvatarUrl),
-                            phone: safeString(r.userMobile),
-                            mobile: safeString(r.userMobile),
-                            companyId: safeString(r.userCompanyId),
-                            companyIds: Array.isArray(r.userCompanyIds) ? r.userCompanyIds : []
-                        });
-                    });
-                    state.users = Array.from(userMap.values());
-                    buildUserOptions();
                     $('loading-box').classList.add('hidden');
                     render();
                 }, (e) => {
                     state.shareLeavesLoaded = true;
                     $('loading-box').classList.add('hidden');
                     setError(`讀取分享資料失敗：${e.message || e}`);
+                    render();
+                });
+
+            unsubShareAttendance = db
+                .collection('artifacts')
+                .doc(appId)
+                .collection('public')
+                .doc('data')
+                .collection('share_links')
+                .doc(code)
+                .collection('attendance')
+                .orderBy('timestamp', 'desc')
+                .limit(4000)
+                .onSnapshot((snap) => {
+                    state.attendance = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    state.attendanceLoaded = true;
+                    render();
+                }, (e) => {
+                    state.attendanceLoaded = true;
+                    setError(`讀取分享出勤資料失敗：${e.message || e}`);
                     render();
                 });
         }

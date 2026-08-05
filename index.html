@@ -10868,7 +10868,107 @@
                 });
                 await batch.commit();
 
-                await setDoc(ref, { leaveCount: Math.min(200, sourceLeaves.length) }, { merge: true });
+                const dateList = (() => {
+                    const out = [];
+                    const base = new Date();
+                    for (let i = 0; i < 7; i++) {
+                        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - i, 0, 0, 0);
+                        out.push(toYmd(d));
+                    }
+                    return out;
+                })();
+                const dateSet = new Set(dateList);
+
+                const isUserInCompany = (u) => {
+                    if (!companyId) return true;
+                    const main = String(u?.companyId || '').trim();
+                    const subs = Array.isArray(u?.companyIds) ? u.companyIds.map(x => String(x)) : [];
+                    return main === String(companyId) || subs.includes(String(companyId));
+                };
+                const companyUserIds = new Set((usersForShare || []).filter(isUserInCompany).map(u => String(u.id || '')).filter(Boolean));
+
+                const getRecordDateObj = (r) => {
+                    const seconds = r?.timestamp?.seconds || r?.createdAt?.seconds || 0;
+                    if (!seconds) return null;
+                    const d = new Date(seconds * 1000);
+                    return d && !isNaN(d.getTime()) ? d : null;
+                };
+                const getLogicDate = (r) => {
+                    const v = String(r?.logicDate || '').trim();
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+                    const d = getRecordDateObj(r);
+                    if (!d) return '';
+                    const shift = String(r?.shift || '').trim() === 'night' || r?.isNightShift === true ? 'night' : 'day';
+                    if (shift === 'night' && d.getHours() < 12) {
+                        return toYmd(new Date(d.getTime() - 24 * 60 * 60 * 1000));
+                    }
+                    return toYmd(d);
+                };
+
+                let attendanceRecords = [];
+                try {
+                    const q = query(
+                        collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                        orderBy('timestamp', 'desc'),
+                        limit(4000)
+                    );
+                    const snap = await getDocs(q);
+                    attendanceRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                } catch (_) {
+                    try {
+                        const q2 = query(
+                            collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                            orderBy('createdAt', 'desc'),
+                            limit(4000)
+                        );
+                        const snap2 = await getDocs(q2);
+                        attendanceRecords = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+                    } catch (_) {
+                        const q3 = query(
+                            collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                            limit(4000)
+                        );
+                        const snap3 = await getDocs(q3);
+                        attendanceRecords = snap3.docs.map(d => ({ id: d.id, ...d.data() }));
+                    }
+                }
+
+                const shareAttendanceSource = (attendanceRecords || [])
+                    .filter((r) => companyUserIds.has(String(r?.userId || '')))
+                    .filter((r) => dateSet.has(getLogicDate(r)));
+
+                let attendanceCount = 0;
+                if (shareAttendanceSource.length) {
+                    let b = writeBatch(db);
+                    let op = 0;
+                    for (const r of shareAttendanceSource) {
+                        const recordId = String(r.id || '');
+                        if (!recordId) continue;
+                        const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'attendance', recordId);
+                        b.set(shareRef, {
+                            attendanceId: recordId,
+                            userId: String(r.userId || ''),
+                            type: r.type || '',
+                            timestamp: r.timestamp || r.createdAt || null,
+                            logicDate: r.logicDate || '',
+                            shift: r.shift || '',
+                            isNightShift: r.isNightShift === true,
+                            checkInLocationName: r.checkInLocationName || '',
+                            address: r.address || '',
+                            communityId: r.communityId || ''
+                        });
+                        attendanceCount += 1;
+                        op += 1;
+                        if (op >= 450) {
+                            await b.commit();
+                            b = writeBatch(db);
+                            op = 0;
+                        }
+                    }
+                    if (op > 0) await b.commit();
+                }
+
+                await setDoc(ref, { leaveCount: Math.min(200, sourceLeaves.length), attendanceCount }, { merge: true });
 
                 const leadBase = new URL('./data-lead.html', window.location.href);
                 leadBase.search = '';
