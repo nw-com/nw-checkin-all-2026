@@ -389,13 +389,15 @@
         function isAllowedAccount(u) {
             const status = safeString(u?.status, '在職');
             if (status !== '在職') return false;
-            if (state.shareValid && !state.authUser) return true;
             const role = safeString(u?.role);
             if (!role) return false;
-            const allowedRoleIds = new Set(['admin', 'hr', 'manager', 'cadre', 'staff']);
-            const roleNameById = new Map((state.roles || []).map(r => [String(r.id || ''), safeString(r.name)]));
-            const roleLabel = roleNameById.get(role) || role;
-            return allowedRoleIds.has(role) || /(系統管理員|人事|物業|幹部|員工)/.test(roleLabel);
+            const allowedRoleIds = new Set(['admin', 'hr', 'cadre', 'staff']);
+            let roleLabel = role;
+            if (Array.isArray(state.roles) && state.roles.length) {
+                const roleNameById = new Map((state.roles || []).map(r => [String(r.id || ''), safeString(r.name)]));
+                roleLabel = roleNameById.get(role) || role;
+            }
+            return allowedRoleIds.has(role) || /(系統管理員|人事|物業|幹部|員工)/.test(roleLabel) || /(系統管理員|人事|物業|幹部|員工)/.test(role);
         }
 
         function isActiveEmployee(u) {
@@ -406,10 +408,7 @@
             const select = $('user-select');
             const current = select.value;
             while (select.options.length > 1) select.remove(1);
-            const filteredUsers = (state.pageTab === 'attendance'
-                ? getCompanyUsers().filter(isActiveEmployee)
-                : getCompanyUsers().filter(isAllowedAccount)
-            );
+            const filteredUsers = getCompanyUsers().filter(isAllowedAccount);
             filteredUsers
                 .slice()
                 .sort((a, b) => safeString(a.name).localeCompare(safeString(b.name), 'zh-Hant'))
@@ -1146,7 +1145,7 @@
                 if (outTypes.has(t)) updateLatest(outByUserId, uid, r);
             });
 
-            const baseUsers = getCompanyUsers().filter(isActiveEmployee);
+            const baseUsers = getCompanyUsers().filter(isAllowedAccount);
             const users = state.userId
                 ? baseUsers.filter(u => String(u.id || '') === String(state.userId))
                 : baseUsers;
