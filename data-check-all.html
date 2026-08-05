@@ -675,24 +675,34 @@
             const endDate = parseDateValue(endValue);
             const hasStartTime = hasTimePart(startValue);
             const hasEndTime = hasTimePart(endValue);
+            const dayStart = '00:00';
+            const dayEnd = '24:00';
 
             if (!startKey) return '';
             if (startKey === endKey) {
                 if (hasStartTime && hasEndTime && startDate && endDate) {
-                    return `${formatHourMinute(startDate)}-${formatHourMinute(endDate)}`;
+                    return `${formatHourMinute(startDate)}~${formatHourMinute(endDate)}`;
                 }
-                if (hasStartTime && startDate) return `${formatHourMinute(startDate)}起`;
-                if (hasEndTime && endDate) return `至${formatHourMinute(endDate)}`;
-                return '全天';
+                if (hasStartTime && startDate) return `${formatHourMinute(startDate)}~${dayEnd}`;
+                if (hasEndTime && endDate) return `${dayStart}~${formatHourMinute(endDate)}`;
+                return `${dayStart}~${dayEnd}`;
             }
 
             if (dateKey === startKey) {
-                return hasStartTime && startDate ? `${formatHourMinute(startDate)}起` : '全天';
+                return `${hasStartTime && startDate ? formatHourMinute(startDate) : dayStart}~${dayEnd}`;
             }
             if (dateKey === endKey) {
-                return hasEndTime && endDate ? `至${formatHourMinute(endDate)}` : '全天';
+                return `${dayStart}~${hasEndTime && endDate ? formatHourMinute(endDate) : dayEnd}`;
             }
-            return '全天';
+            return `${dayStart}~${dayEnd}`;
+        }
+
+        function getLeaveCategoryLabel(leave) {
+            const raw = safeText(leave?.leaveReason || leave?.leaveType || leave?.reason || '', '').trim();
+            if (raw === '病假') return '病假';
+            if (raw === '事假') return '事假';
+            if (raw === '補休') return '補休';
+            return '其他';
         }
 
         function getScheduleDisplayLabel(schedule, dateKey) {
@@ -1166,7 +1176,7 @@
             };
         }
 
-        const monthlySummaryHeaders = ['班表時數', '實際時數', '請假時數', '特休天數', '曠職時數', '遲到次數', '早退次數'];
+        const monthlySummaryHeaders = ['班表時數', '實際時數', '病假時數', '事假時數', '補休時數', '其他時數', '特休天數', '曠職時數', '遲到次數', '早退次數'];
 
         function parseTimeToMinutes(value) {
             const raw = String(value || '').trim();
@@ -1220,28 +1230,45 @@
                 return scheduledMinutes || (8 * 60);
             }
 
-            const betweenMatch = rangeText.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/);
+            let leaveStart = null;
+            let leaveEnd = null;
+            const betweenMatch = rangeText.match(/^(\d{2}:\d{2})\s*[~-]\s*(\d{2}:\d{2})$/);
             if (betweenMatch) {
-                return diffMinutes(parseTimeToMinutes(betweenMatch[1]), parseTimeToMinutes(betweenMatch[2]));
+                leaveStart = parseTimeToMinutes(betweenMatch[1]);
+                leaveEnd = parseTimeToMinutes(betweenMatch[2]);
             }
 
-            const startMatch = rangeText.match(/^(\d{2}:\d{2})起$/);
-            if (startMatch) {
-                const startMinutes = parseTimeToMinutes(startMatch[1]);
-                if (Number.isFinite(startMinutes) && Number.isFinite(scheduledEnd)) {
-                    return diffMinutes(startMinutes, scheduledEnd);
+            if (!Number.isFinite(leaveStart) || !Number.isFinite(leaveEnd)) {
+                const startMatch = rangeText.match(/^(\d{2}:\d{2})起$/);
+                if (startMatch) {
+                    leaveStart = parseTimeToMinutes(startMatch[1]);
+                    leaveEnd = scheduledEnd;
                 }
             }
 
-            const endMatch = rangeText.match(/^至(\d{2}:\d{2})$/);
-            if (endMatch) {
-                const endMinutes = parseTimeToMinutes(endMatch[1]);
-                if (Number.isFinite(scheduledStart) && Number.isFinite(endMinutes)) {
-                    return diffMinutes(scheduledStart, endMinutes);
+            if (!Number.isFinite(leaveStart) || !Number.isFinite(leaveEnd)) {
+                const endMatch = rangeText.match(/^至(\d{2}:\d{2})$/);
+                if (endMatch) {
+                    leaveStart = scheduledStart;
+                    leaveEnd = parseTimeToMinutes(endMatch[1]);
                 }
             }
 
-            return scheduledMinutes || (4 * 60);
+            if (!Number.isFinite(leaveStart) || !Number.isFinite(leaveEnd)) {
+                return scheduledMinutes || (4 * 60);
+            }
+
+            if (Number.isFinite(scheduledStart) && Number.isFinite(scheduledEnd)) {
+                const start = Math.max(leaveStart, scheduledStart);
+                const end = Math.min(leaveEnd, scheduledEnd);
+                return Math.max(0, end - start);
+            }
+
+            if (leaveStart === 0 && leaveEnd === 24 * 60) {
+                return scheduledMinutes || (8 * 60);
+            }
+
+            return diffMinutes(leaveStart, leaveEnd);
         }
 
         function isLateInCell(cell) {
@@ -1293,7 +1320,8 @@
             if (scheduleLabel) parts.push(scheduleLabel);
             if (cell?.leaveLabel) {
                 const leaveRange = safeText(cell?.leaveRangeText, '').trim();
-                parts.push(leaveRange ? `請假 ${leaveRange}` : '請假');
+                const leaveLabel = safeText(cell?.leaveLabel, '其他').trim() || '其他';
+                parts.push(leaveRange ? `${leaveLabel} ${leaveRange}` : leaveLabel);
             }
             if (cell?.inTime) {
                 parts.push(`上 ${formatActualTimeText(cell.inTime, { isSupplement: cell.inSupplement, isLate: isLateInCell(cell) })}`);
@@ -1333,7 +1361,10 @@
                 row.push(
                     formatHours(monthlySummary.scheduledMinutes),
                     formatHours(monthlySummary.workMinutes),
-                    formatHours(monthlySummary.leaveMinutes),
+                    formatHours(monthlySummary.sickLeaveMinutes),
+                    formatHours(monthlySummary.personalLeaveMinutes),
+                    formatHours(monthlySummary.compLeaveMinutes),
+                    formatHours(monthlySummary.otherLeaveMinutes),
                     String(monthlySummary.specialLeaveDays),
                     formatHours(monthlySummary.absentMinutes),
                     String(monthlySummary.lateCount),
@@ -1356,7 +1387,10 @@
             const summary = {
                 scheduledMinutes: 0,
                 workMinutes: 0,
-                leaveMinutes: 0,
+                sickLeaveMinutes: 0,
+                personalLeaveMinutes: 0,
+                compLeaveMinutes: 0,
+                otherLeaveMinutes: 0,
                 specialLeaveDays: 0,
                 absentMinutes: 0,
                 lateCount: 0,
@@ -1380,7 +1414,13 @@
 
                 summary.scheduledMinutes += scheduledMinutes;
                 summary.workMinutes += roundMinutesToTenthHour(dailyWorkMinutes);
-                summary.leaveMinutes += leaveMinutes;
+                const leaveLabel = safeText(cell?.leaveLabel, '').trim();
+                if (leaveLabel) {
+                    if (leaveLabel === '病假') summary.sickLeaveMinutes += leaveMinutes;
+                    else if (leaveLabel === '事假') summary.personalLeaveMinutes += leaveMinutes;
+                    else if (leaveLabel === '補休') summary.compLeaveMinutes += leaveMinutes;
+                    else summary.otherLeaveMinutes += leaveMinutes;
+                }
 
                 if (cell?.scheduleLabel === '特休') {
                     summary.specialLeaveDays += 1;
@@ -1657,18 +1697,23 @@
                         const shouldShowLeaveHours = hasLeaveColumn;
                         if (shouldShowWorkHours || shouldShowLeaveHours) {
                             const hoursRow = document.createElement('div');
-                            hoursRow.className = `mt-2 grid ${shouldShowWorkHours && shouldShowLeaveHours ? 'grid-cols-2' : 'grid-cols-1'} gap-1 w-fit mx-auto`;
+                            const hoursCols = isLeaveOnly ? 1 : (hasLeaveColumn ? 3 : 2);
+                            hoursRow.className = `mt-2 grid ${hoursCols === 3 ? 'grid-cols-3' : (hoursCols === 2 ? 'grid-cols-2' : 'grid-cols-1')} gap-1 w-full`;
 
                             if (shouldShowWorkHours) {
                                 const workHoursRow = document.createElement('div');
-                                workHoursRow.className = `w-[58px] min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-100 text-blue-800 border border-blue-200'}`;
+                                const spanClass = hoursCols === 3
+                                    ? (shouldShowLeaveHours ? 'col-span-2' : 'col-span-3')
+                                    : (hoursCols === 2 ? (shouldShowLeaveHours ? 'col-span-1' : 'col-span-2') : 'col-span-1');
+                                workHoursRow.className = `${spanClass} min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-100 text-blue-800 border border-blue-200'}`;
                                 workHoursRow.textContent = `${formatHours(getDailyWorkMinutes(cell))}h`;
                                 hoursRow.appendChild(workHoursRow);
                             }
 
                             if (shouldShowLeaveHours) {
                                 const leaveHoursRow = document.createElement('div');
-                                leaveHoursRow.className = `w-[58px] min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-orange-100 text-orange-800 border border-orange-200'}`;
+                                const spanClass = hoursCols === 3 ? 'col-span-1' : (hoursCols === 2 ? 'col-span-1' : 'col-span-1');
+                                leaveHoursRow.className = `${spanClass} min-w-[58px] rounded-lg px-2 py-1 text-[10px] leading-tight text-center font-black shadow-sm ${isHighlighted ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-orange-100 text-orange-800 border border-orange-200'}`;
                                 leaveHoursRow.textContent = `${formatHours(getLeaveMinutes(cell))}h`;
                                 hoursRow.appendChild(leaveHoursRow);
                             }
@@ -1693,14 +1738,17 @@
                 [
                     formatHours(monthlySummary.scheduledMinutes),
                     formatHours(monthlySummary.workMinutes),
-                    formatHours(monthlySummary.leaveMinutes),
+                    formatHours(monthlySummary.sickLeaveMinutes),
+                    formatHours(monthlySummary.personalLeaveMinutes),
+                    formatHours(monthlySummary.compLeaveMinutes),
+                    formatHours(monthlySummary.otherLeaveMinutes),
                     String(monthlySummary.specialLeaveDays),
                     formatHours(monthlySummary.absentMinutes),
                     String(monthlySummary.lateCount),
                     String(monthlySummary.earlyCount)
                 ].forEach((value, index) => {
                     const td = document.createElement('td');
-                    td.className = `attendance-td px-3 py-3 text-center align-middle border-r border-b border-gray-200 font-bold ${index === 4 ? 'text-red-600' : 'text-gray-700'}`;
+                    td.className = `attendance-td px-3 py-3 text-center align-middle border-r border-b border-gray-200 font-bold ${index === 7 ? 'text-red-600' : 'text-gray-700'}`;
                     td.textContent = value;
                     tr.appendChild(td);
                 });
@@ -1874,7 +1922,7 @@
                             _outStamp: 0
                         };
                     }
-                    userRow.days[dateKey].leaveLabel = '請假';
+                    userRow.days[dateKey].leaveLabel = getLeaveCategoryLabel(leave);
                     userRow.days[dateKey].leaveRangeText = getLeaveRangeTextForDate(dateKey, leave);
                 });
             });
