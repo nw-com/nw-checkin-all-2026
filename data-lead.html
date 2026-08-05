@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>西北公司內部出勤</title>
+    <meta name="description" content="西北公司內部出勤（分享連結 24 小時有效）。">
+    <meta property="og:title" content="西北公司內部出勤">
+    <meta property="og:description" content="西北公司內部出勤（分享連結 24 小時有效）。">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="./logo.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="./firebase-config.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -377,8 +382,12 @@
             input.click();
         }
 
+        function isAnonymousAuthUser(user) {
+            return !!user && user.isAnonymous === true;
+        }
+
         function isAllowedAccount(u) {
-            if (state.shareValid && !state.authUser) return true;
+            if (state.shareValid) return true;
             const status = safeString(u?.status, '在職');
             if (status !== '在職') return false;
             const role = safeString(u?.role);
@@ -394,7 +403,7 @@
             const current = select.value;
             while (select.options.length > 1) select.remove(1);
             const users = getCompanyUsers();
-            const filteredUsers = state.shareValid && !state.authUser
+            const filteredUsers = state.shareValid
                 ? users
                 : users.filter((u) => isAllowedAccount(u));
             filteredUsers
@@ -532,6 +541,17 @@
             }).length;
         }
 
+        function getLeavePendingCountAny() {
+            const companyUserIds = getCompanyUserIds();
+            return (state.leaves || []).filter((r) => {
+                const ap = safeString(r?.approvalStatus, 'pending');
+                if (ap !== 'pending') return false;
+                if (state.companyId && !companyUserIds.has(String(r.userId || ''))) return false;
+                if (state.userId && String(r.userId || '') !== String(state.userId)) return false;
+                return true;
+            }).length;
+        }
+
         function updateTabBadges() {
             if (state.attendanceLoaded) {
                 const { missing } = buildAttendanceView();
@@ -545,7 +565,7 @@
                 return;
             }
 
-            setBadge('tab-leave-badge', getLeavePendingCountThisMonth());
+            setBadge('tab-leave-badge', state.shareValid ? getLeavePendingCountAny() : getLeavePendingCountThisMonth());
         }
 
         function setAttendanceMode(mode) {
