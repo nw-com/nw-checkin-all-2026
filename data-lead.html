@@ -275,8 +275,8 @@
                 localStorage.setItem('lead_leave_review_mode', 'pending');
                 const cid = safeString(data.companyId);
                 if (cid) {
-                    state.companyId = cid;
-                    localStorage.setItem('lead_leave_company', cid);
+                    state.companyId = normalizeCompanyId(cid);
+                    localStorage.setItem('lead_leave_company', state.companyId);
                 }
                 setAuthWarning('');
             } catch (e) {
@@ -315,6 +315,17 @@
         function safeString(value, fallback = '') {
             const v = String(value || '').trim();
             return v || fallback;
+        }
+
+        function normalizeCompanyId(value) {
+            const v = safeString(value);
+            if (!v) return '';
+            const upper = v.toUpperCase();
+            if (upper === 'TP') return 'TP';
+            if (upper === 'TY') return 'TY';
+            if (v.includes('台北')) return 'TP';
+            if (v.includes('桃園')) return 'TY';
+            return v;
         }
 
         function toTelHref(phone) {
@@ -460,11 +471,13 @@
 
         function getCompanyUsers() {
             const users = state.users || [];
-            if (!state.companyId) return users;
-            const companyId = String(state.companyId);
+            const companyId = normalizeCompanyId(state.companyId);
+            if (!companyId) return users;
             return users.filter((u) => {
-                const companyIds = Array.isArray(u.companyIds) ? u.companyIds.map(String) : [];
-                return companyIds.includes(companyId) || String(u.companyId || '') === companyId;
+                const rawCompanyIds = Array.isArray(u.companyIds) ? u.companyIds : [];
+                const normalizedCompanyIds = rawCompanyIds.map(normalizeCompanyId).filter(Boolean);
+                const normalizedMain = normalizeCompanyId(u.companyId);
+                return normalizedCompanyIds.includes(companyId) || normalizedMain === companyId;
             });
         }
 
