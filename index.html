@@ -10755,7 +10755,21 @@
             };
 
             const handleShareLeadPage = async (targetName = 'Line') => {
+                const sharedWindow = window.open('', '_blank');
                 const { code, ref } = await createLeadShareCode();
+                const leadBase = new URL('./data-lead.html', window.location.href);
+                leadBase.search = '';
+                leadBase.hash = '';
+                const url = `${leadBase.toString()}?share=${encodeURIComponent(code)}`;
+                const text = `給親愛的${targetName}，\n西北公司內部出勤（24 小時有效）\n\n${url}`;
+                const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+                try {
+                    if (sharedWindow && shareUrl) sharedWindow.location.href = shareUrl;
+                    else window.open(shareUrl, '_blank');
+                } catch (_) {
+                    window.open(shareUrl, '_blank');
+                }
+
                 const now = Date.now();
                 const expiresAt = Timestamp.fromMillis(now + 24 * 60 * 60 * 1000);
                 const companyId = (function () {
@@ -10776,215 +10790,215 @@
                     reviewerName: targetName,
                     createdAt: serverTimestamp(),
                     expiresAt,
-                    createdBy: dbUser?.id || auth?.currentUser?.uid || ''
+                    createdBy: dbUser?.id || auth?.currentUser?.uid || '',
+                    leaveCount: 0,
+                    attendanceCount: 0
                 });
 
-                let usersForShare = Array.isArray(usersList) ? usersList : [];
-                if (!usersForShare.length) {
-                    try {
-                        const usersSnap = await getDocs(
-                            query(
-                                collection(db, 'artifacts', appId, 'public', 'data', 'users'),
-                                limit(4000)
-                            )
-                        );
-                        usersForShare = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    } catch (_) {}
-                }
-
-                const isPending = (r) => {
-                    const s = String(r.approvalStatus || 'pending').trim();
-                    return !s || s === 'pending';
-                };
-
-                let monthLeaves = [];
-                try {
-                    const q = query(
-                        collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
-                        orderBy('timestamp', 'desc'),
-                        limit(2000)
-                    );
-                    const snap = await getDocs(q);
-                    monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                } catch (_) {
-                    try {
-                        const q2 = query(
-                            collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
-                            orderBy('createdAt', 'desc'),
-                            limit(2000)
-                        );
-                        const snap2 = await getDocs(q2);
-                        monthLeaves = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-                    } catch (_) {
-                        const q3 = query(
-                            collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
-                            limit(2000)
-                        );
-                        const snap3 = await getDocs(q3);
-                        monthLeaves = snap3.docs.map(d => ({ id: d.id, ...d.data() }));
-                    }
-                }
-                const matchesCompany = (r) => {
-                    if (!companyId) return true;
-                    const direct = String(r.companyId || '').trim();
-                    if (direct && direct === String(companyId)) return true;
-                    const u = (usersForShare || []).find(x => String(x.id) === String(r.userId)) || {};
-                    const main = String(u.companyId || '').trim();
-                    const subs = Array.isArray(u.companyIds) ? u.companyIds.map(x => String(x)) : [];
-                    if (main && main === String(companyId)) return true;
-                    if (subs.includes(String(companyId))) return true;
-                    return false;
-                };
-                const sourceLeaves = (monthLeaves || [])
-                    .filter(isPending)
-                    .filter(matchesCompany);
-
-                const batch = writeBatch(db);
-                sourceLeaves.slice(0, 200).forEach((r) => {
-                    const u = (usersForShare || []).find(x => String(x.id) === String(r.userId)) || {};
-                    const userCompanyId = u.companyId || ((u.companyIds && u.companyIds[0]) || '');
-                    const userCompanyIds = Array.isArray(u.companyIds) ? u.companyIds : (userCompanyId ? [userCompanyId] : []);
-                    const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'leaves', String(r.id));
-                    batch.set(shareRef, {
-                        leaveId: String(r.id),
-                        userId: String(r.userId || ''),
-                        userName: u.name || r.userName || '',
-                        userAvatarUrl: u.avatarUrl || '',
-                        userMobile: u.mobile || u.phone || u.cellphone || u.tel || '',
-                        userCompanyId,
-                        userCompanyIds,
-                        companyId: r.companyId || userCompanyId,
-                        communityId: r.communityId || '',
-                        approvalStatus: r.approvalStatus || 'pending',
-                        leaveReason: r.leaveReason || '',
-                        leaveDescription: r.leaveDescription || '',
-                        leaveStartDate: r.leaveStartDate || '',
-                        leaveEndDate: r.leaveEndDate || '',
-                        leaveDate: r.leaveDate || '',
-                        leaveTime: r.leaveTime || '',
-                        photoUrl: r.photoUrl || '',
-                        createdAt: r.createdAt || r.timestamp || null
-                    });
-                });
-                await batch.commit();
-
-                const localToYmd = (d) => {
-                    if (!d || isNaN(d.getTime())) return '';
-                    const y = d.getFullYear();
-                    const m = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    return `${y}-${m}-${day}`;
-                };
-
-                const dateList = (() => {
-                    const out = [];
-                    const base = new Date();
-                    for (let i = 0; i < 7; i++) {
-                        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - i, 0, 0, 0);
-                        out.push(localToYmd(d));
-                    }
-                    return out;
-                })();
-                const dateSet = new Set(dateList);
-
-                const isUserInCompany = (u) => {
-                    if (!companyId) return true;
-                    const main = String(u?.companyId || '').trim();
-                    const subs = Array.isArray(u?.companyIds) ? u.companyIds.map(x => String(x)) : [];
-                    return main === String(companyId) || subs.includes(String(companyId));
-                };
-                const companyUserIds = new Set((usersForShare || []).filter(isUserInCompany).map(u => String(u.id || '')).filter(Boolean));
-
-                const getRecordDateObj = (r) => {
-                    const seconds = r?.timestamp?.seconds || r?.createdAt?.seconds || 0;
-                    if (!seconds) return null;
-                    const d = new Date(seconds * 1000);
-                    return d && !isNaN(d.getTime()) ? d : null;
-                };
-                const getLogicDate = (r) => {
-                    const v = String(r?.logicDate || '').trim();
-                    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-                    const d = getRecordDateObj(r);
-                    if (!d) return '';
-                    const shift = String(r?.shift || '').trim() === 'night' || r?.isNightShift === true ? 'night' : 'day';
-                    if (shift === 'night' && d.getHours() < 12) {
-                        return localToYmd(new Date(d.getTime() - 24 * 60 * 60 * 1000));
-                    }
-                    return localToYmd(d);
-                };
-
-                let attendanceRecords = [];
-                try {
-                    const q = query(
-                        collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
-                        orderBy('timestamp', 'desc'),
-                        limit(4000)
-                    );
-                    const snap = await getDocs(q);
-                    attendanceRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                } catch (_) {
-                    try {
-                        const q2 = query(
-                            collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
-                            orderBy('createdAt', 'desc'),
-                            limit(4000)
-                        );
-                        const snap2 = await getDocs(q2);
-                        attendanceRecords = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-                    } catch (_) {
-                        const q3 = query(
-                            collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
-                            limit(4000)
-                        );
-                        const snap3 = await getDocs(q3);
-                        attendanceRecords = snap3.docs.map(d => ({ id: d.id, ...d.data() }));
-                    }
-                }
-
-                const shareAttendanceSource = (attendanceRecords || [])
-                    .filter((r) => companyUserIds.has(String(r?.userId || '')))
-                    .filter((r) => dateSet.has(getLogicDate(r)));
-
-                let attendanceCount = 0;
-                if (shareAttendanceSource.length) {
-                    let b = writeBatch(db);
-                    let op = 0;
-                    for (const r of shareAttendanceSource) {
-                        const recordId = String(r.id || '');
-                        if (!recordId) continue;
-                        const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'attendance', recordId);
-                        b.set(shareRef, {
-                            attendanceId: recordId,
-                            userId: String(r.userId || ''),
-                            type: r.type || '',
-                            timestamp: r.timestamp || r.createdAt || null,
-                            logicDate: r.logicDate || '',
-                            shift: r.shift || '',
-                            isNightShift: r.isNightShift === true,
-                            checkInLocationName: r.checkInLocationName || '',
-                            address: r.address || '',
-                            communityId: r.communityId || ''
-                        });
-                        attendanceCount += 1;
-                        op += 1;
-                        if (op >= 450) {
-                            await b.commit();
-                            b = writeBatch(db);
-                            op = 0;
+                setTimeout(() => {
+                    Promise.resolve().then(async () => {
+                        let usersForShare = Array.isArray(usersList) ? usersList : [];
+                        if (!usersForShare.length) {
+                            try {
+                                const usersSnap = await getDocs(
+                                    query(
+                                        collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+                                        limit(4000)
+                                    )
+                                );
+                                usersForShare = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            } catch (_) {}
                         }
-                    }
-                    if (op > 0) await b.commit();
-                }
 
-                await setDoc(ref, { leaveCount: Math.min(200, sourceLeaves.length), attendanceCount }, { merge: true });
+                        const isPending = (r) => {
+                            const s = String(r.approvalStatus || 'pending').trim();
+                            return !s || s === 'pending';
+                        };
 
-                const leadBase = new URL('./data-lead.html', window.location.href);
-                leadBase.search = '';
-                leadBase.hash = '';
-                const url = `${leadBase.toString()}?share=${encodeURIComponent(code)}`;
-                const text = `給親愛的${targetName}，\n西北公司內部出勤（24 小時有效）\n\n${url}`;
-                const shareUrl = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
-                window.open(shareUrl, '_blank');
+                        let monthLeaves = [];
+                        try {
+                            const q = query(
+                                collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                                orderBy('timestamp', 'desc'),
+                                limit(2000)
+                            );
+                            const snap = await getDocs(q);
+                            monthLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        } catch (_) {
+                            try {
+                                const q2 = query(
+                                    collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                                    orderBy('createdAt', 'desc'),
+                                    limit(2000)
+                                );
+                                const snap2 = await getDocs(q2);
+                                monthLeaves = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+                            } catch (_) {
+                                const q3 = query(
+                                    collection(db, 'artifacts', appId, 'public', 'data', 'leaves'),
+                                    limit(2000)
+                                );
+                                const snap3 = await getDocs(q3);
+                                monthLeaves = snap3.docs.map(d => ({ id: d.id, ...d.data() }));
+                            }
+                        }
+                        const matchesCompany = (r) => {
+                            if (!companyId) return true;
+                            const direct = String(r.companyId || '').trim();
+                            if (direct && direct === String(companyId)) return true;
+                            const u = (usersForShare || []).find(x => String(x.id) === String(r.userId)) || {};
+                            const main = String(u.companyId || '').trim();
+                            const subs = Array.isArray(u.companyIds) ? u.companyIds.map(x => String(x)) : [];
+                            if (main && main === String(companyId)) return true;
+                            if (subs.includes(String(companyId))) return true;
+                            return false;
+                        };
+                        const sourceLeaves = (monthLeaves || [])
+                            .filter(isPending)
+                            .filter(matchesCompany);
+
+                        const batch = writeBatch(db);
+                        sourceLeaves.slice(0, 200).forEach((r) => {
+                            const u = (usersForShare || []).find(x => String(x.id) === String(r.userId)) || {};
+                            const userCompanyId = u.companyId || ((u.companyIds && u.companyIds[0]) || '');
+                            const userCompanyIds = Array.isArray(u.companyIds) ? u.companyIds : (userCompanyId ? [userCompanyId] : []);
+                            const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'leaves', String(r.id));
+                            batch.set(shareRef, {
+                                leaveId: String(r.id),
+                                userId: String(r.userId || ''),
+                                userName: u.name || r.userName || '',
+                                userAvatarUrl: u.avatarUrl || '',
+                                userMobile: u.mobile || u.phone || u.cellphone || u.tel || '',
+                                userCompanyId,
+                                userCompanyIds,
+                                companyId: r.companyId || userCompanyId,
+                                communityId: r.communityId || '',
+                                approvalStatus: r.approvalStatus || 'pending',
+                                leaveReason: r.leaveReason || '',
+                                leaveDescription: r.leaveDescription || '',
+                                leaveStartDate: r.leaveStartDate || '',
+                                leaveEndDate: r.leaveEndDate || '',
+                                leaveDate: r.leaveDate || '',
+                                leaveTime: r.leaveTime || '',
+                                photoUrl: r.photoUrl || '',
+                                createdAt: r.createdAt || r.timestamp || null
+                            });
+                        });
+                        await batch.commit();
+
+                        const localToYmd = (d) => {
+                            if (!d || isNaN(d.getTime())) return '';
+                            const y = d.getFullYear();
+                            const m = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${y}-${m}-${day}`;
+                        };
+
+                        const dateList = (() => {
+                            const out = [];
+                            const base = new Date();
+                            for (let i = 0; i < 2; i++) {
+                                const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() - i, 0, 0, 0);
+                                out.push(localToYmd(d));
+                            }
+                            return out;
+                        })();
+                        const dateSet = new Set(dateList);
+
+                        const isUserInCompany = (u) => {
+                            if (!companyId) return true;
+                            const main = String(u?.companyId || '').trim();
+                            const subs = Array.isArray(u?.companyIds) ? u.companyIds.map(x => String(x)) : [];
+                            return main === String(companyId) || subs.includes(String(companyId));
+                        };
+                        const companyUserIds = new Set((usersForShare || []).filter(isUserInCompany).map(u => String(u.id || '')).filter(Boolean));
+
+                        const getRecordDateObj = (r) => {
+                            const seconds = r?.timestamp?.seconds || r?.createdAt?.seconds || 0;
+                            if (!seconds) return null;
+                            const d = new Date(seconds * 1000);
+                            return d && !isNaN(d.getTime()) ? d : null;
+                        };
+                        const getLogicDate = (r) => {
+                            const v = String(r?.logicDate || '').trim();
+                            if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+                            const d = getRecordDateObj(r);
+                            if (!d) return '';
+                            const shift = String(r?.shift || '').trim() === 'night' || r?.isNightShift === true ? 'night' : 'day';
+                            if (shift === 'night' && d.getHours() < 12) {
+                                return localToYmd(new Date(d.getTime() - 24 * 60 * 60 * 1000));
+                            }
+                            return localToYmd(d);
+                        };
+
+                        let attendanceRecords = [];
+                        try {
+                            const q = query(
+                                collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                                orderBy('timestamp', 'desc'),
+                                limit(4000)
+                            );
+                            const snap = await getDocs(q);
+                            attendanceRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        } catch (_) {
+                            try {
+                                const q2 = query(
+                                    collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                                    orderBy('createdAt', 'desc'),
+                                    limit(4000)
+                                );
+                                const snap2 = await getDocs(q2);
+                                attendanceRecords = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+                            } catch (_) {
+                                const q3 = query(
+                                    collection(db, 'artifacts', appId, 'public', 'data', 'attendance'),
+                                    limit(4000)
+                                );
+                                const snap3 = await getDocs(q3);
+                                attendanceRecords = snap3.docs.map(d => ({ id: d.id, ...d.data() }));
+                            }
+                        }
+
+                        const shareAttendanceSource = (attendanceRecords || [])
+                            .filter((r) => companyUserIds.has(String(r?.userId || '')))
+                            .filter((r) => dateSet.has(getLogicDate(r)));
+
+                        let attendanceCount = 0;
+                        if (shareAttendanceSource.length) {
+                            let b = writeBatch(db);
+                            let op = 0;
+                            for (const r of shareAttendanceSource) {
+                                const recordId = String(r.id || '');
+                                if (!recordId) continue;
+                                const shareRef = doc(db, 'artifacts', appId, 'public', 'data', 'share_links', code, 'attendance', recordId);
+                                b.set(shareRef, {
+                                    attendanceId: recordId,
+                                    userId: String(r.userId || ''),
+                                    type: r.type || '',
+                                    timestamp: r.timestamp || r.createdAt || null,
+                                    logicDate: r.logicDate || '',
+                                    shift: r.shift || '',
+                                    isNightShift: r.isNightShift === true,
+                                    checkInLocationName: r.checkInLocationName || '',
+                                    address: r.address || '',
+                                    communityId: r.communityId || ''
+                                });
+                                attendanceCount += 1;
+                                op += 1;
+                                if (op >= 450) {
+                                    await b.commit();
+                                    b = writeBatch(db);
+                                    op = 0;
+                                }
+                            }
+                            if (op > 0) await b.commit();
+                        }
+
+                        await setDoc(ref, { leaveCount: Math.min(200, sourceLeaves.length), attendanceCount }, { merge: true });
+                    }).catch((e) => {
+                        console.error(e);
+                    });
+                }, 0);
             };
 
             const handleShareConfirm = async () => {

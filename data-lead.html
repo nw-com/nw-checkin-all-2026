@@ -403,12 +403,29 @@
 
         function isAttendanceUser(u) {
             if (!isActiveEmployee(u)) return false;
-            const role = safeString(u?.role);
-            if (!role) return true;
-            const blockedRoleIds = new Set(['manager', 'gm', 'secretary', 'clean', 'mech', 'guard', 'dayGuard', 'nightGuard', 'temp_guard', 'tempGuard']);
-            if (blockedRoleIds.has(role)) return false;
-            if (/(總幹事|保全|管理層|秘書|清潔|機電|臨時保全)/.test(role)) return false;
-            return true;
+
+            const roleId = safeString(u?.role);
+            const roleMap = {
+                admin: '系統管理員',
+                manager: '管理層',
+                hr: '人事',
+                cadre: '幹部',
+                staff: '員工',
+                secretary: '秘書',
+                cleaner: '清潔',
+                mechanic: '機電',
+                guard: '保全',
+                property: '物業',
+                temp_guard: '臨時保全'
+            };
+            const roleNameById = new Map((state.roles || []).map(r => [String(r.id || ''), safeString(r.name)]));
+            const roleName = safeString(u?.roleName) || roleNameById.get(roleId) || roleMap[roleId] || roleId;
+
+            const allowedRoleIds = new Set(['admin', 'hr', 'property', 'cadre', 'staff']);
+            const allowedRoleNames = new Set(['系統管理員', '人事', '物業', '幹部', '員工']);
+            if (allowedRoleIds.has(roleId)) return true;
+            if (allowedRoleNames.has(roleName)) return true;
+            return false;
         }
 
         function buildUserOptions() {
