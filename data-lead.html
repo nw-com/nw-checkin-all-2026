@@ -1120,16 +1120,11 @@
             const text = el('div');
             const line = el('div', 'font-bold text-gray-800 text-sm flex items-center gap-2 flex-wrap');
             line.appendChild(el('span', '', safeString(user?.name || user?.email || user?.phone || user?.id, '(未命名)')));
-            const missText = (() => {
-                if (!inRecord && !outRecord) return '未打卡';
-                if (!inRecord && outRecord) return '缺上班';
-                if (inRecord && !outRecord) return '缺下班';
-                return '';
-            })();
             if (statusTag === 'missing') {
-                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-red-100 text-red-700', missText || '未打卡'));
+                const missText = outRecord ? '缺上班' : '未打卡';
+                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-red-100 text-red-700', missText));
             } else {
-                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-green-100 text-green-700', '已打卡'));
+                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-green-100 text-green-700', outRecord ? '已打卡' : '缺下班'));
             }
             text.appendChild(line);
 
@@ -1207,8 +1202,8 @@
                 const uid = String(u.id || '');
                 const inRecord = inByUserId.get(uid) || null;
                 const outRecord = outByUserId.get(uid) || null;
-                if (inRecord && outRecord) checked.push({ user: u, inRecord, outRecord });
-                else missing.push({ user: u, inRecord, outRecord });
+                if (inRecord) checked.push({ user: u, inRecord, outRecord });
+                else missing.push({ user: u, inRecord: null, outRecord });
             });
 
             missing.sort((a, b) => safeString(a.user?.name).localeCompare(safeString(b.user?.name), 'zh-Hant'));
@@ -1251,7 +1246,7 @@
 
             if (!showList.length) {
                 listEl.classList.add('hidden');
-                emptyText.textContent = state.attendanceMode === 'checked' ? '當日尚無完整出勤紀錄' : '當日無缺打卡帳號';
+                emptyText.textContent = state.attendanceMode === 'checked' ? '當日尚無上班打卡紀錄' : '當日無未打卡帳號';
                 emptyBox.classList.remove('hidden');
                 lucide.createIcons();
                 return;
