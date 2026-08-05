@@ -269,16 +269,13 @@
                 state.shareValid = true;
                 state.shareReviewerName = safeString(data.reviewerName);
                 state.shareExpiresAt = expiresAt;
-                state.pageTab = 'leave';
-                state.reviewMode = 'pending';
-                localStorage.setItem('lead_page_tab', 'leave');
-                localStorage.setItem('lead_leave_review_mode', 'pending');
                 const cid = safeString(data.companyId);
                 if (cid) {
                     state.companyId = normalizeCompanyId(cid);
                     localStorage.setItem('lead_leave_company', state.companyId);
                 }
                 setAuthWarning('');
+                setPageTab('leave');
             } catch (e) {
                 setAuthWarning(`讀取分享連結失敗：${e.message || e}`);
             }
@@ -1123,27 +1120,33 @@
             const text = el('div');
             const line = el('div', 'font-bold text-gray-800 text-sm flex items-center gap-2 flex-wrap');
             line.appendChild(el('span', '', safeString(user?.name || user?.email || user?.phone || user?.id, '(未命名)')));
+            const missText = (() => {
+                if (!inRecord && !outRecord) return '未打卡';
+                if (!inRecord && outRecord) return '缺上班';
+                if (inRecord && !outRecord) return '缺下班';
+                return '';
+            })();
             if (statusTag === 'missing') {
-                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-red-100 text-red-700', '未打卡'));
+                line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-red-100 text-red-700', missText || '未打卡'));
             } else {
                 line.appendChild(el('span', 'text-[10px] px-1.5 py-0.5 rounded-lg bg-green-100 text-green-700', '已打卡'));
             }
             text.appendChild(line);
 
-            if (statusTag === 'checked' && inRecord) {
+            if (inRecord) {
                 const inDt = getRecordDateObj(inRecord);
                 const inLocation = safeString(inRecord?.checkInLocationName) || safeString(inRecord?.address) || '-';
                 const inMeta = el('div', 'text-xs text-gray-400 mt-1');
                 inMeta.textContent = `上班打卡：${formatTimeOnly(inDt)}｜${inLocation}`;
                 text.appendChild(inMeta);
+            }
 
-                if (outRecord) {
-                    const outDt = getRecordDateObj(outRecord);
-                    const outLocation = safeString(outRecord?.checkInLocationName) || safeString(outRecord?.address) || '-';
-                    const outMeta = el('div', 'text-xs text-gray-400 mt-1');
-                    outMeta.textContent = `下班打卡：${formatTimeOnly(outDt)}｜${outLocation}`;
-                    text.appendChild(outMeta);
-                }
+            if (outRecord) {
+                const outDt = getRecordDateObj(outRecord);
+                const outLocation = safeString(outRecord?.checkInLocationName) || safeString(outRecord?.address) || '-';
+                const outMeta = el('div', 'text-xs text-gray-400 mt-1');
+                outMeta.textContent = `下班打卡：${formatTimeOnly(outDt)}｜${outLocation}`;
+                text.appendChild(outMeta);
             }
 
             left.appendChild(avatarWrap);
@@ -1204,8 +1207,8 @@
                 const uid = String(u.id || '');
                 const inRecord = inByUserId.get(uid) || null;
                 const outRecord = outByUserId.get(uid) || null;
-                if (inRecord) checked.push({ user: u, inRecord, outRecord });
-                else missing.push({ user: u, inRecord: null, outRecord });
+                if (inRecord && outRecord) checked.push({ user: u, inRecord, outRecord });
+                else missing.push({ user: u, inRecord, outRecord });
             });
 
             missing.sort((a, b) => safeString(a.user?.name).localeCompare(safeString(b.user?.name), 'zh-Hant'));
@@ -1248,7 +1251,7 @@
 
             if (!showList.length) {
                 listEl.classList.add('hidden');
-                emptyText.textContent = state.attendanceMode === 'checked' ? '當日尚無上班打卡紀錄' : '當日無未打卡帳號';
+                emptyText.textContent = state.attendanceMode === 'checked' ? '當日尚無完整出勤紀錄' : '當日無缺打卡帳號';
                 emptyBox.classList.remove('hidden');
                 lucide.createIcons();
                 return;
