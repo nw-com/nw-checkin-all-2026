@@ -1537,6 +1537,7 @@
                 updateFooterTabs();
                 updateAttendanceButtons();
                 updateTopControls();
+                await loadShareLinkFromUrl();
 
                 const now = new Date();
                 const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -1547,8 +1548,12 @@
                     state.authUser = user || null;
                     setError('');
                     if (!user) {
-                        state.shareCode = '';
-                        state.shareValid = false;
+                        await loadShareLinkFromUrl();
+                        if (state.shareValid) {
+                            setAuthWarning('');
+                            subscribeShareData();
+                            return;
+                        }
                         setAuthWarning('請先登入後再查看西北公司內部出勤。');
                         render();
                         return;
@@ -1560,7 +1565,6 @@
                     $('attendance-loading').classList.remove('hidden');
                     $('attendance-list').classList.add('hidden');
                     $('attendance-empty').classList.add('hidden');
-                    await loadShareLinkFromUrl();
                     subscribeDbUserByAuth(user);
                     subscribeData();
                     buildUserOptions();
