@@ -398,11 +398,18 @@
             return allowedRoleIds.has(role) || /(系統管理員|人事|物業|幹部|員工)/.test(roleLabel);
         }
 
+        function isActiveEmployee(u) {
+            return safeString(u?.status, '在職') === '在職';
+        }
+
         function buildUserOptions() {
             const select = $('user-select');
             const current = select.value;
             while (select.options.length > 1) select.remove(1);
-            const filteredUsers = getCompanyUsers().filter((u) => isAllowedAccount(u));
+            const filteredUsers = (state.pageTab === 'attendance'
+                ? getCompanyUsers().filter(isActiveEmployee)
+                : getCompanyUsers().filter(isAllowedAccount)
+            );
             filteredUsers
                 .slice()
                 .sort((a, b) => safeString(a.name).localeCompare(safeString(b.name), 'zh-Hant'))
@@ -1139,7 +1146,7 @@
                 if (outTypes.has(t)) updateLatest(outByUserId, uid, r);
             });
 
-            const baseUsers = getCompanyUsers().filter(isAllowedAccount);
+            const baseUsers = getCompanyUsers().filter(isActiveEmployee);
             const users = state.userId
                 ? baseUsers.filter(u => String(u.id || '') === String(state.userId))
                 : baseUsers;
