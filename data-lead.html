@@ -792,7 +792,7 @@
         }
 
         function canReviewLeaveByShare() {
-            return false;
+            return state.shareValid === true && !!state.shareCode;
         }
 
         function canReviewLeaveByRole() {
@@ -806,7 +806,7 @@
         }
 
         function canReviewLeave() {
-            return canReviewLeaveByRole();
+            return canReviewLeaveByShare() || canReviewLeaveByRole();
         }
 
         async function updateLeaveStatus(status, record) {
@@ -824,12 +824,14 @@
             try {
                 state.updatingLeaveId = String(record.id);
                 render();
+                const byShare = canReviewLeaveByShare() && !state.dbUser;
                 const payload = {
                     approvalStatus: status,
                     approvalTime: firebase.firestore.FieldValue.serverTimestamp(),
-                    approverId: state.dbUser?.id,
-                    approverName: state.dbUser?.name || state.dbUser?.email || ''
+                    approverId: byShare ? 'guest-link' : state.dbUser?.id,
+                    approverName: byShare ? (state.shareReviewerName || '連結審核') : (state.dbUser?.name || state.dbUser?.email || '')
                 };
+                if (byShare) payload.verificationToken = state.shareCode;
                 await db
                     .collection('artifacts')
                     .doc(appId)
