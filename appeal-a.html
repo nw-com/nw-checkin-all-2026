@@ -234,23 +234,27 @@
 
   <div id="photoModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4" onclick="closePhotoModal()">
     <div class="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div class="text-lg font-black text-slate-800">案件照片</div>
           <div id="photoModalMeta" class="text-xs text-slate-400 mt-1"></div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <button type="button" id="photoZoomOutBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">－</button>
           <button type="button" id="photoZoomResetBtn" class="h-9 px-2 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 flex items-center justify-center text-xs">100%</button>
           <button type="button" id="photoZoomInBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">＋</button>
+          <button type="button" id="photoDownloadBtn" class="h-9 px-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors text-xs flex items-center gap-1">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>下載</span>
+          </button>
           <button type="button" onclick="closePhotoModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
             <i data-lucide="x" class="w-5 h-5"></i>
           </button>
         </div>
       </div>
-      <div class="p-4 bg-slate-50">
-        <div id="photoZoomStage" class="img-zoom-stage bg-white">
-          <img id="photoModalImage" src="" alt="案件照片" class="img-zoom-target bg-white">
+      <div class="p-4 bg-slate-900">
+        <div id="photoZoomStage" class="img-zoom-stage bg-black">
+          <img id="photoModalImage" src="" alt="案件照片" class="img-zoom-target bg-black">
         </div>
       </div>
     </div>
@@ -616,6 +620,13 @@
       const report = findReportById(reportId);
       const photo = report && report.photo ? report.photo : null;
       if (!report || !photo || !photo.dataUrl) return;
+      photoZoom.currentSrc = photo.dataUrl;
+      photoModalImage.style.maxWidth = 'none';
+      photoModalImage.style.maxHeight = 'none';
+      photoModalImage.style.width = '';
+      photoModalImage.style.height = '';
+      photoModalImage.style.transform = 'translate(-50%, -50%) scale(0.01)';
+      photoModalImage.style.opacity = '0';
       photoModalImage.src = photo.dataUrl;
       photoModalImage.alt = `${report.community || ''} 案件照片`;
       photoModalMeta.textContent = `${report.community || ''} / ${report.category || ''}`;
@@ -623,15 +634,19 @@
       photoModal.classList.add('flex');
       resetPhotoZoom(true);
       photoModalImage.onload = () => {
-        fitPhotoImageToStage();
-        applyPhotoZoomTransform();
-        photoModalImage.onload = null;
+        requestAnimationFrame(() => {
+          fitPhotoImageToStage();
+          applyPhotoZoomTransform();
+          photoModalImage.style.opacity = '1';
+          photoModalImage.onload = null;
+        });
       };
       lucide.createIcons();
     }
 
     function closePhotoModal() {
       photoModalImage.src = '';
+      photoModalImage.style.opacity = '1';
       photoModalImage.alt = '案件照片';
       photoModalMeta.textContent = '';
       photoModal.classList.add('hidden');
@@ -644,19 +659,20 @@
       target: null,
       scale: 1,
       minScale: 1,
-      maxScale: 8,
+      maxScale: 4,
       tx: 0,
       ty: 0,
       baseRect: { w: 0, h: 0, left: 0, top: 0 },
       pointer: null,
       pinch: null,
-      lastTapAt: 0
+      lastTapAt: 0,
+      currentSrc: ''
     };
 
     function resetPhotoZoom(silent = false) {
       photoZoom.scale = 1;
       photoZoom.minScale = 1;
-      photoZoom.maxScale = 8;
+      photoZoom.maxScale = 4;
       photoZoom.tx = 0;
       photoZoom.ty = 0;
       photoZoom.pointer = null;
@@ -674,9 +690,11 @@
       const sh = stage.clientHeight || 400;
       const iw = target.naturalWidth || target.width || sw;
       const ih = target.naturalHeight || target.height || sh;
-      const fit = Math.min(sw / iw, sh / ih, 1);
+      const fit = Math.min(sw / iw, sh / ih);
       const minScale = Math.max(0.2, fit || 1);
-      photoZoom.baseRect = { w: iw * minScale, h: ih * minScale, left: -((iw * minScale) / 2), top: -((ih * minScale) / 2) };
+      const bw = iw * minScale;
+      const bh = ih * minScale;
+      photoZoom.baseRect = { w: bw, h: bh, left: 0, top: 0 };
       photoZoom.minScale = minScale;
       photoZoom.scale = minScale;
       photoZoom.tx = 0;
@@ -691,25 +709,23 @@
       const sh = stage.clientHeight;
       const bw = photoZoom.baseRect.w * photoZoom.scale;
       const bh = photoZoom.baseRect.h * photoZoom.scale;
+      const halfSw = sw / 2;
+      const halfSh = sh / 2;
+      const halfBw = bw / 2;
+      const halfBh = bh / 2;
+      const minTx = halfBw - halfSw;
+      const maxTx = halfSw - halfBw;
+      const minTy = halfBh - halfSh;
+      const maxTy = halfSh - halfBh;
       if (bw <= sw) {
         photoZoom.tx = 0;
       } else {
-        const baseX = photoZoom.baseRect.left * photoZoom.scale;
-        const contentLeft = baseX + photoZoom.tx;
-        const contentRight = contentLeft + bw;
-        const minTx = -(contentRight - sw);
-        const maxTx = -contentLeft;
         if (photoZoom.tx < minTx) photoZoom.tx = minTx;
         if (photoZoom.tx > maxTx) photoZoom.tx = maxTx;
       }
       if (bh <= sh) {
         photoZoom.ty = 0;
       } else {
-        const baseY = photoZoom.baseRect.top * photoZoom.scale;
-        const contentTop = baseY + photoZoom.ty;
-        const contentBottom = contentTop + bh;
-        const minTy = -(contentBottom - sh);
-        const maxTy = -contentTop;
         if (photoZoom.ty < minTy) photoZoom.ty = minTy;
         if (photoZoom.ty > maxTy) photoZoom.ty = maxTy;
       }
@@ -718,15 +734,19 @@
     function applyPhotoZoomTransform() {
       const target = photoZoom.target || photoModalImage;
       if (!target) return;
-      clampPhotoZoomTranslate();
       const bw = photoZoom.baseRect.w;
       const bh = photoZoom.baseRect.h;
+      if (!bw || !bh) return;
+      clampPhotoZoomTranslate();
       const s = photoZoom.scale;
-      const tx = (photoZoom.baseRect.left * s) + photoZoom.tx;
-      const ty = (photoZoom.baseRect.top * s) + photoZoom.ty;
+      const tx = photoZoom.tx;
+      const ty = photoZoom.ty;
       target.style.width = `${bw}px`;
       target.style.height = `${bh}px`;
-      target.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+      target.style.marginLeft = `-${bw / 2}px`;
+      target.style.marginTop = `-${bh / 2}px`;
+      target.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
+      target.style.webkitTransform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
       updatePhotoZoomLabel();
     }
 
@@ -741,22 +761,100 @@
     function zoomPhotoBy(factor, cx, cy) {
       const stage = photoZoom.stage || document.getElementById('photoZoomStage');
       if (!stage) return;
-      const rect = stage.getBoundingClientRect();
-      const px = (cx != null && cy != null) ? cx : rect.width / 2;
-      const py = (cx != null && cy != null) ? cy : rect.height / 2;
       const prevScale = photoZoom.scale;
       const newScale = Math.min(photoZoom.maxScale, Math.max(photoZoom.minScale, prevScale * factor));
       if (newScale === prevScale) return;
-      const bw = photoZoom.baseRect.w;
-      const bh = photoZoom.baseRect.h;
-      const beforeX = (photoZoom.baseRect.left * prevScale) + photoZoom.tx + (bw * prevScale * (px / rect.width));
-      const beforeY = (photoZoom.baseRect.top * prevScale) + photoZoom.ty + (bh * prevScale * (py / rect.height));
       photoZoom.scale = newScale;
-      const afterX = (photoZoom.baseRect.left * newScale) + (bw * newScale * (px / rect.width));
-      const afterY = (photoZoom.baseRect.top * newScale) + (bh * newScale * (py / rect.height));
-      photoZoom.tx += beforeX - afterX;
-      photoZoom.ty += beforeY - afterY;
       applyPhotoZoomTransform();
+    }
+
+    async function downloadCurrentPhoto() {
+      const url = photoZoom.currentSrc || (photoModalImage || {}).src || '';
+      const btn = document.getElementById('photoDownloadBtn');
+      if (!url) return;
+      try {
+        const blob = await fetchPhotoBlob(url);
+        const ext = guessPhotoExt(url, blob.type);
+        const name = buildPhotoFilename(url, ext);
+        triggerPhotoBlobDownload(blob, name);
+      } catch (e) {
+        fallbackOpenPhotoAnchor(url);
+      }
+      if (btn) {
+        const original = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(() => { btn.innerHTML = original; lucide?.createIcons?.(); }, 1400);
+      }
+    }
+    function fetchPhotoBlob(url) {
+      if ((url || '').startsWith('data:')) {
+        const parts = url.split(',');
+        const mimePart = (parts[0] || '').match(/data:(.*?)(;base64)?$/);
+        const mime = mimePart ? mimePart[1] : 'image/jpeg';
+        const isBase64 = /;base64,/.test(url);
+        const body = parts.slice(1).join(',');
+        if (isBase64) {
+          const binary = atob(body);
+          const out = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+          return Promise.resolve(new Blob([out], { type: mime }));
+        }
+        return Promise.resolve(new Blob([decodeURIComponent(body)], { type: mime }));
+      }
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'blob';
+        xhr.withCredentials = false;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 400 && xhr.response) resolve(xhr.response);
+          else reject(new Error('fetch-failed:' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('network'));
+        xhr.timeout = 30000;
+        xhr.send();
+      });
+    }
+    function guessPhotoExt(url, mime) {
+      const t = (mime || '').toLowerCase();
+      if (t.includes('image/png')) return 'png';
+      if (t.includes('image/jpeg')) return 'jpg';
+      if (t.includes('image/webp')) return 'webp';
+      if (t.includes('image/gif')) return 'gif';
+      const u = (url || '').toLowerCase();
+      if (/\.png(\?|$)/.test(u)) return 'png';
+      if (/\.(jpg|jpeg)(\?|$)/.test(u)) return 'jpg';
+      if (/\.webp(\?|$)/.test(u)) return 'webp';
+      if (/\.gif(\?|$)/.test(u)) return 'gif';
+      return 'jpg';
+    }
+    function buildPhotoFilename(url, ext) {
+      const ts = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const token = `${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+      const hash = String(Math.abs((url || '').split('').reduce((a,c) => ((a << 5) - a) + c.charCodeAt(0), 0))).slice(0, 6);
+      return `nw-appeal-photo-${token}-${hash}.${ext}`;
+    }
+    function triggerPhotoBlobDownload(blob, filename) {
+      const a = document.createElement('a');
+      const href = URL.createObjectURL(blob);
+      a.href = href;
+      a.download = filename;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try { a.click(); } finally {
+        setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 400);
+      }
+    }
+    function fallbackOpenPhotoAnchor(url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try { a.click(); } finally { setTimeout(() => a.remove(), 200); }
     }
 
     function attachPhotoZoomHandlers() {
@@ -772,24 +870,19 @@
         fitPhotoImageToStage();
         applyPhotoZoomTransform();
       });
+      document.getElementById('photoDownloadBtn')?.addEventListener('click', () => downloadCurrentPhoto());
 
       stage.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const rect = stage.getBoundingClientRect();
-        const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
-        const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
         const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-        zoomPhotoBy(factor, cx, cy);
+        zoomPhotoBy(factor);
       }, { passive: false });
 
       stage.addEventListener('dblclick', (e) => {
-        const rect = stage.getBoundingClientRect();
-        const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
-        const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
         const base = photoZoom.minScale || 1;
         const ratio = base > 0 ? (photoZoom.scale / base) : 1;
         const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
-        zoomPhotoBy(nextFactor, cx, cy);
+        zoomPhotoBy(nextFactor);
       });
 
       stage.addEventListener('mousedown', (e) => {
@@ -830,14 +923,10 @@
         e.preventDefault();
         const now = Date.now();
         if (e.touches.length === 1 && now - photoZoom.lastTapAt < 300) {
-          const t = e.touches[0];
-          const rect = stage.getBoundingClientRect();
-          const cx = t.clientX - rect.left;
-          const cy = t.clientY - rect.top;
           const base = photoZoom.minScale || 1;
           const ratio = base > 0 ? (photoZoom.scale / base) : 1;
           const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
-          zoomPhotoBy(nextFactor, cx, cy);
+          zoomPhotoBy(nextFactor);
           photoZoom.lastTapAt = 0;
           return;
         }
@@ -854,13 +943,9 @@
           photoZoom.pinch = null;
         } else if (e.touches.length >= 2) {
           const [t1, t2] = e.touches;
-          const rect = stage.getBoundingClientRect();
-          const mid = touchMidpoint(t1, t2);
           photoZoom.pinch = {
             startDist: touchDistance(t1, t2),
             startScale: photoZoom.scale,
-            midX: mid.x - rect.left,
-            midY: mid.y - rect.top,
             startTx: photoZoom.tx,
             startTy: photoZoom.ty
           };
@@ -881,21 +966,7 @@
           const [t1, t2] = e.touches;
           const dist = touchDistance(t1, t2);
           const factor = dist / photoZoom.pinch.startDist;
-          const nextScale = Math.min(photoZoom.maxScale, Math.max(photoZoom.minScale, photoZoom.pinch.startScale * factor));
-          const mid = touchMidpoint(t1, t2);
-          const rect = stage.getBoundingClientRect();
-          const cx = mid.x - rect.left;
-          const cy = mid.y - rect.top;
-          const prevScale = photoZoom.scale;
-          const bw = photoZoom.baseRect.w;
-          const bh = photoZoom.baseRect.h;
-          const beforeX = (photoZoom.baseRect.left * prevScale) + photoZoom.tx + (bw * prevScale * (cx / rect.width));
-          const beforeY = (photoZoom.baseRect.top * prevScale) + photoZoom.ty + (bh * prevScale * (cy / rect.height));
-          photoZoom.scale = nextScale;
-          const afterX = (photoZoom.baseRect.left * nextScale) + (bw * nextScale * (cx / rect.width));
-          const afterY = (photoZoom.baseRect.top * nextScale) + (bh * nextScale * (cy / rect.height));
-          photoZoom.tx += beforeX - afterX;
-          photoZoom.ty += beforeY - afterY;
+          photoZoom.scale = Math.min(photoZoom.maxScale, Math.max(photoZoom.minScale, photoZoom.pinch.startScale * factor));
           applyPhotoZoomTransform();
         }
       }, { passive: false });

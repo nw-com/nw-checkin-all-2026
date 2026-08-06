@@ -40,6 +40,7 @@
             max-width: none;
             will-change: transform;
             pointer-events: none;
+            -webkit-transform: translate3d(0,0,0) scale(1);
         }
     </style>
 </head>
@@ -175,15 +176,19 @@
 
     <div id="image-modal" class="hidden fixed inset-0 bg-black/70 z-50 items-center justify-center p-4">
         <div class="max-w-3xl w-full">
-            <div class="flex justify-between items-center mb-2">
-                <div class="flex items-center gap-1">
+            <div class="flex flex-wrap justify-between items-center mb-2 gap-2">
+                <div class="flex items-center gap-1 flex-wrap">
                     <button id="img-zoom-out-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors" type="button">－</button>
                     <button id="img-zoom-reset-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors text-xs" type="button">100%</button>
                     <button id="img-zoom-in-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors" type="button">＋</button>
+                    <button id="img-download-btn" class="px-3 py-2 rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 transition-colors text-xs flex items-center gap-1" type="button">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>下載圖片</span>
+                    </button>
                 </div>
                 <button id="close-image-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors" type="button">關閉</button>
             </div>
-            <div id="img-zoom-stage" class="img-zoom-stage bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-2xl">
+            <div id="img-zoom-stage" class="img-zoom-stage bg-black rounded-2xl overflow-hidden border border-gray-200 shadow-2xl">
                 <img id="image-modal-img" class="img-zoom-target bg-black" alt="請假照片預覽" />
             </div>
         </div>
@@ -1348,21 +1353,34 @@
 
         function openImageModal(url) {
             const img = $('image-modal-img');
+            img.style.maxWidth = 'none';
+            img.style.maxHeight = 'none';
+            img.style.width = '';
+            img.style.height = '';
+            img.style.transform = 'translate(-50%, -50%) scale(0.01)';
+            img.style.opacity = '0';
+            img.crossOrigin = 'anonymous';
             img.src = url;
+            imgZoom.currentSrc = url;
             $('image-modal').classList.remove('hidden');
             $('image-modal').classList.add('flex');
             resetImageZoom(true);
             img.onload = () => {
-                fitImageToStage();
-                applyImageTransform();
-                img.onload = null;
+                requestAnimationFrame(() => {
+                    fitImageToStage();
+                    applyImageTransform();
+                    img.style.opacity = '1';
+                    img.onload = null;
+                });
             };
         }
 
         function closeImageModal() {
             $('image-modal').classList.add('hidden');
             $('image-modal').classList.remove('flex');
-            $('image-modal-img').src = '';
+            const img = $('image-modal-img');
+            img.src = '';
+            img.style.opacity = '1';
             resetImageZoom(true);
         }
 
@@ -1371,19 +1389,20 @@
             target: null,
             scale: 1,
             minScale: 1,
-            maxScale: 8,
+            maxScale: 4,
             tx: 0,
             ty: 0,
             baseRect: { w: 0, h: 0, left: 0, top: 0 },
             pointer: null,
             pinch: null,
-            lastTapAt: 0
+            lastTapAt: 0,
+            currentSrc: ''
         };
 
         function resetImageZoom(silent = false) {
             imgZoom.scale = 1;
             imgZoom.minScale = 1;
-            imgZoom.maxScale = 8;
+            imgZoom.maxScale = 4;
             imgZoom.tx = 0;
             imgZoom.ty = 0;
             imgZoom.pointer = null;
@@ -1401,9 +1420,11 @@
             const sh = stage.clientHeight || 400;
             const iw = target.naturalWidth || target.width || sw;
             const ih = target.naturalHeight || target.height || sh;
-            const fit = Math.min(sw / iw, sh / ih, 1);
+            const fit = Math.min(sw / iw, sh / ih);
             const minScale = Math.max(0.2, fit || 1);
-            imgZoom.baseRect = { w: iw * minScale, h: ih * minScale, left: -((iw * minScale) / 2), top: -((ih * minScale) / 2) };
+            const bw = iw * minScale;
+            const bh = ih * minScale;
+            imgZoom.baseRect = { w: bw, h: bh, left: 0, top: 0 };
             imgZoom.minScale = minScale;
             imgZoom.scale = minScale;
             imgZoom.tx = 0;
@@ -1418,25 +1439,23 @@
             const sh = stage.clientHeight;
             const bw = imgZoom.baseRect.w * imgZoom.scale;
             const bh = imgZoom.baseRect.h * imgZoom.scale;
+            const halfSw = sw / 2;
+            const halfSh = sh / 2;
+            const halfBw = bw / 2;
+            const halfBh = bh / 2;
+            const minTx = halfBw - halfSw;
+            const maxTx = halfSw - halfBw;
+            const minTy = halfBh - halfSh;
+            const maxTy = halfSh - halfBh;
             if (bw <= sw) {
                 imgZoom.tx = 0;
             } else {
-                const baseX = imgZoom.baseRect.left * imgZoom.scale;
-                const contentLeft = baseX + imgZoom.tx;
-                const contentRight = contentLeft + bw;
-                const minTx = -(contentRight - sw);
-                const maxTx = -contentLeft;
                 if (imgZoom.tx < minTx) imgZoom.tx = minTx;
                 if (imgZoom.tx > maxTx) imgZoom.tx = maxTx;
             }
             if (bh <= sh) {
                 imgZoom.ty = 0;
             } else {
-                const baseY = imgZoom.baseRect.top * imgZoom.scale;
-                const contentTop = baseY + imgZoom.ty;
-                const contentBottom = contentTop + bh;
-                const minTy = -(contentBottom - sh);
-                const maxTy = -contentTop;
                 if (imgZoom.ty < minTy) imgZoom.ty = minTy;
                 if (imgZoom.ty > maxTy) imgZoom.ty = maxTy;
             }
@@ -1445,15 +1464,19 @@
         function applyImageTransform() {
             const target = imgZoom.target || $('image-modal-img');
             if (!target) return;
-            clampTranslate();
             const bw = imgZoom.baseRect.w;
             const bh = imgZoom.baseRect.h;
+            if (!bw || !bh) return;
+            clampTranslate();
             const s = imgZoom.scale;
-            const tx = (imgZoom.baseRect.left * s) + imgZoom.tx + 0;
-            const ty = (imgZoom.baseRect.top * s) + imgZoom.ty + 0;
+            const tx = imgZoom.tx;
+            const ty = imgZoom.ty;
             target.style.width = `${bw}px`;
             target.style.height = `${bh}px`;
-            target.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+            target.style.marginLeft = `-${bw / 2}px`;
+            target.style.marginTop = `-${bh / 2}px`;
+            target.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
+            target.style.webkitTransform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
             updateZoomLabel();
         }
 
@@ -1474,16 +1497,83 @@
             const prevScale = imgZoom.scale;
             const newScale = Math.min(imgZoom.maxScale, Math.max(imgZoom.minScale, prevScale * factor));
             if (newScale === prevScale) return;
-            const bw = imgZoom.baseRect.w;
-            const bh = imgZoom.baseRect.h;
-            const beforeX = (imgZoom.baseRect.left * prevScale) + imgZoom.tx + (bw * prevScale * (px / rect.width));
-            const beforeY = (imgZoom.baseRect.top * prevScale) + imgZoom.ty + (bh * prevScale * (py / rect.height));
             imgZoom.scale = newScale;
-            const afterX = (imgZoom.baseRect.left * newScale) + (bw * newScale * (px / rect.width));
-            const afterY = (imgZoom.baseRect.top * newScale) + (bh * newScale * (py / rect.height));
-            imgZoom.tx += beforeX - afterX;
-            imgZoom.ty += beforeY - afterY;
             applyImageTransform();
+        }
+
+        async function downloadCurrentImage() {
+            const url = imgZoom.currentSrc || ($('image-modal-img') || {}).src || '';
+            const btn = $('img-download-btn');
+            if (!url) return;
+            try {
+                const blob = await fetchImageBlob(url);
+                const ext = guessImageExt(url, blob.type);
+                const name = buildImageFilename(url, ext);
+                triggerBlobDownload(blob, name);
+            } catch (e) {
+                fallbackOpenAnchor(url);
+            }
+            if (btn) {
+                const original = btn.innerHTML;
+                btn.innerHTML = '✓ 已下載';
+                setTimeout(() => { btn.innerHTML = original; lucide?.createIcons?.(); }, 1400);
+            }
+        }
+        function fetchImageBlob(url) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', url, true);
+                xhr.responseType = 'blob';
+                xhr.withCredentials = false;
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 400 && xhr.response) resolve(xhr.response);
+                    else reject(new Error('fetch-failed:' + xhr.status));
+                };
+                xhr.onerror = () => reject(new Error('network'));
+                xhr.timeout = 30000;
+                xhr.send();
+            });
+        }
+        function guessImageExt(url, mime) {
+            const t = (mime || '').toLowerCase();
+            if (t.includes('image/png')) return 'png';
+            if (t.includes('image/jpeg')) return 'jpg';
+            if (t.includes('image/webp')) return 'webp';
+            if (t.includes('image/gif')) return 'gif';
+            const u = (url || '').toLowerCase();
+            if (/\.png(\?|$)/.test(u)) return 'png';
+            if (/\.(jpg|jpeg)(\?|$)/.test(u)) return 'jpg';
+            if (/\.webp(\?|$)/.test(u)) return 'webp';
+            if (/\.gif(\?|$)/.test(u)) return 'gif';
+            return 'jpg';
+        }
+        function buildImageFilename(url, ext) {
+            const ts = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const token = `${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+            const hash = String(Math.abs((url || '').split('').reduce((a,c) => ((a << 5) - a) + c.charCodeAt(0), 0))).slice(0, 6);
+            return `nw-leave-photo-${token}-${hash}.${ext}`;
+        }
+        function triggerBlobDownload(blob, filename) {
+            const a = document.createElement('a');
+            const href = URL.createObjectURL(blob);
+            a.href = href;
+            a.download = filename;
+            a.rel = 'noopener';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            try { a.click(); } finally {
+                setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 400);
+            }
+        }
+        function fallbackOpenAnchor(url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            try { a.click(); } finally { setTimeout(() => a.remove(), 200); }
         }
 
         function attachImageZoomHandlers() {
@@ -1499,24 +1589,19 @@
                 fitImageToStage();
                 applyImageTransform();
             });
+            $('img-download-btn')?.addEventListener('click', () => downloadCurrentImage());
 
             stage.addEventListener('wheel', (e) => {
                 e.preventDefault();
-                const rect = stage.getBoundingClientRect();
-                const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
-                const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
                 const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-                zoomBy(factor, cx, cy);
+                zoomBy(factor);
             }, { passive: false });
 
             stage.addEventListener('dblclick', (e) => {
-                const rect = stage.getBoundingClientRect();
-                const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
-                const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
                 const base = imgZoom.minScale || 1;
                 const ratio = base > 0 ? (imgZoom.scale / base) : 1;
                 const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
-                zoomBy(nextFactor, cx, cy);
+                zoomBy(nextFactor);
             });
 
             stage.addEventListener('mousedown', (e) => {
@@ -1557,14 +1642,10 @@
                 e.preventDefault();
                 const now = Date.now();
                 if (e.touches.length === 1 && now - imgZoom.lastTapAt < 300) {
-                    const t = e.touches[0];
-                    const rect = stage.getBoundingClientRect();
-                    const cx = t.clientX - rect.left;
-                    const cy = t.clientY - rect.top;
                     const base = imgZoom.minScale || 1;
                     const ratio = base > 0 ? (imgZoom.scale / base) : 1;
                     const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
-                    zoomBy(nextFactor, cx, cy);
+                    zoomBy(nextFactor);
                     imgZoom.lastTapAt = 0;
                     return;
                 }
@@ -1581,13 +1662,9 @@
                     imgZoom.pinch = null;
                 } else if (e.touches.length >= 2) {
                     const [t1, t2] = e.touches;
-                    const rect = stage.getBoundingClientRect();
-                    const mid = getMidpoint(t1, t2);
                     imgZoom.pinch = {
                         startDist: getDistance(t1, t2),
                         startScale: imgZoom.scale,
-                        midX: mid.x - rect.left,
-                        midY: mid.y - rect.top,
                         startTx: imgZoom.tx,
                         startTy: imgZoom.ty
                     };
@@ -1608,21 +1685,7 @@
                     const [t1, t2] = e.touches;
                     const dist = getDistance(t1, t2);
                     const factor = dist / imgZoom.pinch.startDist;
-                    const nextScale = Math.min(imgZoom.maxScale, Math.max(imgZoom.minScale, imgZoom.pinch.startScale * factor));
-                    const mid = getMidpoint(t1, t2);
-                    const rect = stage.getBoundingClientRect();
-                    const cx = mid.x - rect.left;
-                    const cy = mid.y - rect.top;
-                    const prevScale = imgZoom.scale;
-                    const bw = imgZoom.baseRect.w;
-                    const bh = imgZoom.baseRect.h;
-                    const beforeX = (imgZoom.baseRect.left * prevScale) + imgZoom.tx + (bw * prevScale * (cx / rect.width));
-                    const beforeY = (imgZoom.baseRect.top * prevScale) + imgZoom.ty + (bh * prevScale * (cy / rect.height));
-                    imgZoom.scale = nextScale;
-                    const afterX = (imgZoom.baseRect.left * nextScale) + (bw * nextScale * (cx / rect.width));
-                    const afterY = (imgZoom.baseRect.top * nextScale) + (bh * nextScale * (cy / rect.height));
-                    imgZoom.tx += beforeX - afterX;
-                    imgZoom.ty += beforeY - afterY;
+                    imgZoom.scale = Math.min(imgZoom.maxScale, Math.max(imgZoom.minScale, imgZoom.pinch.startScale * factor));
                     applyImageTransform();
                 }
             }, { passive: false });

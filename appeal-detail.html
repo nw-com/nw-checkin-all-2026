@@ -10,6 +10,31 @@
   <script src="./firebase-config.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <style>
+    .img-zoom-stage {
+      position: relative;
+      width: 100%;
+      max-height: 75vh;
+      min-height: 40vh;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: grab;
+    }
+    .img-zoom-stage.is-grabbing { cursor: grabbing; }
+    .img-zoom-target {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-origin: 0 0;
+      max-width: none;
+      will-change: transform;
+      pointer-events: none;
+      -webkit-transform: translate3d(0,0,0) scale(1);
+    }
+  </style>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased">
   <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
@@ -81,13 +106,41 @@
           </div>
 
           <div id="detailPhotoBlock" class="hidden bg-slate-50 rounded-2xl p-3">
-            <div class="text-xs text-slate-400 mb-2">案件照片</div>
-            <img id="detailPhoto" src="" alt="案件照片" class="w-full rounded-2xl border border-slate-200 bg-white object-contain max-h-[28rem]">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs text-slate-400">案件照片</div>
+              <button type="button" onclick="openDetailPhotoModal()" class="text-xs font-bold text-blue-600 hover:text-blue-700">放大查看</button>
+            </div>
+            <img id="detailPhoto" src="" alt="案件照片" class="w-full rounded-2xl border border-slate-200 bg-white object-contain max-h-[28rem] cursor-zoom-in" onclick="openDetailPhotoModal()">
           </div>
         </div>
       </div>
     </article>
   </main>
+
+  <div id="detailPhotoModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4" onclick="closeDetailPhotoModal()">
+    <div class="w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-base font-black text-slate-800">案件照片</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button type="button" id="detailZoomOutBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">－</button>
+          <button type="button" id="detailZoomResetBtn" class="h-9 px-2 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 flex items-center justify-center text-xs">100%</button>
+          <button type="button" id="detailZoomInBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">＋</button>
+          <button type="button" id="detailDownloadBtn" class="h-9 px-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors text-xs flex items-center gap-1">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>下載</span>
+          </button>
+          <button type="button" onclick="closeDetailPhotoModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+      <div class="p-4 bg-slate-900">
+        <div id="detailZoomStage" class="img-zoom-stage bg-black rounded-2xl overflow-hidden">
+          <img id="detailZoomImage" src="" alt="案件照片預覽" class="img-zoom-target bg-black">
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script>
     const DEFAULT_APP_ID = 'default-attendance-app';
@@ -110,6 +163,369 @@
     const detailPhoneLink = document.getElementById('detailPhoneLink');
     const detailPhotoBlock = document.getElementById('detailPhotoBlock');
     const detailPhoto = document.getElementById('detailPhoto');
+    const detailPhotoModal = document.getElementById('detailPhotoModal');
+    const detailZoomStage = document.getElementById('detailZoomStage');
+    const detailZoomImage = document.getElementById('detailZoomImage');
+
+    const detailZoom = {
+      stage: null,
+      target: null,
+      scale: 1,
+      minScale: 1,
+      maxScale: 4,
+      tx: 0,
+      ty: 0,
+      baseRect: { w: 0, h: 0, left: 0, top: 0 },
+      pointer: null,
+      pinch: null,
+      lastTapAt: 0,
+      currentSrc: ''
+    };
+
+    function openDetailPhotoModal() {
+      const src = detailPhoto?.src || detailZoom.currentSrc || '';
+      if (!src) return;
+      detailZoom.currentSrc = src;
+      detailZoomImage.style.maxWidth = 'none';
+      detailZoomImage.style.maxHeight = 'none';
+      detailZoomImage.style.width = '';
+      detailZoomImage.style.height = '';
+      detailZoomImage.style.transform = 'translate(-50%, -50%) scale(0.01)';
+      detailZoomImage.style.opacity = '0';
+      detailZoomImage.src = src;
+      detailPhotoModal.classList.remove('hidden');
+      detailPhotoModal.classList.add('flex');
+      resetDetailZoom(true);
+      detailZoomImage.onload = () => {
+        requestAnimationFrame(() => {
+          fitDetailZoomToStage();
+          applyDetailZoomTransform();
+          detailZoomImage.style.opacity = '1';
+          detailZoomImage.onload = null;
+        });
+      };
+      lucide.createIcons();
+    }
+
+    function closeDetailPhotoModal() {
+      detailPhotoModal.classList.add('hidden');
+      detailPhotoModal.classList.remove('flex');
+      detailZoomImage.src = '';
+      detailZoomImage.style.opacity = '1';
+      resetDetailZoom(true);
+    }
+
+    function resetDetailZoom(silent = false) {
+      detailZoom.scale = 1;
+      detailZoom.minScale = 1;
+      detailZoom.maxScale = 4;
+      detailZoom.tx = 0;
+      detailZoom.ty = 0;
+      detailZoom.pointer = null;
+      detailZoom.pinch = null;
+      const btn = document.getElementById('detailZoomResetBtn');
+      if (btn) btn.textContent = '100%';
+      if (!silent) applyDetailZoomTransform();
+    }
+
+    function fitDetailZoomToStage() {
+      const stage = detailZoom.stage || detailZoomStage;
+      const target = detailZoom.target || detailZoomImage;
+      if (!stage || !target) return;
+      const sw = stage.clientWidth || 300;
+      const sh = stage.clientHeight || 400;
+      const iw = target.naturalWidth || target.width || sw;
+      const ih = target.naturalHeight || target.height || sh;
+      const fit = Math.min(sw / iw, sh / ih);
+      const minScale = Math.max(0.2, fit || 1);
+      const bw = iw * minScale;
+      const bh = ih * minScale;
+      detailZoom.baseRect = { w: bw, h: bh, left: 0, top: 0 };
+      detailZoom.minScale = minScale;
+      detailZoom.scale = minScale;
+      detailZoom.tx = 0;
+      detailZoom.ty = 0;
+      updateDetailZoomLabel();
+    }
+
+    function clampDetailZoomTranslate() {
+      const stage = detailZoom.stage || detailZoomStage;
+      if (!stage) return;
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+      const bw = detailZoom.baseRect.w * detailZoom.scale;
+      const bh = detailZoom.baseRect.h * detailZoom.scale;
+      const halfSw = sw / 2;
+      const halfSh = sh / 2;
+      const halfBw = bw / 2;
+      const halfBh = bh / 2;
+      const minTx = halfBw - halfSw;
+      const maxTx = halfSw - halfBw;
+      const minTy = halfBh - halfSh;
+      const maxTy = halfSh - halfBh;
+      if (bw <= sw) {
+        detailZoom.tx = 0;
+      } else {
+        if (detailZoom.tx < minTx) detailZoom.tx = minTx;
+        if (detailZoom.tx > maxTx) detailZoom.tx = maxTx;
+      }
+      if (bh <= sh) {
+        detailZoom.ty = 0;
+      } else {
+        if (detailZoom.ty < minTy) detailZoom.ty = minTy;
+        if (detailZoom.ty > maxTy) detailZoom.ty = maxTy;
+      }
+    }
+
+    function applyDetailZoomTransform() {
+      const target = detailZoom.target || detailZoomImage;
+      if (!target) return;
+      const bw = detailZoom.baseRect.w;
+      const bh = detailZoom.baseRect.h;
+      if (!bw || !bh) return;
+      clampDetailZoomTranslate();
+      const s = detailZoom.scale;
+      const tx = detailZoom.tx;
+      const ty = detailZoom.ty;
+      target.style.width = `${bw}px`;
+      target.style.height = `${bh}px`;
+      target.style.marginLeft = `-${bw / 2}px`;
+      target.style.marginTop = `-${bh / 2}px`;
+      target.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
+      target.style.webkitTransform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
+      updateDetailZoomLabel();
+    }
+
+    function updateDetailZoomLabel() {
+      const btn = document.getElementById('detailZoomResetBtn');
+      if (!btn) return;
+      const base = detailZoom.minScale || 1;
+      const ratio = base > 0 ? (detailZoom.scale / base) : 1;
+      btn.textContent = `${Math.round(ratio * 100)}%`;
+    }
+
+    function zoomDetailBy(factor) {
+      const prevScale = detailZoom.scale;
+      const newScale = Math.min(detailZoom.maxScale, Math.max(detailZoom.minScale, prevScale * factor));
+      if (newScale === prevScale) return;
+      detailZoom.scale = newScale;
+      applyDetailZoomTransform();
+    }
+
+    async function downloadDetailPhoto() {
+      const url = detailZoom.currentSrc || (detailZoomImage || {}).src || '';
+      const btn = document.getElementById('detailDownloadBtn');
+      if (!url) return;
+      try {
+        const blob = await fetchDetailPhotoBlob(url);
+        const ext = guessDetailPhotoExt(url, blob.type);
+        const name = buildDetailPhotoFilename(url, ext);
+        triggerDetailPhotoBlobDownload(blob, name);
+      } catch (e) {
+        fallbackDetailPhotoAnchor(url);
+      }
+      if (btn) {
+        const original = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(() => { btn.innerHTML = original; lucide?.createIcons?.(); }, 1400);
+      }
+    }
+
+    function fetchDetailPhotoBlob(url) {
+      if ((url || '').startsWith('data:')) {
+        const parts = url.split(',');
+        const mimePart = (parts[0] || '').match(/data:(.*?)(;base64)?$/);
+        const mime = mimePart ? mimePart[1] : 'image/jpeg';
+        const isBase64 = /;base64,/.test(url);
+        const body = parts.slice(1).join(',');
+        if (isBase64) {
+          const binary = atob(body);
+          const out = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+          return Promise.resolve(new Blob([out], { type: mime }));
+        }
+        return Promise.resolve(new Blob([decodeURIComponent(body)], { type: mime }));
+      }
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'blob';
+        xhr.withCredentials = false;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 400 && xhr.response) resolve(xhr.response);
+          else reject(new Error('fetch-failed:' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('network'));
+        xhr.timeout = 30000;
+        xhr.send();
+      });
+    }
+
+    function guessDetailPhotoExt(url, mime) {
+      const t = (mime || '').toLowerCase();
+      if (t.includes('image/png')) return 'png';
+      if (t.includes('image/jpeg')) return 'jpg';
+      if (t.includes('image/webp')) return 'webp';
+      if (t.includes('image/gif')) return 'gif';
+      const u = (url || '').toLowerCase();
+      if (/\.png(\?|$)/.test(u)) return 'png';
+      if (/\.(jpg|jpeg)(\?|$)/.test(u)) return 'jpg';
+      if (/\.webp(\?|$)/.test(u)) return 'webp';
+      if (/\.gif(\?|$)/.test(u)) return 'gif';
+      return 'jpg';
+    }
+
+    function buildDetailPhotoFilename(url, ext) {
+      const ts = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const token = `${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+      const hash = String(Math.abs((url || '').split('').reduce((a,c) => ((a << 5) - a) + c.charCodeAt(0), 0))).slice(0, 6);
+      return `nw-appeal-detail-${token}-${hash}.${ext}`;
+    }
+
+    function triggerDetailPhotoBlobDownload(blob, filename) {
+      const a = document.createElement('a');
+      const href = URL.createObjectURL(blob);
+      a.href = href;
+      a.download = filename;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try { a.click(); } finally {
+        setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 400);
+      }
+    }
+
+    function fallbackDetailPhotoAnchor(url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try { a.click(); } finally { setTimeout(() => a.remove(), 200); }
+    }
+
+    function attachDetailZoomHandlers() {
+      const stage = detailZoomStage;
+      const target = detailZoomImage;
+      if (!stage || !target) return;
+      detailZoom.stage = stage;
+      detailZoom.target = target;
+
+      document.getElementById('detailZoomInBtn')?.addEventListener('click', () => zoomDetailBy(1.2));
+      document.getElementById('detailZoomOutBtn')?.addEventListener('click', () => zoomDetailBy(1 / 1.2));
+      document.getElementById('detailZoomResetBtn')?.addEventListener('click', () => {
+        fitDetailZoomToStage();
+        applyDetailZoomTransform();
+      });
+      document.getElementById('detailDownloadBtn')?.addEventListener('click', () => downloadDetailPhoto());
+
+      stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoomDetailBy(factor);
+      }, { passive: false });
+
+      stage.addEventListener('dblclick', () => {
+        const base = detailZoom.minScale || 1;
+        const ratio = base > 0 ? (detailZoom.scale / base) : 1;
+        const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+        zoomDetailBy(nextFactor);
+      });
+
+      stage.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        stage.classList.add('is-grabbing');
+        detailZoom.pointer = {
+          x: e.clientX,
+          y: e.clientY,
+          tx: detailZoom.tx,
+          ty: detailZoom.ty,
+          moved: false
+        };
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!detailZoom.pointer) return;
+        const dx = e.clientX - detailZoom.pointer.x;
+        const dy = e.clientY - detailZoom.pointer.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) detailZoom.pointer.moved = true;
+        detailZoom.tx = detailZoom.pointer.tx + dx;
+        detailZoom.ty = detailZoom.pointer.ty + dy;
+        applyDetailZoomTransform();
+      });
+      window.addEventListener('mouseup', () => {
+        stage.classList.remove('is-grabbing');
+        detailZoom.pointer = null;
+      });
+
+      function getDistance(t1, t2) {
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+      function getMidpoint(t1, t2) {
+        return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+      }
+      stage.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const now = Date.now();
+        if (e.touches.length === 1 && now - detailZoom.lastTapAt < 300) {
+          const base = detailZoom.minScale || 1;
+          const ratio = base > 0 ? (detailZoom.scale / base) : 1;
+          const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+          zoomDetailBy(nextFactor);
+          detailZoom.lastTapAt = 0;
+          return;
+        }
+        if (e.touches.length === 1) detailZoom.lastTapAt = now;
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          detailZoom.pointer = {
+            x: t.clientX,
+            y: t.clientY,
+            tx: detailZoom.tx,
+            ty: detailZoom.ty,
+            moved: false
+          };
+          detailZoom.pinch = null;
+        } else if (e.touches.length >= 2) {
+          const [t1, t2] = e.touches;
+          detailZoom.pinch = {
+            startDist: getDistance(t1, t2),
+            startScale: detailZoom.scale,
+            startTx: detailZoom.tx,
+            startTy: detailZoom.ty
+          };
+          detailZoom.pointer = null;
+        }
+      }, { passive: false });
+      stage.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1 && detailZoom.pointer) {
+          const t = e.touches[0];
+          const dx = t.clientX - detailZoom.pointer.x;
+          const dy = t.clientY - detailZoom.pointer.y;
+          if (Math.abs(dx) + Math.abs(dy) > 3) detailZoom.pointer.moved = true;
+          detailZoom.tx = detailZoom.pointer.tx + dx;
+          detailZoom.ty = detailZoom.pointer.ty + dy;
+          applyDetailZoomTransform();
+        } else if (e.touches.length >= 2 && detailZoom.pinch) {
+          const [t1, t2] = e.touches;
+          const dist = getDistance(t1, t2);
+          const factor = dist / detailZoom.pinch.startDist;
+          detailZoom.scale = Math.min(detailZoom.maxScale, Math.max(detailZoom.minScale, detailZoom.pinch.startScale * factor));
+          applyDetailZoomTransform();
+        }
+      }, { passive: false });
+      stage.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0) {
+          detailZoom.pointer = null;
+          detailZoom.pinch = null;
+        }
+      });
+    }
 
     function getFirestoreDb() {
       if (!window.firebase) throw new Error('Firebase SDK 未載入');
@@ -231,6 +647,12 @@
 
     lucide.createIcons();
     loadAppeal();
+    attachDetailZoomHandlers();
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !detailPhotoModal.classList.contains('hidden')) {
+        closeDetailPhotoModal();
+      }
+    });
   </script>
 </body>
 </html>

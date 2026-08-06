@@ -27,6 +27,29 @@
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    .img-zoom-stage {
+      position: relative;
+      width: 100%;
+      max-height: 75vh;
+      min-height: 40vh;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: grab;
+    }
+    .img-zoom-stage.is-grabbing { cursor: grabbing; }
+    .img-zoom-target {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-origin: 0 0;
+      max-width: none;
+      will-change: transform;
+      pointer-events: none;
+      -webkit-transform: translate3d(0,0,0) scale(1);
+    }
   </style>
 </head>
 <body class="text-slate-800 antialiased pb-24">
@@ -136,7 +159,11 @@
         <input type="file" id="photoCamera" accept="image/*" capture="environment" class="hidden">
         <div id="photoStatus" class="text-xs text-slate-400">尚未選擇照片</div>
         <div id="photoPreviewWrap" class="hidden">
-          <img id="photoPreview" src="" alt="照片預覽" class="w-full rounded-2xl border border-slate-200 bg-white object-contain max-h-64 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs text-slate-400">照片預覽</div>
+            <button type="button" onclick="openPreviewPhotoModal()" class="text-xs font-bold text-blue-600 hover:text-blue-700">放大查看</button>
+          </div>
+          <img id="photoPreview" src="" alt="照片預覽" class="w-full rounded-2xl border border-slate-200 bg-white object-contain max-h-64 shadow-sm cursor-zoom-in" onclick="openPreviewPhotoModal()">
         </div>
       </div>
 
@@ -158,9 +185,399 @@
     <p class="text-slate-500 font-medium text-lg">資料已加密送出，感謝您的回報。</p>
   </div>
 
+  <div id="previewPhotoModal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4" onclick="closePreviewPhotoModal()">
+    <div class="w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-base font-black text-slate-800">照片預覽</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button type="button" id="previewZoomOutBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">－</button>
+          <button type="button" id="previewZoomResetBtn" class="h-9 px-2 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 flex items-center justify-center text-xs">100%</button>
+          <button type="button" id="previewZoomInBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">＋</button>
+          <button type="button" id="previewDownloadBtn" class="h-9 px-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors text-xs flex items-center gap-1">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>下載</span>
+          </button>
+          <button type="button" onclick="closePreviewPhotoModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+      <div class="p-4 bg-slate-900">
+        <div id="previewZoomStage" class="img-zoom-stage bg-black rounded-2xl overflow-hidden">
+          <img id="previewZoomImage" src="" alt="照片預覽" class="img-zoom-target bg-black">
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // 初始化 Lucide Icons
     lucide.createIcons();
+
+    const APPEAL_STORAGE_KEY = 'gm_appeal_reports';
+    const DEFAULT_APP_ID = 'default-attendance-app';
+    const APP_ID = typeof window.__app_id === 'string' && window.__app_id.trim() ? window.__app_id.trim() : DEFAULT_APP_ID;
+
+    const previewPhotoModal = document.getElementById('previewPhotoModal');
+    const previewZoomStage = document.getElementById('previewZoomStage');
+    const previewZoomImage = document.getElementById('previewZoomImage');
+
+    const previewZoom = {
+      stage: null,
+      target: null,
+      scale: 1,
+      minScale: 1,
+      maxScale: 4,
+      tx: 0,
+      ty: 0,
+      baseRect: { w: 0, h: 0, left: 0, top: 0 },
+      pointer: null,
+      pinch: null,
+      lastTapAt: 0,
+      currentSrc: ''
+    };
+
+    function openPreviewPhotoModal() {
+      const src = photoPreview?.src || previewZoom.currentSrc || '';
+      if (!src) return;
+      previewZoom.currentSrc = src;
+      previewZoomImage.style.maxWidth = 'none';
+      previewZoomImage.style.maxHeight = 'none';
+      previewZoomImage.style.width = '';
+      previewZoomImage.style.height = '';
+      previewZoomImage.style.transform = 'translate(-50%, -50%) scale(0.01)';
+      previewZoomImage.style.opacity = '0';
+      previewZoomImage.src = src;
+      previewPhotoModal.classList.remove('hidden');
+      previewPhotoModal.classList.add('flex');
+      resetPreviewZoom(true);
+      previewZoomImage.onload = () => {
+        requestAnimationFrame(() => {
+          fitPreviewZoomToStage();
+          applyPreviewZoomTransform();
+          previewZoomImage.style.opacity = '1';
+          previewZoomImage.onload = null;
+        });
+      };
+      lucide.createIcons();
+    }
+
+    function closePreviewPhotoModal() {
+      previewPhotoModal.classList.add('hidden');
+      previewPhotoModal.classList.remove('flex');
+      previewZoomImage.src = '';
+      previewZoomImage.style.opacity = '1';
+      resetPreviewZoom(true);
+    }
+
+    function resetPreviewZoom(silent = false) {
+      previewZoom.scale = 1;
+      previewZoom.minScale = 1;
+      previewZoom.maxScale = 4;
+      previewZoom.tx = 0;
+      previewZoom.ty = 0;
+      previewZoom.pointer = null;
+      previewZoom.pinch = null;
+      const btn = document.getElementById('previewZoomResetBtn');
+      if (btn) btn.textContent = '100%';
+      if (!silent) applyPreviewZoomTransform();
+    }
+
+    function fitPreviewZoomToStage() {
+      const stage = previewZoom.stage || previewZoomStage;
+      const target = previewZoom.target || previewZoomImage;
+      if (!stage || !target) return;
+      const sw = stage.clientWidth || 300;
+      const sh = stage.clientHeight || 400;
+      const iw = target.naturalWidth || target.width || sw;
+      const ih = target.naturalHeight || target.height || sh;
+      const fit = Math.min(sw / iw, sh / ih);
+      const minScale = Math.max(0.2, fit || 1);
+      const bw = iw * minScale;
+      const bh = ih * minScale;
+      previewZoom.baseRect = { w: bw, h: bh, left: 0, top: 0 };
+      previewZoom.minScale = minScale;
+      previewZoom.scale = minScale;
+      previewZoom.tx = 0;
+      previewZoom.ty = 0;
+      updatePreviewZoomLabel();
+    }
+
+    function clampPreviewZoomTranslate() {
+      const stage = previewZoom.stage || previewZoomStage;
+      if (!stage) return;
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+      const bw = previewZoom.baseRect.w * previewZoom.scale;
+      const bh = previewZoom.baseRect.h * previewZoom.scale;
+      const halfSw = sw / 2;
+      const halfSh = sh / 2;
+      const halfBw = bw / 2;
+      const halfBh = bh / 2;
+      const minTx = halfBw - halfSw;
+      const maxTx = halfSw - halfBw;
+      const minTy = halfBh - halfSh;
+      const maxTy = halfSh - halfBh;
+      if (bw <= sw) {
+        previewZoom.tx = 0;
+      } else {
+        if (previewZoom.tx < minTx) previewZoom.tx = minTx;
+        if (previewZoom.tx > maxTx) previewZoom.tx = maxTx;
+      }
+      if (bh <= sh) {
+        previewZoom.ty = 0;
+      } else {
+        if (previewZoom.ty < minTy) previewZoom.ty = minTy;
+        if (previewZoom.ty > maxTy) previewZoom.ty = maxTy;
+      }
+    }
+
+    function applyPreviewZoomTransform() {
+      const target = previewZoom.target || previewZoomImage;
+      if (!target) return;
+      const bw = previewZoom.baseRect.w;
+      const bh = previewZoom.baseRect.h;
+      if (!bw || !bh) return;
+      clampPreviewZoomTranslate();
+      const s = previewZoom.scale;
+      const tx = previewZoom.tx;
+      const ty = previewZoom.ty;
+      target.style.width = `${bw}px`;
+      target.style.height = `${bh}px`;
+      target.style.marginLeft = `-${bw / 2}px`;
+      target.style.marginTop = `-${bh / 2}px`;
+      target.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
+      target.style.webkitTransform = `translate3d(${tx}px, ${ty}px, 0) scale(${s})`;
+      updatePreviewZoomLabel();
+    }
+
+    function updatePreviewZoomLabel() {
+      const btn = document.getElementById('previewZoomResetBtn');
+      if (!btn) return;
+      const base = previewZoom.minScale || 1;
+      const ratio = base > 0 ? (previewZoom.scale / base) : 1;
+      btn.textContent = `${Math.round(ratio * 100)}%`;
+    }
+
+    function zoomPreviewBy(factor) {
+      const prevScale = previewZoom.scale;
+      const newScale = Math.min(previewZoom.maxScale, Math.max(previewZoom.minScale, prevScale * factor));
+      if (newScale === prevScale) return;
+      previewZoom.scale = newScale;
+      applyPreviewZoomTransform();
+    }
+
+    async function downloadPreviewPhoto() {
+      const url = previewZoom.currentSrc || (previewZoomImage || {}).src || '';
+      const btn = document.getElementById('previewDownloadBtn');
+      if (!url) return;
+      try {
+        const blob = await fetchPreviewPhotoBlob(url);
+        const ext = guessPreviewPhotoExt(url, blob.type);
+        const name = buildPreviewPhotoFilename(url, ext);
+        triggerPreviewPhotoBlobDownload(blob, name);
+      } catch (e) {
+        fallbackPreviewPhotoAnchor(url);
+      }
+      if (btn) {
+        const original = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(() => { btn.innerHTML = original; lucide?.createIcons?.(); }, 1400);
+      }
+    }
+
+    function fetchPreviewPhotoBlob(url) {
+      if ((url || '').startsWith('data:')) {
+        const parts = url.split(',');
+        const mimePart = (parts[0] || '').match(/data:(.*?)(;base64)?$/);
+        const mime = mimePart ? mimePart[1] : 'image/jpeg';
+        const isBase64 = /;base64,/.test(url);
+        const body = parts.slice(1).join(',');
+        if (isBase64) {
+          const binary = atob(body);
+          const out = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+          return Promise.resolve(new Blob([out], { type: mime }));
+        }
+        return Promise.resolve(new Blob([decodeURIComponent(body)], { type: mime }));
+      }
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'blob';
+        xhr.withCredentials = false;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 400 && xhr.response) resolve(xhr.response);
+          else reject(new Error('fetch-failed:' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('network'));
+        xhr.timeout = 30000;
+        xhr.send();
+      });
+    }
+
+    function guessPreviewPhotoExt(url, mime) {
+      const t = (mime || '').toLowerCase();
+      if (t.includes('image/png')) return 'png';
+      if (t.includes('image/jpeg')) return 'jpg';
+      if (t.includes('image/webp')) return 'webp';
+      if (t.includes('image/gif')) return 'gif';
+      const u = (url || '').toLowerCase();
+      if (/\.png(\?|$)/.test(u)) return 'png';
+      if (/\.(jpg|jpeg)(\?|$)/.test(u)) return 'jpg';
+      if (/\.webp(\?|$)/.test(u)) return 'webp';
+      if (/\.gif(\?|$)/.test(u)) return 'gif';
+      return 'jpg';
+    }
+
+    function buildPreviewPhotoFilename(url, ext) {
+      const ts = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const token = `${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+      const hash = String(Math.abs((url || '').split('').reduce((a,c) => ((a << 5) - a) + c.charCodeAt(0), 0))).slice(0, 6);
+      return `nw-appeal-preview-${token}-${hash}.${ext}`;
+    }
+
+    function triggerPreviewPhotoBlobDownload(blob, filename) {
+      const a = document.createElement('a');
+      const href = URL.createObjectURL(blob);
+      a.href = href;
+      a.download = filename;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try { a.click(); } finally {
+        setTimeout(() => { URL.revokeObjectURL(href); a.remove(); }, 400);
+      }
+    }
+
+    function fallbackPreviewPhotoAnchor(url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try { a.click(); } finally { setTimeout(() => a.remove(), 200); }
+    }
+
+    function attachPreviewZoomHandlers() {
+      const stage = previewZoomStage;
+      const target = previewZoomImage;
+      if (!stage || !target) return;
+      previewZoom.stage = stage;
+      previewZoom.target = target;
+
+      document.getElementById('previewZoomInBtn')?.addEventListener('click', () => zoomPreviewBy(1.2));
+      document.getElementById('previewZoomOutBtn')?.addEventListener('click', () => zoomPreviewBy(1 / 1.2));
+      document.getElementById('previewZoomResetBtn')?.addEventListener('click', () => {
+        fitPreviewZoomToStage();
+        applyPreviewZoomTransform();
+      });
+      document.getElementById('previewDownloadBtn')?.addEventListener('click', () => downloadPreviewPhoto());
+
+      stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoomPreviewBy(factor);
+      }, { passive: false });
+
+      stage.addEventListener('dblclick', () => {
+        const base = previewZoom.minScale || 1;
+        const ratio = base > 0 ? (previewZoom.scale / base) : 1;
+        const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+        zoomPreviewBy(nextFactor);
+      });
+
+      stage.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        stage.classList.add('is-grabbing');
+        previewZoom.pointer = {
+          x: e.clientX,
+          y: e.clientY,
+          tx: previewZoom.tx,
+          ty: previewZoom.ty,
+          moved: false
+        };
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!previewZoom.pointer) return;
+        const dx = e.clientX - previewZoom.pointer.x;
+        const dy = e.clientY - previewZoom.pointer.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) previewZoom.pointer.moved = true;
+        previewZoom.tx = previewZoom.pointer.tx + dx;
+        previewZoom.ty = previewZoom.pointer.ty + dy;
+        applyPreviewZoomTransform();
+      });
+      window.addEventListener('mouseup', () => {
+        stage.classList.remove('is-grabbing');
+        previewZoom.pointer = null;
+      });
+
+      function getDistance(t1, t2) {
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+      stage.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const now = Date.now();
+        if (e.touches.length === 1 && now - previewZoom.lastTapAt < 300) {
+          const base = previewZoom.minScale || 1;
+          const ratio = base > 0 ? (previewZoom.scale / base) : 1;
+          const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+          zoomPreviewBy(nextFactor);
+          previewZoom.lastTapAt = 0;
+          return;
+        }
+        if (e.touches.length === 1) previewZoom.lastTapAt = now;
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          previewZoom.pointer = {
+            x: t.clientX,
+            y: t.clientY,
+            tx: previewZoom.tx,
+            ty: previewZoom.ty,
+            moved: false
+          };
+          previewZoom.pinch = null;
+        } else if (e.touches.length >= 2) {
+          const [t1, t2] = e.touches;
+          previewZoom.pinch = {
+            startDist: getDistance(t1, t2),
+            startScale: previewZoom.scale,
+            startTx: previewZoom.tx,
+            startTy: previewZoom.ty
+          };
+          previewZoom.pointer = null;
+        }
+      }, { passive: false });
+      stage.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1 && previewZoom.pointer) {
+          const t = e.touches[0];
+          const dx = t.clientX - previewZoom.pointer.x;
+          const dy = t.clientY - previewZoom.pointer.y;
+          if (Math.abs(dx) + Math.abs(dy) > 3) previewZoom.pointer.moved = true;
+          previewZoom.tx = previewZoom.pointer.tx + dx;
+          previewZoom.ty = previewZoom.pointer.ty + dy;
+          applyPreviewZoomTransform();
+        } else if (e.touches.length >= 2 && previewZoom.pinch) {
+          const [t1, t2] = e.touches;
+          const dist = getDistance(t1, t2);
+          const factor = dist / previewZoom.pinch.startDist;
+          previewZoom.scale = Math.min(previewZoom.maxScale, Math.max(previewZoom.minScale, previewZoom.pinch.startScale * factor));
+          applyPreviewZoomTransform();
+        }
+      }, { passive: false });
+      stage.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0) {
+          previewZoom.pointer = null;
+          previewZoom.pinch = null;
+        }
+      });
+    }
 
     const APPEAL_STORAGE_KEY = 'gm_appeal_reports';
     const DEFAULT_APP_ID = 'default-attendance-app';
@@ -439,6 +856,13 @@
         resetPhotoStatus();
         window.scrollTo(0, 0);
       }, 2500);
+    });
+
+    attachPreviewZoomHandlers();
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !previewPhotoModal.classList.contains('hidden')) {
+        closePreviewPhotoModal();
+      }
     });
 
   </script>
