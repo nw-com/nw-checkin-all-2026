@@ -17,6 +17,30 @@
     @keyframes slideUp {
       to { opacity: 1; transform: translateY(0); }
     }
+    .img-zoom-stage {
+      position: relative;
+      width: 100%;
+      max-height: 70vh;
+      min-height: 40vh;
+      overflow: hidden;
+      background: #f8fafc;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: grab;
+      border-radius: 1rem;
+      border: 1px solid #e2e8f0;
+    }
+    .img-zoom-stage.is-grabbing { cursor: grabbing; }
+    .img-zoom-target {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-origin: 0 0;
+      max-width: none;
+      will-change: transform;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body class="text-slate-800 antialiased pb-10">
@@ -215,12 +239,19 @@
           <div class="text-lg font-black text-slate-800">案件照片</div>
           <div id="photoModalMeta" class="text-xs text-slate-400 mt-1"></div>
         </div>
-        <button type="button" onclick="closePhotoModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" id="photoZoomOutBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">－</button>
+          <button type="button" id="photoZoomResetBtn" class="h-9 px-2 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 flex items-center justify-center text-xs">100%</button>
+          <button type="button" id="photoZoomInBtn" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 flex items-center justify-center">＋</button>
+          <button type="button" onclick="closePhotoModal()" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
       </div>
       <div class="p-4 bg-slate-50">
-        <img id="photoModalImage" src="" alt="案件照片" class="w-full max-h-[70vh] object-contain rounded-2xl bg-white border border-slate-200">
+        <div id="photoZoomStage" class="img-zoom-stage bg-white">
+          <img id="photoModalImage" src="" alt="案件照片" class="img-zoom-target bg-white">
+        </div>
       </div>
     </div>
   </div>
@@ -590,6 +621,12 @@
       photoModalMeta.textContent = `${report.community || ''} / ${report.category || ''}`;
       photoModal.classList.remove('hidden');
       photoModal.classList.add('flex');
+      resetPhotoZoom(true);
+      photoModalImage.onload = () => {
+        fitPhotoImageToStage();
+        applyPhotoZoomTransform();
+        photoModalImage.onload = null;
+      };
       lucide.createIcons();
     }
 
@@ -599,6 +636,275 @@
       photoModalMeta.textContent = '';
       photoModal.classList.add('hidden');
       photoModal.classList.remove('flex');
+      resetPhotoZoom(true);
+    }
+
+    const photoZoom = {
+      stage: null,
+      target: null,
+      scale: 1,
+      minScale: 1,
+      maxScale: 8,
+      tx: 0,
+      ty: 0,
+      baseRect: { w: 0, h: 0, left: 0, top: 0 },
+      pointer: null,
+      pinch: null,
+      lastTapAt: 0
+    };
+
+    function resetPhotoZoom(silent = false) {
+      photoZoom.scale = 1;
+      photoZoom.minScale = 1;
+      photoZoom.maxScale = 8;
+      photoZoom.tx = 0;
+      photoZoom.ty = 0;
+      photoZoom.pointer = null;
+      photoZoom.pinch = null;
+      const resetBtn = document.getElementById('photoZoomResetBtn');
+      if (resetBtn) resetBtn.textContent = '100%';
+      if (!silent) applyPhotoZoomTransform();
+    }
+
+    function fitPhotoImageToStage() {
+      const stage = photoZoom.stage || document.getElementById('photoZoomStage');
+      const target = photoZoom.target || photoModalImage;
+      if (!stage || !target) return;
+      const sw = stage.clientWidth || 300;
+      const sh = stage.clientHeight || 400;
+      const iw = target.naturalWidth || target.width || sw;
+      const ih = target.naturalHeight || target.height || sh;
+      const fit = Math.min(sw / iw, sh / ih, 1);
+      const minScale = Math.max(0.2, fit || 1);
+      photoZoom.baseRect = { w: iw * minScale, h: ih * minScale, left: -((iw * minScale) / 2), top: -((ih * minScale) / 2) };
+      photoZoom.minScale = minScale;
+      photoZoom.scale = minScale;
+      photoZoom.tx = 0;
+      photoZoom.ty = 0;
+      updatePhotoZoomLabel();
+    }
+
+    function clampPhotoZoomTranslate() {
+      const stage = photoZoom.stage || document.getElementById('photoZoomStage');
+      if (!stage) return;
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+      const bw = photoZoom.baseRect.w * photoZoom.scale;
+      const bh = photoZoom.baseRect.h * photoZoom.scale;
+      if (bw <= sw) {
+        photoZoom.tx = 0;
+      } else {
+        const baseX = photoZoom.baseRect.left * photoZoom.scale;
+        const contentLeft = baseX + photoZoom.tx;
+        const contentRight = contentLeft + bw;
+        const minTx = -(contentRight - sw);
+        const maxTx = -contentLeft;
+        if (photoZoom.tx < minTx) photoZoom.tx = minTx;
+        if (photoZoom.tx > maxTx) photoZoom.tx = maxTx;
+      }
+      if (bh <= sh) {
+        photoZoom.ty = 0;
+      } else {
+        const baseY = photoZoom.baseRect.top * photoZoom.scale;
+        const contentTop = baseY + photoZoom.ty;
+        const contentBottom = contentTop + bh;
+        const minTy = -(contentBottom - sh);
+        const maxTy = -contentTop;
+        if (photoZoom.ty < minTy) photoZoom.ty = minTy;
+        if (photoZoom.ty > maxTy) photoZoom.ty = maxTy;
+      }
+    }
+
+    function applyPhotoZoomTransform() {
+      const target = photoZoom.target || photoModalImage;
+      if (!target) return;
+      clampPhotoZoomTranslate();
+      const bw = photoZoom.baseRect.w;
+      const bh = photoZoom.baseRect.h;
+      const s = photoZoom.scale;
+      const tx = (photoZoom.baseRect.left * s) + photoZoom.tx;
+      const ty = (photoZoom.baseRect.top * s) + photoZoom.ty;
+      target.style.width = `${bw}px`;
+      target.style.height = `${bh}px`;
+      target.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+      updatePhotoZoomLabel();
+    }
+
+    function updatePhotoZoomLabel() {
+      const btn = document.getElementById('photoZoomResetBtn');
+      if (!btn) return;
+      const base = photoZoom.minScale || 1;
+      const ratio = base > 0 ? (photoZoom.scale / base) : 1;
+      btn.textContent = `${Math.round(ratio * 100)}%`;
+    }
+
+    function zoomPhotoBy(factor, cx, cy) {
+      const stage = photoZoom.stage || document.getElementById('photoZoomStage');
+      if (!stage) return;
+      const rect = stage.getBoundingClientRect();
+      const px = (cx != null && cy != null) ? cx : rect.width / 2;
+      const py = (cx != null && cy != null) ? cy : rect.height / 2;
+      const prevScale = photoZoom.scale;
+      const newScale = Math.min(photoZoom.maxScale, Math.max(photoZoom.minScale, prevScale * factor));
+      if (newScale === prevScale) return;
+      const bw = photoZoom.baseRect.w;
+      const bh = photoZoom.baseRect.h;
+      const beforeX = (photoZoom.baseRect.left * prevScale) + photoZoom.tx + (bw * prevScale * (px / rect.width));
+      const beforeY = (photoZoom.baseRect.top * prevScale) + photoZoom.ty + (bh * prevScale * (py / rect.height));
+      photoZoom.scale = newScale;
+      const afterX = (photoZoom.baseRect.left * newScale) + (bw * newScale * (px / rect.width));
+      const afterY = (photoZoom.baseRect.top * newScale) + (bh * newScale * (py / rect.height));
+      photoZoom.tx += beforeX - afterX;
+      photoZoom.ty += beforeY - afterY;
+      applyPhotoZoomTransform();
+    }
+
+    function attachPhotoZoomHandlers() {
+      const stage = document.getElementById('photoZoomStage');
+      const target = photoModalImage;
+      if (!stage || !target) return;
+      photoZoom.stage = stage;
+      photoZoom.target = target;
+
+      document.getElementById('photoZoomInBtn')?.addEventListener('click', () => zoomPhotoBy(1.2));
+      document.getElementById('photoZoomOutBtn')?.addEventListener('click', () => zoomPhotoBy(1 / 1.2));
+      document.getElementById('photoZoomResetBtn')?.addEventListener('click', () => {
+        fitPhotoImageToStage();
+        applyPhotoZoomTransform();
+      });
+
+      stage.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = stage.getBoundingClientRect();
+        const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
+        const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoomPhotoBy(factor, cx, cy);
+      }, { passive: false });
+
+      stage.addEventListener('dblclick', (e) => {
+        const rect = stage.getBoundingClientRect();
+        const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
+        const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
+        const base = photoZoom.minScale || 1;
+        const ratio = base > 0 ? (photoZoom.scale / base) : 1;
+        const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+        zoomPhotoBy(nextFactor, cx, cy);
+      });
+
+      stage.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        stage.classList.add('is-grabbing');
+        photoZoom.pointer = {
+          x: e.clientX,
+          y: e.clientY,
+          tx: photoZoom.tx,
+          ty: photoZoom.ty,
+          moved: false
+        };
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!photoZoom.pointer) return;
+        const dx = e.clientX - photoZoom.pointer.x;
+        const dy = e.clientY - photoZoom.pointer.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) photoZoom.pointer.moved = true;
+        photoZoom.tx = photoZoom.pointer.tx + dx;
+        photoZoom.ty = photoZoom.pointer.ty + dy;
+        applyPhotoZoomTransform();
+      });
+      window.addEventListener('mouseup', () => {
+        stage.classList.remove('is-grabbing');
+        photoZoom.pointer = null;
+      });
+
+      function touchDistance(t1, t2) {
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+      function touchMidpoint(t1, t2) {
+        return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+      }
+      stage.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const now = Date.now();
+        if (e.touches.length === 1 && now - photoZoom.lastTapAt < 300) {
+          const t = e.touches[0];
+          const rect = stage.getBoundingClientRect();
+          const cx = t.clientX - rect.left;
+          const cy = t.clientY - rect.top;
+          const base = photoZoom.minScale || 1;
+          const ratio = base > 0 ? (photoZoom.scale / base) : 1;
+          const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+          zoomPhotoBy(nextFactor, cx, cy);
+          photoZoom.lastTapAt = 0;
+          return;
+        }
+        if (e.touches.length === 1) photoZoom.lastTapAt = now;
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          photoZoom.pointer = {
+            x: t.clientX,
+            y: t.clientY,
+            tx: photoZoom.tx,
+            ty: photoZoom.ty,
+            moved: false
+          };
+          photoZoom.pinch = null;
+        } else if (e.touches.length >= 2) {
+          const [t1, t2] = e.touches;
+          const rect = stage.getBoundingClientRect();
+          const mid = touchMidpoint(t1, t2);
+          photoZoom.pinch = {
+            startDist: touchDistance(t1, t2),
+            startScale: photoZoom.scale,
+            midX: mid.x - rect.left,
+            midY: mid.y - rect.top,
+            startTx: photoZoom.tx,
+            startTy: photoZoom.ty
+          };
+          photoZoom.pointer = null;
+        }
+      }, { passive: false });
+      stage.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1 && photoZoom.pointer) {
+          const t = e.touches[0];
+          const dx = t.clientX - photoZoom.pointer.x;
+          const dy = t.clientY - photoZoom.pointer.y;
+          if (Math.abs(dx) + Math.abs(dy) > 3) photoZoom.pointer.moved = true;
+          photoZoom.tx = photoZoom.pointer.tx + dx;
+          photoZoom.ty = photoZoom.pointer.ty + dy;
+          applyPhotoZoomTransform();
+        } else if (e.touches.length >= 2 && photoZoom.pinch) {
+          const [t1, t2] = e.touches;
+          const dist = touchDistance(t1, t2);
+          const factor = dist / photoZoom.pinch.startDist;
+          const nextScale = Math.min(photoZoom.maxScale, Math.max(photoZoom.minScale, photoZoom.pinch.startScale * factor));
+          const mid = touchMidpoint(t1, t2);
+          const rect = stage.getBoundingClientRect();
+          const cx = mid.x - rect.left;
+          const cy = mid.y - rect.top;
+          const prevScale = photoZoom.scale;
+          const bw = photoZoom.baseRect.w;
+          const bh = photoZoom.baseRect.h;
+          const beforeX = (photoZoom.baseRect.left * prevScale) + photoZoom.tx + (bw * prevScale * (cx / rect.width));
+          const beforeY = (photoZoom.baseRect.top * prevScale) + photoZoom.ty + (bh * prevScale * (cy / rect.height));
+          photoZoom.scale = nextScale;
+          const afterX = (photoZoom.baseRect.left * nextScale) + (bw * nextScale * (cx / rect.width));
+          const afterY = (photoZoom.baseRect.top * nextScale) + (bh * nextScale * (cy / rect.height));
+          photoZoom.tx += beforeX - afterX;
+          photoZoom.ty += beforeY - afterY;
+          applyPhotoZoomTransform();
+        }
+      }, { passive: false });
+      stage.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0) {
+          photoZoom.pointer = null;
+          photoZoom.pinch = null;
+        }
+      });
     }
 
     function dialContactPhone(event, phone) {
@@ -894,6 +1200,12 @@
     }
 
     startRealtime();
+    attachPhotoZoomHandlers();
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !photoModal.classList.contains('hidden')) {
+        closePhotoModal();
+      }
+    });
   </script>
 </body>
 </html>

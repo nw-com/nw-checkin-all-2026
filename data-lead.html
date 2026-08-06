@@ -19,6 +19,28 @@
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         body { font-family: 'Noto Sans TC', sans-serif; background: #f8fafc; }
         .lead-app { height: calc(var(--vh, 1vh) * 100); }
+        .img-zoom-stage {
+            position: relative;
+            width: 100%;
+            max-height: 75vh;
+            min-height: 40vh;
+            overflow: hidden;
+            background: #000;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            cursor: grab;
+        }
+        .img-zoom-stage.is-grabbing { cursor: grabbing; }
+        .img-zoom-target {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: 0 0;
+            max-width: none;
+            will-change: transform;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="min-h-screen text-gray-800">
@@ -153,11 +175,16 @@
 
     <div id="image-modal" class="hidden fixed inset-0 bg-black/70 z-50 items-center justify-center p-4">
         <div class="max-w-3xl w-full">
-            <div class="flex justify-end mb-2">
-                <button id="close-image-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors">關閉</button>
+            <div class="flex justify-between items-center mb-2">
+                <div class="flex items-center gap-1">
+                    <button id="img-zoom-out-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors" type="button">－</button>
+                    <button id="img-zoom-reset-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors text-xs" type="button">100%</button>
+                    <button id="img-zoom-in-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors" type="button">＋</button>
+                </div>
+                <button id="close-image-btn" class="px-3 py-2 rounded-xl bg-white/90 text-gray-800 font-black hover:bg-white transition-colors" type="button">關閉</button>
             </div>
-            <div class="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-2xl">
-                <img id="image-modal-img" class="w-full h-auto max-h-[75vh] object-contain bg-black" alt="請假照片預覽" />
+            <div id="img-zoom-stage" class="img-zoom-stage bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-2xl">
+                <img id="image-modal-img" class="img-zoom-target bg-black" alt="請假照片預覽" />
             </div>
         </div>
     </div>
@@ -1320,15 +1347,291 @@
         }
 
         function openImageModal(url) {
-            $('image-modal-img').src = url;
+            const img = $('image-modal-img');
+            img.src = url;
             $('image-modal').classList.remove('hidden');
             $('image-modal').classList.add('flex');
+            resetImageZoom(true);
+            img.onload = () => {
+                fitImageToStage();
+                applyImageTransform();
+                img.onload = null;
+            };
         }
 
         function closeImageModal() {
             $('image-modal').classList.add('hidden');
             $('image-modal').classList.remove('flex');
             $('image-modal-img').src = '';
+            resetImageZoom(true);
+        }
+
+        const imgZoom = {
+            stage: null,
+            target: null,
+            scale: 1,
+            minScale: 1,
+            maxScale: 8,
+            tx: 0,
+            ty: 0,
+            baseRect: { w: 0, h: 0, left: 0, top: 0 },
+            pointer: null,
+            pinch: null,
+            lastTapAt: 0
+        };
+
+        function resetImageZoom(silent = false) {
+            imgZoom.scale = 1;
+            imgZoom.minScale = 1;
+            imgZoom.maxScale = 8;
+            imgZoom.tx = 0;
+            imgZoom.ty = 0;
+            imgZoom.pointer = null;
+            imgZoom.pinch = null;
+            const resetBtn = $('img-zoom-reset-btn');
+            if (resetBtn) resetBtn.textContent = '100%';
+            if (!silent) applyImageTransform();
+        }
+
+        function fitImageToStage() {
+            const stage = imgZoom.stage || $('img-zoom-stage');
+            const target = imgZoom.target || $('image-modal-img');
+            if (!stage || !target) return;
+            const sw = stage.clientWidth || 300;
+            const sh = stage.clientHeight || 400;
+            const iw = target.naturalWidth || target.width || sw;
+            const ih = target.naturalHeight || target.height || sh;
+            const fit = Math.min(sw / iw, sh / ih, 1);
+            const minScale = Math.max(0.2, fit || 1);
+            imgZoom.baseRect = { w: iw * minScale, h: ih * minScale, left: -((iw * minScale) / 2), top: -((ih * minScale) / 2) };
+            imgZoom.minScale = minScale;
+            imgZoom.scale = minScale;
+            imgZoom.tx = 0;
+            imgZoom.ty = 0;
+            updateZoomLabel();
+        }
+
+        function clampTranslate() {
+            const stage = imgZoom.stage || $('img-zoom-stage');
+            if (!stage) return;
+            const sw = stage.clientWidth;
+            const sh = stage.clientHeight;
+            const bw = imgZoom.baseRect.w * imgZoom.scale;
+            const bh = imgZoom.baseRect.h * imgZoom.scale;
+            if (bw <= sw) {
+                imgZoom.tx = 0;
+            } else {
+                const baseX = imgZoom.baseRect.left * imgZoom.scale;
+                const contentLeft = baseX + imgZoom.tx;
+                const contentRight = contentLeft + bw;
+                const minTx = -(contentRight - sw);
+                const maxTx = -contentLeft;
+                if (imgZoom.tx < minTx) imgZoom.tx = minTx;
+                if (imgZoom.tx > maxTx) imgZoom.tx = maxTx;
+            }
+            if (bh <= sh) {
+                imgZoom.ty = 0;
+            } else {
+                const baseY = imgZoom.baseRect.top * imgZoom.scale;
+                const contentTop = baseY + imgZoom.ty;
+                const contentBottom = contentTop + bh;
+                const minTy = -(contentBottom - sh);
+                const maxTy = -contentTop;
+                if (imgZoom.ty < minTy) imgZoom.ty = minTy;
+                if (imgZoom.ty > maxTy) imgZoom.ty = maxTy;
+            }
+        }
+
+        function applyImageTransform() {
+            const target = imgZoom.target || $('image-modal-img');
+            if (!target) return;
+            clampTranslate();
+            const bw = imgZoom.baseRect.w;
+            const bh = imgZoom.baseRect.h;
+            const s = imgZoom.scale;
+            const tx = (imgZoom.baseRect.left * s) + imgZoom.tx + 0;
+            const ty = (imgZoom.baseRect.top * s) + imgZoom.ty + 0;
+            target.style.width = `${bw}px`;
+            target.style.height = `${bh}px`;
+            target.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+            updateZoomLabel();
+        }
+
+        function updateZoomLabel() {
+            const btn = $('img-zoom-reset-btn');
+            if (!btn) return;
+            const base = imgZoom.minScale || 1;
+            const ratio = base > 0 ? (imgZoom.scale / base) : 1;
+            btn.textContent = `${Math.round(ratio * 100)}%`;
+        }
+
+        function zoomBy(factor, cx, cy) {
+            const stage = imgZoom.stage || $('img-zoom-stage');
+            if (!stage) return;
+            const rect = stage.getBoundingClientRect();
+            const px = (cx != null && cy != null) ? cx : rect.width / 2;
+            const py = (cx != null && cy != null) ? cy : rect.height / 2;
+            const prevScale = imgZoom.scale;
+            const newScale = Math.min(imgZoom.maxScale, Math.max(imgZoom.minScale, prevScale * factor));
+            if (newScale === prevScale) return;
+            const bw = imgZoom.baseRect.w;
+            const bh = imgZoom.baseRect.h;
+            const beforeX = (imgZoom.baseRect.left * prevScale) + imgZoom.tx + (bw * prevScale * (px / rect.width));
+            const beforeY = (imgZoom.baseRect.top * prevScale) + imgZoom.ty + (bh * prevScale * (py / rect.height));
+            imgZoom.scale = newScale;
+            const afterX = (imgZoom.baseRect.left * newScale) + (bw * newScale * (px / rect.width));
+            const afterY = (imgZoom.baseRect.top * newScale) + (bh * newScale * (py / rect.height));
+            imgZoom.tx += beforeX - afterX;
+            imgZoom.ty += beforeY - afterY;
+            applyImageTransform();
+        }
+
+        function attachImageZoomHandlers() {
+            const stage = $('img-zoom-stage');
+            const target = $('image-modal-img');
+            if (!stage || !target) return;
+            imgZoom.stage = stage;
+            imgZoom.target = target;
+
+            $('img-zoom-in-btn')?.addEventListener('click', () => zoomBy(1.2));
+            $('img-zoom-out-btn')?.addEventListener('click', () => zoomBy(1 / 1.2));
+            $('img-zoom-reset-btn')?.addEventListener('click', () => {
+                fitImageToStage();
+                applyImageTransform();
+            });
+
+            stage.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const rect = stage.getBoundingClientRect();
+                const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
+                const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
+                const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+                zoomBy(factor, cx, cy);
+            }, { passive: false });
+
+            stage.addEventListener('dblclick', (e) => {
+                const rect = stage.getBoundingClientRect();
+                const cx = (e.clientX || (rect.left + rect.width / 2)) - rect.left;
+                const cy = (e.clientY || (rect.top + rect.height / 2)) - rect.top;
+                const base = imgZoom.minScale || 1;
+                const ratio = base > 0 ? (imgZoom.scale / base) : 1;
+                const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+                zoomBy(nextFactor, cx, cy);
+            });
+
+            stage.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                stage.classList.add('is-grabbing');
+                imgZoom.pointer = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    tx: imgZoom.tx,
+                    ty: imgZoom.ty,
+                    moved: false
+                };
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!imgZoom.pointer) return;
+                const dx = e.clientX - imgZoom.pointer.x;
+                const dy = e.clientY - imgZoom.pointer.y;
+                if (Math.abs(dx) + Math.abs(dy) > 3) imgZoom.pointer.moved = true;
+                imgZoom.tx = imgZoom.pointer.tx + dx;
+                imgZoom.ty = imgZoom.pointer.ty + dy;
+                applyImageTransform();
+            });
+            window.addEventListener('mouseup', () => {
+                stage.classList.remove('is-grabbing');
+                imgZoom.pointer = null;
+            });
+
+            function getDistance(t1, t2) {
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+            function getMidpoint(t1, t2) {
+                return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+            }
+            stage.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const now = Date.now();
+                if (e.touches.length === 1 && now - imgZoom.lastTapAt < 300) {
+                    const t = e.touches[0];
+                    const rect = stage.getBoundingClientRect();
+                    const cx = t.clientX - rect.left;
+                    const cy = t.clientY - rect.top;
+                    const base = imgZoom.minScale || 1;
+                    const ratio = base > 0 ? (imgZoom.scale / base) : 1;
+                    const nextFactor = ratio < 2 ? 2 / ratio : 1 / ratio;
+                    zoomBy(nextFactor, cx, cy);
+                    imgZoom.lastTapAt = 0;
+                    return;
+                }
+                if (e.touches.length === 1) imgZoom.lastTapAt = now;
+                if (e.touches.length === 1) {
+                    const t = e.touches[0];
+                    imgZoom.pointer = {
+                        x: t.clientX,
+                        y: t.clientY,
+                        tx: imgZoom.tx,
+                        ty: imgZoom.ty,
+                        moved: false
+                    };
+                    imgZoom.pinch = null;
+                } else if (e.touches.length >= 2) {
+                    const [t1, t2] = e.touches;
+                    const rect = stage.getBoundingClientRect();
+                    const mid = getMidpoint(t1, t2);
+                    imgZoom.pinch = {
+                        startDist: getDistance(t1, t2),
+                        startScale: imgZoom.scale,
+                        midX: mid.x - rect.left,
+                        midY: mid.y - rect.top,
+                        startTx: imgZoom.tx,
+                        startTy: imgZoom.ty
+                    };
+                    imgZoom.pointer = null;
+                }
+            }, { passive: false });
+            stage.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1 && imgZoom.pointer) {
+                    const t = e.touches[0];
+                    const dx = t.clientX - imgZoom.pointer.x;
+                    const dy = t.clientY - imgZoom.pointer.y;
+                    if (Math.abs(dx) + Math.abs(dy) > 3) imgZoom.pointer.moved = true;
+                    imgZoom.tx = imgZoom.pointer.tx + dx;
+                    imgZoom.ty = imgZoom.pointer.ty + dy;
+                    applyImageTransform();
+                } else if (e.touches.length >= 2 && imgZoom.pinch) {
+                    const [t1, t2] = e.touches;
+                    const dist = getDistance(t1, t2);
+                    const factor = dist / imgZoom.pinch.startDist;
+                    const nextScale = Math.min(imgZoom.maxScale, Math.max(imgZoom.minScale, imgZoom.pinch.startScale * factor));
+                    const mid = getMidpoint(t1, t2);
+                    const rect = stage.getBoundingClientRect();
+                    const cx = mid.x - rect.left;
+                    const cy = mid.y - rect.top;
+                    const prevScale = imgZoom.scale;
+                    const bw = imgZoom.baseRect.w;
+                    const bh = imgZoom.baseRect.h;
+                    const beforeX = (imgZoom.baseRect.left * prevScale) + imgZoom.tx + (bw * prevScale * (cx / rect.width));
+                    const beforeY = (imgZoom.baseRect.top * prevScale) + imgZoom.ty + (bh * prevScale * (cy / rect.height));
+                    imgZoom.scale = nextScale;
+                    const afterX = (imgZoom.baseRect.left * nextScale) + (bw * nextScale * (cx / rect.width));
+                    const afterY = (imgZoom.baseRect.top * nextScale) + (bh * nextScale * (cy / rect.height));
+                    imgZoom.tx += beforeX - afterX;
+                    imgZoom.ty += beforeY - afterY;
+                    applyImageTransform();
+                }
+            }, { passive: false });
+            stage.addEventListener('touchend', (e) => {
+                if (e.touches.length === 0) {
+                    imgZoom.pointer = null;
+                    imgZoom.pinch = null;
+                }
+            });
         }
 
         function render() {
@@ -1643,6 +1946,7 @@
             });
 
             $('close-image-btn').addEventListener('click', closeImageModal);
+            attachImageZoomHandlers();
             $('image-modal').addEventListener('click', (e) => {
                 if (e.target && e.target.id === 'image-modal') closeImageModal();
             });
