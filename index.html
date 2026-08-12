@@ -10693,6 +10693,8 @@
             const [cadreCompany, setCadreCompany] = useState(() => localStorage.getItem('last_cadre_company') || '台北');
             const communityLeaveMonthInputRef = useRef(null);
             const cadreLeaveMonthInputRef = useRef(null);
+            const communityRecordDateInputRef = useRef(null);
+            const cadreRecordDateInputRef = useRef(null);
             const [cadreRecordDate, setCadreRecordDate] = useState(() => {
                 const d = new Date();
                 return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -11531,6 +11533,48 @@
                 const ids = [user.communityId, ...((user.communityIds || []).filter(Boolean))].filter(Boolean).map(String);
                 return Array.from(new Set(ids));
             }, []);
+            const openPicker = ({ type, value, max, onChange }) => {
+                try {
+                    const tempInput = document.createElement('input');
+                    tempInput.type = type || 'date';
+                    if (value) tempInput.value = value;
+                    if (max) tempInput.max = max;
+                    tempInput.style.position = 'fixed';
+                    tempInput.style.top = '0';
+                    tempInput.style.left = '0';
+                    tempInput.style.opacity = '0.001';
+                    tempInput.style.pointerEvents = 'none';
+                    tempInput.style.zIndex = '-1';
+                    tempInput.style.width = '1px';
+                    tempInput.style.height = '1px';
+                    tempInput.addEventListener('change', (e) => {
+                        const v = String(e?.target?.value || '').trim();
+                        if (v && typeof onChange === 'function') onChange(v);
+                        setTimeout(() => { try { document.body.removeChild(tempInput); } catch (_) {} }, 100);
+                    });
+                    document.body.appendChild(tempInput);
+                    if (typeof tempInput.showPicker === 'function') {
+                        try { tempInput.showPicker(); return; } catch (_) {}
+                    }
+                    try {
+                        tempInput.style.pointerEvents = 'auto';
+                        tempInput.focus();
+                        const rect = tempInput.getBoundingClientRect();
+                        try { tempInput.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: rect.left + 1, clientY: rect.top + 1 })); } catch (_) {}
+                    } catch (_) {}
+                } catch (_) {}
+            };
+            const shiftMonthString = (ymd, delta, todayStr) => {
+                const base = new Date(`${String(ymd || '').trim() || todayStr}T00:00:00`);
+                if (!base || isNaN(base.getTime())) return todayStr;
+                base.setDate(1);
+                base.setMonth(base.getMonth() + delta);
+                return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+            };
+            const toMonthValue = (ymd) => {
+                const value = String(ymd || '').trim();
+                return /^\d{4}-\d{2}/.test(value) ? value.slice(0, 7) : '';
+            };
             const matchesMakeupRequestCommunity = useCallback((req, communityId, fallbackUserIds = []) => {
                 const targetId = String(communityId || '').trim();
                 if (!req || !targetId) return false;
@@ -17510,6 +17554,7 @@
                                                         .map(u => u.id);
                                                     const count = (makeupRequests || []).filter(req =>
                                                         req.status === 'pending' &&
+                                                        communityUserIds.includes(String(req.userId || '')) &&
                                                         matchesMakeupRequestCommunity(req, selectedCommunity.id, communityUserIds)
                                                     ).length;
                                                     if (count <= 0) return null;
@@ -22593,7 +22638,19 @@
                                             >
                                                 <ChevronLeft className="w-5 h-5" />
                                             </button>
-                                            <span>{isToday ? '今日打卡紀錄' : `${communityRecordDate.replace(/-/g, '/')} 打卡紀錄`}</span>
+                                            <div className="relative inline-block">
+                                                <span
+                                                    onClick={() => openPicker({
+                                                        type: 'date',
+                                                        value: communityRecordDate,
+                                                        max: todayStr,
+                                                        onChange: (v) => setCommunityRecordDate(v)
+                                                    })}
+                                                    className="flex items-center hover:underline cursor-pointer select-none"
+                                                >
+                                                    {isToday ? '今日打卡紀錄' : `${communityRecordDate.replace(/-/g, '/')} 打卡紀錄`}
+                                                </span>
+                                            </div>
                                             <button 
                                                 onClick={() => {
                                                     const d = new Date(communityRecordDate);
@@ -23405,7 +23462,7 @@
                                 }) : [];
                                 const communityUserIds = communityUsers.map(u => u.id);
                                 const records = selectedCommunity ? (makeupRequests || [])
-                                    .filter(req => matchesMakeupRequestCommunity(req, selectedCommunity.id, communityUserIds))
+                                    .filter(req => req.status === 'pending' && communityUserIds.includes(String(req.userId || '')) && matchesMakeupRequestCommunity(req, selectedCommunity.id, communityUserIds))
                                     .sort((a, b) => {
                                         const aSecs = a.createdAt?.seconds || 0;
                                         const bSecs = b.createdAt?.seconds || 0;
@@ -23742,28 +23799,18 @@
                                                     >
                                                         <ChevronLeft className="w-5 h-5" />
                                                     </button>
-                                                    <div className="relative">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => openHiddenDatePicker(communityLeaveMonthInputRef)}
-                                                            className="flex items-center hover:underline"
+                                                    <div className="relative inline-block">
+                                                        <span
+                                                            onClick={() => openPicker({
+                                                                type: 'month',
+                                                                value: toMonthValue(communityRecordDate),
+                                                                max: todayStr.slice(0, 7),
+                                                                onChange: (v) => setCommunityRecordDate(`${v}-01`)
+                                                            })}
+                                                            className="flex items-center hover:underline cursor-pointer select-none"
                                                         >
-                                                            <span>{currentMonth}</span>
-                                                        </button>
-                                                        <input
-                                                            ref={communityLeaveMonthInputRef}
-                                                            type="month"
-                                                            value={toMonthValue(communityRecordDate)}
-                                                            max={todayStr.slice(0, 7)}
-                                                            onChange={(e) => {
-                                                                const v = String(e?.target?.value || '').trim();
-                                                                if (!v) return;
-                                                                setCommunityRecordDate(`${v}-01`);
-                                                            }}
-                                                            className="absolute -left-[9999px] w-px h-px opacity-0"
-                                                            tabIndex={-1}
-                                                            aria-hidden="true"
-                                                        />
+                                                            {currentMonth}
+                                                        </span>
                                                     </div>
                                                     <button 
                                                         onClick={() => {
@@ -25162,7 +25209,19 @@
                                                     >
                                                         <ChevronLeft className="w-5 h-5" />
                                                     </button>
-                                                    <span>{isToday ? '今日打卡紀錄' : `${cadreRecordDate.replace(/-/g, '/')} 打卡紀錄`}</span>
+                                                    <div className="relative inline-block">
+                                                        <span
+                                                            onClick={() => openPicker({
+                                                                type: 'date',
+                                                                value: cadreRecordDate,
+                                                                max: todayStr,
+                                                                onChange: (v) => setCadreRecordDate(v)
+                                                            })}
+                                                            className="flex items-center hover:underline cursor-pointer select-none"
+                                                        >
+                                                            {isToday ? '今日打卡紀錄' : `${cadreRecordDate.replace(/-/g, '/')} 打卡紀錄`}
+                                                        </span>
+                                                    </div>
                                                     <button 
                                                         onClick={() => {
                                                             const d = new Date(cadreRecordDate);
@@ -25895,28 +25954,18 @@
                                                     >
                                                         <ChevronLeft className="w-5 h-5" />
                                                     </button>
-                                                    <div className="relative">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => openHiddenDatePicker(cadreLeaveMonthInputRef)}
-                                                            className="flex items-center hover:underline"
+                                                    <div className="relative inline-block">
+                                                        <span
+                                                            onClick={() => openPicker({
+                                                                type: 'month',
+                                                                value: toMonthValue(cadreRecordDate),
+                                                                max: todayStr.slice(0, 7),
+                                                                onChange: (v) => setCadreRecordDate(`${v}-01`)
+                                                            })}
+                                                            className="flex items-center hover:underline cursor-pointer select-none"
                                                         >
-                                                            <span>{currentMonth}</span>
-                                                        </button>
-                                                        <input
-                                                            ref={cadreLeaveMonthInputRef}
-                                                            type="month"
-                                                            value={toMonthValue(cadreRecordDate)}
-                                                            max={todayStr.slice(0, 7)}
-                                                            onChange={(e) => {
-                                                                const v = String(e?.target?.value || '').trim();
-                                                                if (!v) return;
-                                                                setCadreRecordDate(`${v}-01`);
-                                                            }}
-                                                            className="absolute -left-[9999px] w-px h-px opacity-0"
-                                                            tabIndex={-1}
-                                                            aria-hidden="true"
-                                                        />
+                                                            {currentMonth}
+                                                        </span>
                                                     </div>
                                                     <button 
                                                         onClick={() => {
