@@ -431,7 +431,7 @@
                 <button id="logs-prev-btn" onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-left" size="16"></i>
                 </button>
-                <div id="logs-date-label" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap"></div>
+                <div id="logs-date-label" onclick="openLogsDatePicker()" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap cursor-pointer select-none hover:bg-gray-200"></div>
                 <button id="logs-next-btn" onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-right" size="16"></i>
                 </button>
@@ -598,6 +598,10 @@
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-1">對應代碼 (Code)</label>
                     <input type="text" id="edit-log-code" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">打卡時間</label>
+                    <input type="datetime-local" id="edit-log-time" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono">
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                     <div>
@@ -1645,6 +1649,53 @@
             renderPatrolPointsTags();
             subscribeLogsForDate(selectedLogsDate);
             renderLogs();
+        }
+
+        function openLogsDatePicker() {
+            try {
+                const tempInput = document.createElement('input');
+                tempInput.type = 'date';
+                tempInput.value = toInputDate(selectedLogsDate || new Date());
+                const today = new Date();
+                tempInput.max = toInputDate(today);
+                tempInput.style.position = 'fixed';
+                tempInput.style.top = '0';
+                tempInput.style.left = '0';
+                tempInput.style.opacity = '0.001';
+                tempInput.style.pointerEvents = 'none';
+                tempInput.style.zIndex = '-1';
+                tempInput.style.width = '1px';
+                tempInput.style.height = '1px';
+                tempInput.addEventListener('change', (e) => {
+                    const v = String(e?.target?.value || '').trim();
+                    if (v) {
+                        const [y, m, d] = v.split('-').map(n => parseInt(n, 10));
+                        if (y && m && d) {
+                            const next = new Date(y, m - 1, d, 0, 0, 0, 0);
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            if (next.getTime() <= today.getTime()) {
+                                selectedLogsDate = next;
+                                updateLogsDateLabel();
+                                renderPatrolPointsTags();
+                                subscribeLogsForDate(selectedLogsDate);
+                                renderLogs();
+                            }
+                        }
+                    }
+                    setTimeout(() => { try { document.body.removeChild(tempInput); } catch (_) {} }, 100);
+                });
+                document.body.appendChild(tempInput);
+                if (typeof tempInput.showPicker === 'function') {
+                    try { tempInput.showPicker(); return; } catch (_) {}
+                }
+                try {
+                    tempInput.style.pointerEvents = 'auto';
+                    tempInput.focus();
+                    const rect = tempInput.getBoundingClientRect();
+                    try { tempInput.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: rect.left + 1, clientY: rect.top + 1 })); } catch (_) {}
+                } catch (_) {}
+            } catch (_) {}
         }
 
         function pad2(n) {
@@ -2914,11 +2965,26 @@
             const idEl = document.getElementById('edit-log-id');
             const nameEl = document.getElementById('edit-log-location');
             const codeEl = document.getElementById('edit-log-code');
+            const timeEl = document.getElementById('edit-log-time');
             const latEl = document.getElementById('edit-log-lat');
             const lngEl = document.getElementById('edit-log-lng');
             if (idEl) idEl.value = id;
             if (nameEl) nameEl.value = normalizeKey(target.location || '');
             if (codeEl) codeEl.value = normalizeKey(target.code || '');
+            if (timeEl) {
+                let tsMs = null;
+                const ts = target.createdAt;
+                if (ts && typeof ts.toDate === 'function') { try { tsMs = ts.toDate().getTime(); } catch (_) {} }
+                else if (ts instanceof Date) tsMs = ts.getTime();
+                else if (typeof ts === 'number') tsMs = ts;
+                if (tsMs) {
+                    const d = new Date(tsMs);
+                    const pad = n => String(n).padStart(2, '0');
+                    timeEl.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                } else {
+                    timeEl.value = '';
+                }
+            }
             if (latEl) latEl.value = (typeof target.lat === 'number') ? String(target.lat) : '';
             if (lngEl) lngEl.value = (typeof target.lng === 'number') ? String(target.lng) : '';
             if (modal) modal.classList.remove('hidden');
@@ -2936,6 +3002,7 @@
             const id = String(document.getElementById('edit-log-id')?.value || '');
             const nextLocation = normalizeKey(document.getElementById('edit-log-location')?.value);
             const nextCode = normalizeKey(document.getElementById('edit-log-code')?.value);
+            const timeVal = String(document.getElementById('edit-log-time')?.value || '').trim();
             const latStr = normalizeKey(document.getElementById('edit-log-lat')?.value);
             const lngStr = normalizeKey(document.getElementById('edit-log-lng')?.value);
             const lat = latStr ? Number(latStr) : null;
@@ -2950,6 +3017,13 @@
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedBy: dbUser.id
             };
+            if (timeVal && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timeVal)) {
+                try {
+                    const [y, m, d, hh, mm] = timeVal.split(/[-T:]/).map(n => parseInt(n, 10));
+                    const newDate = new Date(y, m - 1, d, hh, mm, 0, 0);
+                    payload.createdAt = firebase.firestore.Timestamp.fromDate(newDate);
+                } catch (_) {}
+            }
             if (Number.isFinite(lat) && Number.isFinite(lng)) {
                 payload.lat = lat;
                 payload.lng = lng;

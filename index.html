@@ -10689,6 +10689,10 @@
             const [functionDownloadLoading, setFunctionDownloadLoading] = useState(false);
             const [functionDownloadError, setFunctionDownloadError] = useState('');
             const [functionDownloadExpanded, setFunctionDownloadExpanded] = useState({});
+            const [functionPatrolMeta, setFunctionPatrolMeta] = useState({});
+            const [functionCleanMeta, setFunctionCleanMeta] = useState({});
+            const [functionSuperviseMeta, setFunctionSuperviseMeta] = useState({});
+            const [functionNowTick, setFunctionNowTick] = useState(0);
             const [cadreSubtab, setCadreSubtab] = useState('report');
             const [cadreCompany, setCadreCompany] = useState(() => localStorage.getItem('last_cadre_company') || '台北');
             const communityLeaveMonthInputRef = useRef(null);
@@ -11420,6 +11424,7 @@
             const communityAvatarLongPressTimerRef = useRef(null);
             const communityAvatarPointerRef = useRef({ pointerId: null, dragUserId: null });
             const communityAvatarPreventClickRef = useRef(false);
+            const timerRef = useRef(null);
             const [communityUserFilterRole, setCommunityUserFilterRole] = useState('');
             const [communityUserFilterName, setCommunityUserFilterName] = useState('');
             const [cadreAccountFilterRole, setCadreAccountFilterRole] = useState('');
@@ -11564,6 +11569,212 @@
                     } catch (_) {}
                 } catch (_) {}
             };
+            const computeFunctionCommunityStatus = useCallback((communityId, meta, nowDate) => {
+                const cid = String(communityId || '').trim();
+                if (!cid) return 'gray';
+                const info = (meta || {})[cid];
+                const locationMap = (info && info.locationMap && typeof info.locationMap === 'object') ? info.locationMap : {};
+                const pointKeys = Object.keys(locationMap || {}).filter(k => {
+                    if (!k) return false;
+                    const v = locationMap[k];
+                    let period = 'daily';
+                    let timesPerDay = 1;
+                    let dayOfWeek = 0;
+                    let dayOfMonth = 1;
+                    if (v && typeof v === 'object') {
+                        period = v.period || 'daily';
+                        timesPerDay = Number(v.timesPerDay) || 1;
+                        if (timesPerDay < 1) timesPerDay = 1;
+                        dayOfWeek = Number(v.dayOfWeek) || 0;
+                        dayOfMonth = Number(v.dayOfMonth) || 1;
+                    }
+                    if (period === 'weekly') {
+                        if (!dayOfWeek) return true;
+                        const dow = nowDate.getDay() === 0 ? 7 : nowDate.getDay();
+                        if (Number(dayOfWeek) !== Number(dow)) return false;
+                        return true;
+                    }
+                    if (period === 'monthly') {
+                        if (!dayOfMonth) return true;
+                        if (Number(dayOfMonth) !== Number(nowDate.getDate())) return false;
+                        return true;
+                    }
+                    return true;
+                });
+                if (pointKeys.length === 0) return 'gray';
+
+                const todayLogs = Array.isArray(info?.todayLogs) ? info.todayLogs : [];
+
+                const normalizeKey = (s) => String(s || '').trim().replace(/\s+/g, '').toLowerCase();
+                const logKeySet = new Set();
+                (todayLogs || []).forEach(l => {
+                    const k = normalizeKey(l?.code) || normalizeKey(l?.location);
+                    if (k) logKeySet.add(k);
+                });
+
+                let needTotal = 0;
+                let doneTotal = 0;
+                pointKeys.forEach(rawKey => {
+                    const nk = normalizeKey(rawKey);
+                    if (!nk) return;
+                    const v = locationMap[rawKey];
+                    let timesPerDay = 1;
+                    if (v && typeof v === 'object') {
+                        timesPerDay = Number(v.timesPerDay) || 1;
+                        if (timesPerDay < 1) timesPerDay = 1;
+                    }
+                    needTotal += timesPerDay;
+                    doneTotal += logKeySet.has(nk) ? Math.min(timesPerDay, 1) : 0;
+                });
+
+                const nowHour = nowDate.getHours();
+                const nowMin = nowDate.getMinutes();
+                const isPast6PM = (nowHour > 18) || (nowHour === 18 && nowMin >= 0);
+
+                if (needTotal <= 0) return 'gray';
+                if (doneTotal >= needTotal) return 'green';
+                if (isPast6PM) return 'red';
+                if (doneTotal > 0) return 'orange';
+                return 'blue';
+            }, []);
+
+            const normalizePatrolKey = useCallback((s) => {
+                return String(s || '').trim().replace(/\s+/g, '').toLowerCase();
+            }, []);
+
+            useEffect(() => {
+                if (!dbUser) return;
+                const subs = [];
+                if (!timerRef.current) {
+                    timerRef.current = setInterval(() => {
+                        setFunctionNowTick(t => t + 1);
+                    }, 60 * 1000);
+                }
+
+                const startOfToday = new Date();
+                startOfToday.setHours(0, 0, 0, 0);
+                const endOfToday = new Date(startOfToday);
+                endOfToday.setDate(endOfToday.getDate() + 1);
+                const startTs = Timestamp.fromDate(startOfToday);
+                const endTs = Timestamp.fromDate(endOfToday);
+
+                const myComms = [];
+                if (isSystemAdmin) {
+                    (communities || []).forEach(c => { if (c && c.id) myComms.push(c); });
+                } else {
+                    const ids = Array.from(new Set((dbUser.communityIds || []).map(x => String(x).trim()).filter(Boolean)));
+                    ids.forEach(id => {
+                        const c = (communities || []).find(cc => String(cc.id) === String(id));
+                        if (c) myComms.push(c);
+                    });
+                }
+                const commIds = myComms.map(c => String(c.id).trim()).filter(Boolean);
+
+                const setMetaLocation = (setter, cid, patch) => {
+                    setter(prev => {
+                        const prevInfo = prev[cid] || {};
+                        const nextInfo = { ...prevInfo, ...patch };
+                        if (String(prevInfo?.locationMapStr || '') === String(nextInfo?.locationMapStr || '') &&
+                            String(prevInfo?.logsStr || '') === String(nextInfo?.logsStr || '')) {
+                            return prev;
+                        }
+                        return { ...prev, [cid]: nextInfo };
+                    });
+                };
+
+                const normalizeLog = (l) => {
+                    if (!l || typeof l !== 'object') return null;
+                    const code = l.code || l.location || '';
+                    const ts = l.createdAt;
+                    let ms = 0;
+                    if (ts && typeof ts.toDate === 'function') { try { ms = ts.toDate().getTime(); } catch (_) {} }
+                    else if (ts instanceof Date) ms = ts.getTime();
+                    else if (typeof ts === 'number') ms = ts;
+                    return { code, location: l.location || '', createdAtMs: ms };
+                };
+
+                commIds.forEach(cid => {
+                    const kinds = [
+                        { coll: 'community_patrols', setter: setFunctionPatrolMeta },
+                        { coll: 'community_cleans', setter: setFunctionCleanMeta },
+                        { coll: 'community_checks', setter: setFunctionSuperviseMeta },
+                    ];
+                    kinds.forEach(({ coll, setter }) => {
+                        try {
+                            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', coll, cid);
+                            const unsub1 = onSnapshot(settingsRef, snap => {
+                                const data = snap && snap.exists ? (snap.data() || {}) : {};
+                                const rawMap = data.locationMap && typeof data.locationMap === 'object' ? data.locationMap : {};
+                                const normalized = {};
+                                Object.keys(rawMap || {}).forEach(k => {
+                                    const nk = normalizePatrolKey(k);
+                                    if (!nk) return;
+                                    const v = rawMap[k];
+                                    if (v && typeof v === 'object' && v.name) {
+                                        normalized[nk] = {
+                                            name: normalizePatrolKey(v.name),
+                                            period: v.period || 'daily',
+                                            timesPerDay: Number(v.timesPerDay) || 1,
+                                            dayOfWeek: Number(v.dayOfWeek) || 0,
+                                            dayOfMonth: Number(v.dayOfMonth) || 1,
+                                        };
+                                    } else {
+                                        normalized[nk] = {
+                                            name: normalizePatrolKey(v),
+                                            period: 'daily',
+                                            timesPerDay: 1,
+                                            dayOfWeek: 0,
+                                            dayOfMonth: 1,
+                                        };
+                                    }
+                                });
+                                const locationMapStr = JSON.stringify(normalized || {});
+                                setMetaLocation(setter, cid, { locationMap: normalized, locationMapStr });
+                            }, () => {});
+                            subs.push(unsub1);
+                        } catch (_) {}
+
+                        try {
+                            const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', coll, cid);
+                            const logsQuery = query(
+                                collection(settingsRef, 'logs'),
+                                where('createdAt', '>=', startTs),
+                                where('createdAt', '<', endTs),
+                                orderBy('createdAt', 'desc'),
+                                limit(200)
+                            );
+                            const unsub2 = onSnapshot(logsQuery, snap => {
+                                const list = [];
+                                snap.forEach(d => list.push({ ...d.data() }));
+                                const todayLogs = list.map(normalizeLog).filter(Boolean);
+                                const logsStr = todayLogs.map(x => `${x.code}|${x.createdAtMs}`).join('__');
+                                setMetaLocation(setter, cid, { todayLogs, logsStr });
+                            }, () => {});
+                            subs.push(unsub2);
+                        } catch (_) {}
+                    });
+                });
+
+                return () => {
+                    subs.forEach(u => { try { u(); } catch (_) {} });
+                    if (timerRef.current) { try { clearInterval(timerRef.current); } catch (_) {} timerRef.current = null; }
+                };
+            }, [dbUser, isSystemAdmin, communities, normalizePatrolKey]);
+
+            const getFunctionCommunityButtonClass = useCallback((communityId, tab) => {
+                const now = new Date();
+                void functionNowTick;
+                let meta = functionPatrolMeta;
+                if (tab === 'clean') meta = functionCleanMeta;
+                if (tab === 'supervise') meta = functionSuperviseMeta;
+                const status = computeFunctionCommunityStatus(communityId, meta, now);
+                if (status === 'green') return 'bg-green-500 text-white hover:bg-green-600 shadow-md';
+                if (status === 'red') return 'bg-red-500 text-white hover:bg-red-600 shadow-md';
+                if (status === 'orange') return 'bg-orange-500 text-white hover:bg-orange-600 shadow-md';
+                if (status === 'blue') return 'bg-blue-100 text-blue-700 hover:bg-blue-200 shadow-md';
+                return 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-md';
+            }, [functionPatrolMeta, functionCleanMeta, functionSuperviseMeta, functionNowTick, computeFunctionCommunityStatus]);
+
             const shiftMonthString = (ymd, delta, todayStr) => {
                 const base = new Date(`${String(ymd || '').trim() || todayStr}T00:00:00`);
                 if (!base || isNaN(base.getTime())) return todayStr;
@@ -24493,7 +24704,7 @@
                                                                                 setShowOverviewPatrolModal(true); 
                                                                             }
                                                                         }}
-                                                                        className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                        className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors ${functionSubtab === 'penalty' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200 shadow-md' : getFunctionCommunityButtonClass(c.id, functionSubtab === 'supervise' ? 'supervise' : 'patrol')}`}
                                                                     >
                                                                         {displayName}
                                                                     </button>
@@ -24560,7 +24771,7 @@
                                                                 <div key={c.id} className="w-full aspect-square flex items-center justify-center">
                                                                     <button
                                                                         onClick={() => { setOverviewCleanCommunityId(String(c.id || '').trim()); setShowOverviewCleanModal(true); }}
-                                                                        className="w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors shadow-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                                                        className={`w-[40px] h-[40px] shrink-0 flex items-center justify-center text-xs leading-tight font-bold rounded-2xl transition-colors ${getFunctionCommunityButtonClass(c.id, 'clean')}`}
                                                                     >
                                                                         {displayName}
                                                                     </button>
