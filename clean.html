@@ -2359,14 +2359,20 @@
             let entries = Object.keys(map).map(code => {
                 const data = map[code];
                 let name = '';
+                let createdAtMs = 0;
                 if (data) {
                     if (typeof data === 'string') {
                         name = normalizeKey(data);
                     } else if (data && typeof data === 'object') {
                         name = normalizeKey(data.name || '');
+                        const ts = data.createdAt;
+                        if (ts && typeof ts.toMillis === 'function') { try { createdAtMs = ts.toMillis(); } catch (_) {} }
+                        else if (ts && typeof ts.toDate === 'function') { try { createdAtMs = ts.toDate().getTime(); } catch (_) {} }
+                        else if (ts instanceof Date) createdAtMs = ts.getTime();
+                        else if (typeof ts === 'number') createdAtMs = ts;
                     }
                 }
-                return { code: normalizeKey(code), name: name };
+                return { code: normalizeKey(code), name: name, createdAtMs };
             }).filter(x => x.code || x.name);
 
             // 应用周期判断
@@ -2382,6 +2388,9 @@
             if (dateEl) dateEl.textContent = formatDateLabel(selectedLogsDate || new Date());
 
             entries.sort((a, b) => {
+                const ta = Number(a.createdAtMs) || 0;
+                const tb = Number(b.createdAtMs) || 0;
+                if (ta !== tb) return ta - tb;
                 const an = a.name || '';
                 const bn = b.name || '';
                 const byName = an.localeCompare(bn, 'zh-Hant');
