@@ -405,7 +405,63 @@
         }
     </style>
     <script src="./firebase-config.js"></script>
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&loading=async&language=zh-TW"></script>
+    <script>
+        window.__googleMapsFailed = false;
+        window.__googleMapsError = null;
+        window.__nominatimOngoing = {};
+        window.gm_authFailure = function () {
+            window.__googleMapsFailed = true;
+            window.__googleMapsError = 'gm_authFailure';
+            console.warn('[Google Maps] 偵測到 API 驗證失敗，自動切換至 OpenStreetMap (Nominatim) 備援');
+        };
+        window.isGoogleMapsReady = function () {
+            if (window.__googleMapsFailed) return false;
+            return !!(window.google && window.google.maps && window.google.maps.Map && window.google.maps.Geocoder);
+        };
+        window.geocodeAddress = function (addr) {
+            return new Promise(function (resolve, reject) {
+                if (!addr) { resolve(null); return; }
+                var cacheKey = '__geo_' + addr;
+                if (window.__nominatimOngoing[cacheKey]) { resolve(window.__nominatimOngoing[cacheKey]); return; }
+                var doNominatim = function () {
+                    var p = fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(addr), {
+                        headers: { 'Accept-Language': 'zh-TW,zh;q=0.9' }
+                    }).then(function (r) { return r.json(); }).then(function (d) {
+                        delete window.__nominatimOngoing[cacheKey];
+                        if (d && d[0]) {
+                            resolve({ lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon), source: 'nominatim' });
+                        } else { resolve(null); }
+                    }).catch(function (e) {
+                        delete window.__nominatimOngoing[cacheKey];
+                        reject(e);
+                    });
+                    window.__nominatimOngoing[cacheKey] = p;
+                };
+                if (window.isGoogleMapsReady()) {
+                    try {
+                        var gc = new window.google.maps.Geocoder();
+                        gc.geocode({ address: addr }, function (res, status) {
+                            if (status === 'OK' && res && res[0]) {
+                                var loc = res[0].geometry.location;
+                                resolve({ lat: loc.lat(), lng: loc.lng(), source: 'google' });
+                            } else {
+                                console.warn('[Geocode] Google 失敗(' + status + ')，切換 Nominatim');
+                                doNominatim();
+                            }
+                        });
+                    } catch (e) {
+                        console.warn('[Geocode] Google 例外(' + e.message + ')，切換 Nominatim');
+                        doNominatim();
+                    }
+                } else {
+                    doNominatim();
+                }
+            });
+        };
+    </script>
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzhLdWtycJgfz8UsXWlji63DkXpA4kmyY&language=zh-TW"
+        onerror="window.__googleMapsFailed=true;window.__googleMapsError='script_load_error';console.warn('[Google Maps] SDK 指令碼戴入失敗，使用備援方案')"></script>
 </head>
 <body class="bg-gray-100 text-gray-900 font-sans antialiased">
     <div id="root"></div>
@@ -759,7 +815,44 @@
             // Defined inside useEffect to ensure google.maps is loaded
             
             useEffect(() => {
-                if (!lat || !lng || !window.google || !window.google.maps || !mapRef.current) return;
+                if (!lat || !lng || !mapRef.current) return;
+                const clat = parseFloat(lat);
+                const clng = parseFloat(lng);
+                if (isNaN(clat) || isNaN(clng)) return;
+                const r = parseFloat(radius) || 100;
+                const delta = Math.max(0.006, (r / 111000) * 4);
+
+                const renderOsmFallback = () => {
+                    if (!mapRef.current) return;
+                    const bbox = (clng - delta) + ',' + (clat - delta) + ',' + (clng + delta) + ',' + (clat + delta);
+                    const markerParam = '&marker=' + clat + ',' + clng;
+                    let userMarkersHtml = '';
+                    if (users && users.length) {
+                        userMarkersHtml = users.filter(function (u) { return u.lat && u.lng; }).slice(0, 15).map(function (u) {
+                            const uLat = parseFloat(u.lat), uLng = parseFloat(u.lng);
+                            if (isNaN(uLat) || isNaN(uLng)) return '';
+                            return '&mlat=' + uLat + '&mlon=' + uLng;
+                        }).join('');
+                    }
+                    let onlineHtml = '';
+                    if (users && users.length) {
+                        onlineHtml = '<div style="position:absolute;top:8px;right:8px;background:#fff;border:1px solid #e5e7eb;padding:5px 10px;border-radius:12px;font-size:11px;color:#111827;box-shadow:0 1px 3px rgba(0,0,0,0.12);z-index:2;">線上 ' + users.filter(function (u) { return u.lat && u.lng; }).length + '/' + users.length + ' 人</div>';
+                    }
+                    mapRef.current.innerHTML =
+                        '<div style="position:relative;width:100%;height:100%;">' +
+                            '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=' + encodeURIComponent(bbox) + '&layer=mapnik' + markerParam + userMarkersHtml + '"' +
+                                ' style="width:100%;height:100%;border:0;" loading="lazy" referrerpolicy="no-referrer-when-downgrade"' +
+                                ' title="OpenStreetMap 公司地點預覽"></iframe>' +
+                            '<div style="position:absolute;top:8px;left:8px;background:rgba(255,255,255,0.94);padding:4px 10px;border-radius:12px;font-size:11px;color:#6b7280;box-shadow:0 1px 3px rgba(0,0,0,0.12);z-index:2;">備援：OpenStreetMap · 人員點擊功能停用</div>' +
+                            '<div style="position:absolute;bottom:8px;right:8px;background:#fff;border:1px solid #e5e7eb;padding:5px 10px;border-radius:12px;font-size:11px;color:#374151;box-shadow:0 1px 3px rgba(0,0,0,0.12);z-index:2;">半徑 ' + r + 'm · 中心 ' + clat.toFixed(5) + ', ' + clng.toFixed(5) + '</div>' +
+                            onlineHtml +
+                        '</div>';
+                };
+
+                if (!(window.isGoogleMapsReady && window.isGoogleMapsReady())) {
+                    renderOsmFallback();
+                    return;
+                }
 
                 class AvatarOverlay extends google.maps.OverlayView {
                     constructor(position, imageUrl, name, map, onSelect) {
@@ -839,12 +932,12 @@
                     }
                 }
 
-                const location = { lat: parseFloat(lat), lng: parseFloat(lng) };
-                const r = parseFloat(radius) || 100;
+                const location = { lat: clat, lng: clng };
 
                 const initMap = async () => {
+                    if (mapRef.current) mapRef.current.innerHTML = '';
                     // Clear previous multiple markers
-                    markersRef.current.forEach(m => m.setMap(null));
+                    markersRef.current.forEach(m => m.setMap && m.setMap(null));
                     markersRef.current = [];
 
                     if (!mapInstanceRef.current) {
@@ -1663,8 +1756,24 @@
                 const updateAddress = (latitude, longitude) => {
                     if (locationSessionRef.current !== currentSession) return;
                     setError('');
+                    const fallbackText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                    const doNominatimReverse = () => {
+                        try {
+                            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=zh-TW,zh`)
+                                .then(r => r.json())
+                                .then(d => {
+                                    if (locationSessionRef.current !== currentSession) return;
+                                    if (d && (d.display_name || d.name)) {
+                                        setAddress(d.display_name || d.name);
+                                    } else {
+                                        setAddress(fallbackText);
+                                    }
+                                })
+                                .catch(() => { setAddress(fallbackText); });
+                        } catch (e) { setAddress(fallbackText); }
+                    };
                     try {
-                        if (window.google && window.google.maps) {
+                        if (window.isGoogleMapsReady && window.isGoogleMapsReady()) {
                             const gc = new google.maps.Geocoder();
                             const latlng = { lat: latitude, lng: longitude };
                             gc.geocode({ location: latlng }, (results, status) => {
@@ -1672,14 +1781,15 @@
                                 if (status === 'OK' && results[0]) {
                                     setAddress(results[0].formatted_address);
                                 } else {
-                                    setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                                    console.warn('[ReverseGeocode] Google 失敗(' + status + ')，切換 Nominatim');
+                                    doNominatimReverse();
                                 }
                             });
                         } else {
-                            setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                            doNominatimReverse();
                         }
                     } catch (e) {
-                        setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                        doNominatimReverse();
                     }
                 };
 
@@ -3997,49 +4107,108 @@
             const communityGMarkerRef = useRef(null);
             const communityGClickListenerRef = useRef(null);
 
+            const handleCommunityAddressBlur = async (e) => {
+                const addr = e.target.value.trim();
+                if (!addr) return;
+                try {
+                    const res = await window.geocodeAddress(addr);
+                    if (res) {
+                        setCommunityForm(prev => ({...prev, coordLat: res.lat, coordLng: res.lng}));
+                    }
+                } catch (err) {
+                    try {
+                        const nomUrl = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q='
+                            + encodeURIComponent(addr) + '&accept-language=zh-TW,zh';
+                        const r2 = await fetch(nomUrl);
+                        const d2 = await r2.json();
+                        if (d2 && d2[0]) {
+                            setCommunityForm(prev => ({
+                                ...prev,
+                                coordLat: parseFloat(d2[0].lat),
+                                coordLng: parseFloat(d2[0].lon)
+                            }));
+                        }
+                    } catch (e2) {
+                        console.error('社區地址解析例外:', e2);
+                    }
+                }
+            };
+
             useEffect(()=>{
                 if (!showCommunityModal) return;
-                if (!window.google || !window.google.maps) return;
                 const lat = parseFloat(communityForm.coordLat);
                 const lng = parseFloat(communityForm.coordLng);
                 const hasCoords = !isNaN(lat) && !isNaN(lng);
                 const defaultCenter = { lat: 25.0330, lng: 121.5654 };
                 const center = hasCoords ? { lat, lng } : defaultCenter;
-                if (!communityGMapRef.current && communityMapElRef.current) {
-                    communityGMapRef.current = new google.maps.Map(communityMapElRef.current, { center, zoom: 16 });
-                } else if (communityGMapRef.current) {
-                    communityGMapRef.current.setCenter(center);
-                    communityGMapRef.current.setZoom(16);
-                }
-                if (hasCoords) {
-                    if (!communityGMarkerRef.current) {
-                        communityGMarkerRef.current = new google.maps.Marker({ position: center, map: communityGMapRef.current });
-                    } else {
-                        communityGMarkerRef.current.setPosition(center);
+
+                const renderOsmFallback = () => {
+                    if (!communityMapElRef.current) return;
+                    const clat = hasCoords ? lat : defaultCenter.lat;
+                    const clng = hasCoords ? lng : defaultCenter.lng;
+                    const delta = 0.004;
+                    const bbox = `${clng-delta},${clat-delta},${clng+delta},${clat+delta}`;
+                    const markerParam = hasCoords ? `&marker=${clat},${clng}` : '';
+                    communityMapElRef.current.innerHTML = `
+                        <div style="position:relative;width:100%;height:100%;">
+                            <iframe src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik${markerParam}"
+                                style="width:100%;height:100%;border:0;" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+                                title="OpenStreetMap 位置預覽"></iframe>
+                            <div style="position:absolute;top:6px;left:6px;background:rgba(255,255,255,0.92);padding:3px 8px;border-radius:10px;font-size:10px;color:#6b7280;box-shadow:0 1px 2px rgba(0,0,0,0.1);">
+                                備援：OpenStreetMap · Google Maps API 未啟用
+                            </div>
+                            ${hasCoords ? `
+                            <div style="position:absolute;bottom:6px;right:6px;background:#fff;border:1px solid #e5e7eb;padding:4px 8px;border-radius:10px;font-size:10px;color:#374151;box-shadow:0 1px 2px rgba(0,0,0,0.1);">
+                                中心：${clat.toFixed(5)}, ${clng.toFixed(5)}
+                            </div>` : ''}
+                        </div>`;
+                };
+
+                if (window.isGoogleMapsReady && window.isGoogleMapsReady()) {
+                    if (communityMapElRef.current) communityMapElRef.current.innerHTML = '';
+                    if (!communityGMapRef.current && communityMapElRef.current) {
+                        communityGMapRef.current = new google.maps.Map(communityMapElRef.current, { center, zoom: 16 });
+                    } else if (communityGMapRef.current) {
+                        communityGMapRef.current.setCenter(center);
+                        communityGMapRef.current.setZoom(16);
                     }
-                }
-                if (communityGCircleRef.current) {
-                    communityGCircleRef.current.setMap(null);
-                    communityGCircleRef.current = null;
-                }
-                if (hasCoords) {
-                    communityGCircleRef.current = new google.maps.Circle({ center, radius: communityForm.radiusMeters || 0, strokeColor: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.15, map: communityGMapRef.current });
-                }
-                if (communityGClickListenerRef.current) {
-                    google.maps.event.removeListener(communityGClickListenerRef.current);
-                    communityGClickListenerRef.current = null;
-                }
-                communityGClickListenerRef.current = google.maps.event.addListener(communityGMapRef.current, 'click', (e) => {
-                    const latLng = e.latLng;
-                    const newLat = latLng.lat();
-                    const newLng = latLng.lng();
-                    setCommunityForm(prev => ({ ...prev, coordLat: newLat, coordLng: newLng }));
-                    if (!communityGMarkerRef.current) {
-                        communityGMarkerRef.current = new google.maps.Marker({ position: latLng, map: communityGMapRef.current });
-                    } else {
-                        communityGMarkerRef.current.setPosition(latLng);
+                    if (hasCoords) {
+                        if (!communityGMarkerRef.current) {
+                            communityGMarkerRef.current = new google.maps.Marker({ position: center, map: communityGMapRef.current });
+                        } else {
+                            communityGMarkerRef.current.setPosition(center);
+                        }
                     }
-                });
+                    if (communityGCircleRef.current) {
+                        communityGCircleRef.current.setMap(null);
+                        communityGCircleRef.current = null;
+                    }
+                    if (hasCoords) {
+                        communityGCircleRef.current = new google.maps.Circle({ center, radius: communityForm.radiusMeters || 0, strokeColor: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.15, map: communityGMapRef.current });
+                    }
+                    if (communityGClickListenerRef.current) {
+                        google.maps.event.removeListener(communityGClickListenerRef.current);
+                        communityGClickListenerRef.current = null;
+                    }
+                    communityGClickListenerRef.current = google.maps.event.addListener(communityGMapRef.current, 'click', (e) => {
+                        const latLng = e.latLng;
+                        const newLat = latLng.lat();
+                        const newLng = latLng.lng();
+                        setCommunityForm(prev => ({ ...prev, coordLat: newLat, coordLng: newLng }));
+                        if (!communityGMarkerRef.current) {
+                            communityGMarkerRef.current = new google.maps.Marker({ position: latLng, map: communityGMapRef.current });
+                        } else {
+                            communityGMarkerRef.current.setPosition(latLng);
+                        }
+                    });
+                } else {
+                    if (communityGMapRef.current) { communityGMapRef.current = null; }
+                    if (communityGClickListenerRef.current && window.google && window.google.maps) {
+                        google.maps.event.removeListener(communityGClickListenerRef.current);
+                        communityGClickListenerRef.current = null;
+                    }
+                    renderOsmFallback();
+                }
             }, [showCommunityModal, communityForm.coordLat, communityForm.coordLng, communityForm.radiusMeters]);
 
             useEffect(()=>{
@@ -4056,35 +4225,97 @@
 
             useEffect(() => {
                 if (!mapTarget) return;
-                const init = () => {
-                    if (!mapTargetElRef.current) return;
-                    const center = { lat: mapTarget.lat, lng: mapTarget.lng };
-                    if (!mapTargetMapRef.current) {
-                        mapTargetMapRef.current = new google.maps.Map(mapTargetElRef.current, { center, zoom: 16 });
-                    } else {
-                        mapTargetMapRef.current.setCenter(center);
-                        mapTargetMapRef.current.setZoom(16);
-                    }
-                    new google.maps.Marker({ position: center, map: mapTargetMapRef.current });
-                    if (mapTargetCircleRef.current) {
-                        mapTargetCircleRef.current.setMap(null);
-                        mapTargetCircleRef.current = null;
-                    }
-                    mapTargetCircleRef.current = new google.maps.Circle({ center, radius: mapTarget.radius || 0, strokeColor: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.15, map: mapTargetMapRef.current });
-                };
-                if (window.google && window.google.maps) {
-                    init();
-                } else {
-                    const script = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
-                    if (script) {
-                        const handler = () => init();
-                        script.addEventListener('load', handler, { once: true });
-                        return () => { script.removeEventListener('load', handler); };
-                    }
-                }
-                return () => {
+                let removed = false;
+                let timeoutId = null;
+                let script = null;
+                let handler = null;
+                const baseCleanup = () => {
                     mapTargetCircleRef.current = null;
                     mapTargetMapRef.current = null;
+                };
+                const renderOsmFallback = () => {
+                    if (!mapTargetElRef.current) return;
+                    const clat = parseFloat(mapTarget.lat);
+                    const clng = parseFloat(mapTarget.lng);
+                    if (isNaN(clat) || isNaN(clng)) {
+                        mapTargetElRef.current.innerHTML = '<div style="padding:20px;color:#9ca3af;font-size:12px;text-align:center;">尚無座標資訊</div>';
+                        return;
+                    }
+                    const delta = Math.max(0.003, ((mapTarget.radius || 0) / 111000) * 2.5);
+                    const bbox = (clng - delta) + ',' + (clat - delta) + ',' + (clng + delta) + ',' + (clat + delta);
+                    const markerParam = '&marker=' + clat + ',' + clng;
+                    const radiusHtml = mapTarget.radius
+                        ? '<div style="position:absolute;bottom:8px;right:8px;background:#fff;border:1px solid #e5e7eb;padding:5px 10px;border-radius:12px;font-size:11px;color:#374151;box-shadow:0 1px 3px rgba(0,0,0,0.12);">半徑：' + mapTarget.radius + ' 公尺</div>'
+                        : '';
+                    mapTargetElRef.current.innerHTML =
+                        '<div style="position:relative;width:100%;height:100%;">' +
+                            '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=' + encodeURIComponent(bbox) + '&layer=mapnik' + markerParam + '"' +
+                                ' style="width:100%;height:100%;border:0;" loading="lazy" referrerpolicy="no-referrer-when-downgrade"' +
+                                ' title="OpenStreetMap 位置預覽"></iframe>' +
+                            '<div style="position:absolute;top:8px;left:8px;background:rgba(255,255,255,0.92);padding:4px 10px;border-radius:12px;font-size:11px;color:#6b7280;box-shadow:0 1px 3px rgba(0,0,0,0.12);">備援：OpenStreetMap</div>' +
+                            radiusHtml +
+                        '</div>';
+                };
+                const init = () => {
+                    if (!mapTargetElRef.current) return;
+                    if (window.isGoogleMapsReady && window.isGoogleMapsReady()) {
+                        mapTargetElRef.current.innerHTML = '';
+                        const center = { lat: mapTarget.lat, lng: mapTarget.lng };
+                        if (!mapTargetMapRef.current) {
+                            mapTargetMapRef.current = new google.maps.Map(mapTargetElRef.current, { center: center, zoom: 16 });
+                        } else {
+                            mapTargetMapRef.current.setCenter(center);
+                            mapTargetMapRef.current.setZoom(16);
+                        }
+                        new google.maps.Marker({ position: center, map: mapTargetMapRef.current });
+                        if (mapTargetCircleRef.current) {
+                            mapTargetCircleRef.current.setMap(null);
+                            mapTargetCircleRef.current = null;
+                        }
+                        mapTargetCircleRef.current = new google.maps.Circle({
+                            center: center,
+                            radius: mapTarget.radius || 0,
+                            strokeColor: '#dc2626',
+                            fillColor: '#dc2626',
+                            fillOpacity: 0.15,
+                            map: mapTargetMapRef.current
+                        });
+                    } else {
+                        renderOsmFallback();
+                    }
+                };
+                if (window.isGoogleMapsReady && window.isGoogleMapsReady()) {
+                    init();
+                } else {
+                    script = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+                    handler = function () {
+                        if (removed) return;
+                        if (window.isGoogleMapsReady && window.isGoogleMapsReady()) {
+                            init();
+                        } else {
+                            renderOsmFallback();
+                        }
+                    };
+                    timeoutId = setTimeout(function () {
+                        if (!window.isGoogleMapsReady || !window.isGoogleMapsReady()) {
+                            console.warn('[MapTarget] Google Maps 逾時，使用 OSM 備援');
+                            renderOsmFallback();
+                        } else {
+                            init();
+                        }
+                    }, 4500);
+                    if (script) {
+                        script.addEventListener('load', handler, { once: true });
+                    } else {
+                        clearTimeout(timeoutId);
+                        renderOsmFallback();
+                    }
+                }
+                return function () {
+                    removed = true;
+                    if (timeoutId != null) clearTimeout(timeoutId);
+                    if (script && handler) script.removeEventListener('load', handler);
+                    baseCleanup();
                 };
             }, [mapTarget]);
 
@@ -4419,38 +4650,12 @@
                                                         onBlur={async(e)=>{ 
                                                             const addr = e.target.value.trim(); 
                                                             if (!addr) return; 
-                                                            
-                                                            const doNominatim = async () => {
-                                                                try {
-                                                                    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`); 
-                                                                    const d = await r.json(); 
-                                                                    if (d && d[0]) { 
-                                                                        setCompanyForm(prev=>({...prev, lat: d[0].lat, lng: d[0].lon})); 
-                                                                    }
-                                                                } catch (err) {
-                                                                    console.error("Nominatim error:", err);
+                                                            try {
+                                                                const res = await (window.geocodeAddress ? window.geocodeAddress(addr) : Promise.resolve(null));
+                                                                if (res) {
+                                                                    setCompanyForm(prev=>({...prev, lat: res.lat, lng: res.lng}));
                                                                 }
-                                                            };
-
-                                                            try { 
-                                                                if (window.google && window.google.maps) { 
-                                                                    const gc = new google.maps.Geocoder(); 
-                                                                    gc.geocode({ address: addr }, (res, status)=>{ 
-                                                                        if (status === 'OK' && res && res[0]) { 
-                                                                            const loc = res[0].geometry.location; 
-                                                                            setCompanyForm(prev=>({...prev, lat: loc.lat(), lng: loc.lng()})); 
-                                                                        } else {
-                                                                            console.warn("Google Geocode failed:", status);
-                                                                            doNominatim();
-                                                                        }
-                                                                    }); 
-                                                                } else { 
-                                                                    doNominatim(); 
-                                                                } 
-                                                            } catch (e) { 
-                                                                console.error(e);
-                                                                doNominatim();
-                                                            } 
+                                                            } catch(err) { console.error("地址解析失敗:", err); }
                                                         }}
                                                         placeholder="輸入地址"
                                                     />
@@ -5569,7 +5774,7 @@
                                                 </div>
                                             </div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">社區地址</label>
-                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.address} onChange={e=>setCommunityForm(prev=>({...prev, address: e.target.value}))} onBlur={async(e)=>{ const addr = e.target.value.trim(); if (!addr) return; try { if (window.google && window.google.maps) { const gc = new google.maps.Geocoder(); gc.geocode({ address: addr }, (res, status)=>{ if (status === 'OK' && res && res[0]) { const loc = res[0].geometry.location; setCommunityForm(prev=>({...prev, coordLat: loc.lat(), coordLng: loc.lng()})); } }); } else { const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`); const d = await r.json(); if (d && d[0]) { setCommunityForm(prev=>({...prev, coordLat: d[0].lat, coordLng: d[0].lon})); } } } catch {} }} />
+                                            <input className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm" value={communityForm.address} onChange={e=>setCommunityForm(prev=>({...prev, address: e.target.value}))} onBlur={handleCommunityAddressBlur} />
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div className="col-span-2">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase">社區座標（緯度, 經度）</label>
