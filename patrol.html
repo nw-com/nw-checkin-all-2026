@@ -736,6 +736,8 @@
         let pendingPhotoData = null;
         let selectedLogsDate = new Date();
         let canManageSettings = false;
+        let currentUserRoleName = '';
+        const RESTRICTED_ROLE_NAMES_FOR_CLEAR = ['總幹事', '秘書', '清潔', '機電', '保全', '臨時保全'];
         let downloadUIReady = false;
         let reportPreviewState = null;
         let pendingConfirmAction = null;
@@ -1534,6 +1536,48 @@
             return ['系統管理員', '管理層', '人事', '物業', '幹部'].includes(name);
         }
 
+        function isRoleRestrictedForClear() {
+            const name = String(currentUserRoleName || '').trim();
+            return RESTRICTED_ROLE_NAMES_FOR_CLEAR.includes(name);
+        }
+
+        function applyClearLogsRestriction() {
+            const btn = document.getElementById('clear-logs-btn');
+            if (!btn) return;
+            if (isRoleRestrictedForClear()) {
+                btn.style.setProperty('display', 'none', 'important');
+                btn.setAttribute('data-restricted', '1');
+                btn.setAttribute('disabled', 'disabled');
+            } else {
+                btn.style.removeProperty('display');
+                btn.removeAttribute('data-restricted');
+                btn.removeAttribute('disabled');
+            }
+        }
+
+        function applyDeleteActionGuards() {
+            document.addEventListener('click', (e) => {
+                if (!isRoleRestrictedForClear()) return;
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                const btn = target.closest('button, [onclick]');
+                if (!btn) return;
+                const onclick = btn.getAttribute('onclick') || '';
+                if (onclick.indexOf('clearLogs(') >= 0 || onclick.indexOf('deleteLog(') >= 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                }
+                if (btn.id === 'clear-logs-btn' || btn.getAttribute('data-restricted') === '1') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                }
+            }, true);
+        }
+
         function resolveAllowedCommunityIds(u) {
             if (!u) return [];
             if (String(u.role || '') === 'admin') return ['*'];
@@ -2093,7 +2137,10 @@
             }
 
             const roleName = await resolveRoleName(db, dbUser);
+            currentUserRoleName = roleName;
             canManageSettings = computeCanManage(dbUser.role, roleName);
+            applyClearLogsRestriction();
+            applyDeleteActionGuards();
             const settingsNavBtn = document.getElementById('nav-settings');
             if (settingsNavBtn) settingsNavBtn.classList.toggle('hidden', !canManageSettings);
             const downloadNavBtn = document.getElementById('nav-download');
@@ -2213,6 +2260,7 @@
                 updateLogsDateLabel();
                 subscribeLogsForDate(selectedLogsDate);
                 renderLogs();
+                applyClearLogsRestriction();
             }
             if (viewName === 'settings') renderLocationMap();
             if (viewName === 'download') initDownloadUI();
@@ -3046,6 +3094,7 @@
 
         function deleteLog(logId) {
             if (!canManageSettings) return;
+            if (isRoleRestrictedForClear()) return;
             if (!settingsDocRef) return;
             const id = String(logId || '');
             if (!id) return;
@@ -3089,6 +3138,7 @@
 
         async function clearLogs() {
             if (!settingsDocRef) return;
+            if (isRoleRestrictedForClear()) return;
             openConfirmModal('確認清除', '確定要清除此日期的巡邏記錄嗎？', async () => {
                 try {
                     const start = new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate(), 0, 0, 0, 0);

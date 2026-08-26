@@ -2,7 +2,7 @@
 const ICON_URL = './logo.svg';
 const BADGE_URL = './badge.svg';
 
-const CACHE_VERSION = 'v2.0.167';
+const CACHE_VERSION = 'v2.0.168';
 const APP_SHELL_CACHE = `nw-checkin-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `nw-checkin-runtime-${CACHE_VERSION}`;
 

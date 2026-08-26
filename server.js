@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 8081;
+const PORT = 8082;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -58,6 +58,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}/`);
-  console.log('Serving index.html as default page');
-  console.log('Open this URL in your browser to preview');
+  console.log(`Serving index.html as default page`);
+  console.log(`Open this URL in your browser to preview`);
 });
