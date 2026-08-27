@@ -2,7 +2,7 @@
 const ICON_URL = './logo.svg';
 const BADGE_URL = './badge.svg';
 
-const CACHE_VERSION = 'v2.0.174';
+const CACHE_VERSION = 'v2.0.190';
 const APP_SHELL_CACHE = `nw-checkin-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `nw-checkin-runtime-${CACHE_VERSION}`;
 
@@ -24,6 +24,7 @@ const PRECACHE_URLS = [
   './patrol.html',
   './salary.html',
   './schedule.html',
+  './black-name.html',
 ];
 
 self.addEventListener('install', (event) => {

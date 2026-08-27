@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>黑名單列表</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        button, [onclick], [role="button"], .cursor-pointer { touch-action: manipulation; }
+        button { -webkit-appearance: none; appearance: none; }
+        button svg, button i, [onclick] svg, [onclick] i { pointer-events: none; }
+        .grid-cols-13 { grid-template-columns: repeat(13, minmax(0, 1fr)); }
+        @media (min-width: 768px) {
+            .md\:grid-cols-13 { grid-template-columns: repeat(13, minmax(0, 1fr)); }
+            .md\:col-span-13 { grid-column: span 13 / span 13; }
+        }
+    </style>
+</head>
+<body class="max-w-7xl mx-auto bg-gray-50 min-h-screen flex flex-col">
+
+    <header id="page-header" class="bg-red-700 text-white p-4 shadow-lg sticky top-0 z-50">
+        <div class="flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i data-lucide="user-x-2"></i>
+                <span>黑名單列表</span>
+            </h1>
+            <div id="connection-status" class="text-xs bg-red-600 px-2 py-1 rounded-full flex items-center gap-1">
+                <span id="status-dot" class="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></span>
+                <span id="status-text">載入中</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow p-4 overflow-y-auto">
+
+        <div class="bg-white rounded-xl p-4 shadow-sm mb-4 border border-gray-100">
+            <div class="flex flex-col gap-3">
+                <div class="min-w-0">
+                    <div class="font-black text-gray-800 flex items-center gap-2">
+                        <i data-lucide="user-x-2" class="w-5 h-5 text-red-600"></i>
+                        黑名單管理
+                    </div>
+                    <div id="count-label" class="text-[11px] font-bold text-gray-400 mt-0.5">共 0 筆</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+                    <div class="relative w-full">
+                        <select id="filter-region" onchange="applyFilters()" class="w-full appearance-none bg-white border border-gray-200 rounded-xl px-8 pl-4 py-2 text-sm font-bold text-gray-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none">
+                            <option value="">全部區域</option>
+                            <option value="台北">台北</option>
+                            <option value="新北">新北</option>
+                            <option value="桃園">桃園</option>
+                        </select>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    </div>
+                    <div class="relative w-full">
+                        <select id="filter-position" onchange="applyFilters()" class="w-full appearance-none bg-white border border-gray-200 rounded-xl px-8 pl-4 py-2 text-sm font-bold text-gray-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none">
+                            <option value="">全部職稱</option>
+                            <option value="公司幹部">公司幹部</option>
+                            <option value="總幹事">總幹事</option>
+                            <option value="秘書">秘書</option>
+                            <option value="清潔">清潔</option>
+                            <option value="機電">機電</option>
+                            <option value="保全">保全</option>
+                            <option value="臨時保全">臨時保全</option>
+                        </select>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    </div>
+                </div>
+                <div class="relative w-full">
+                    <i data-lucide="search" class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    <input id="filter-keyword" type="text" oninput="applyFilters()" placeholder="輸入關鍵字搜尋姓名、手機號碼" class="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-sm font-bold text-gray-700 placeholder:text-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none">
+                    <button id="filter-keyword-clear" type="button" onclick="clearKeywordFilter()" class="hidden absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition shrink-0" title="清除搜尋">
+                        <i data-lucide="x" size="14"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div class="hidden md:block">
+                <div class="bg-gray-50 border-b border-gray-100 grid grid-cols-13 gap-2 px-4 py-3 text-[11px] font-bold text-gray-500 uppercase">
+                    <div class="col-span-1 text-center">大頭照</div>
+                    <div class="col-span-2">建檔日期</div>
+                    <div class="col-span-1">職稱</div>
+                    <div class="col-span-2">姓名</div>
+                    <div class="col-span-2">出生年月日</div>
+                    <div class="col-span-1">身分證號</div>
+                    <div class="col-span-1">手機號碼</div>
+                    <div class="col-span-1">區域</div>
+                    <div class="col-span-2 text-right">操作</div>
+                </div>
+            </div>
+            <div id="list-container" class="divide-y divide-gray-100">
+                <div class="text-center py-16 text-gray-400">
+                    <i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i>
+                    <div class="font-bold">載入中…</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="auth-required" class="hidden mt-12 bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center max-w-md mx-auto">
+            <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                <i data-lucide="lock" size="28"></i>
+            </div>
+            <div class="text-lg font-black text-gray-800 mb-1">需要登入</div>
+            <div id="auth-message" class="text-sm text-gray-500 mb-5">請先回首頁登入後，方可使用黑名單管理功能。</div>
+            <a href="./index.html" class="inline-block bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-red-100">
+                返回登入
+            </a>
+        </div>
+
+    </main>
+
+    <div id="edit-modal" class="fixed inset-0 z-[110] bg-black/50 hidden p-4 flex items-center justify-center" onclick="closeEditModal()">
+        <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[calc(100vh-2rem)]" onclick="event.stopPropagation()">
+            <div class="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white">
+                <div id="edit-title" class="font-black text-gray-800 text-base">新增黑名單</div>
+                <button onclick="closeEditModal()" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 shrink-0">
+                    <i data-lucide="x" size="18"></i>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                <input type="hidden" id="edit-id">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-2">大頭照</label>
+                    <div class="flex items-center gap-4">
+                        <div id="edit-photo-preview-wrap" class="w-20 h-20 shrink-0 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
+                            <i id="edit-photo-empty" data-lucide="user" size="28" class="text-gray-400"></i>
+                            <img id="edit-photo-preview" alt="預覽" class="hidden w-full h-full object-cover">
+                        </div>
+                        <div class="flex flex-col items-start gap-2">
+                            <button type="button" onclick="document.getElementById('edit-photo-file').click()" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm">
+                                選擇照片
+                            </button>
+                            <button type="button" onclick="clearEditPhoto()" class="px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 font-bold text-sm">
+                                移除照片
+                            </button>
+                            <input id="edit-photo-file" type="file" accept="image/*" onchange="handleEditPhotoFileChange(event)" class="hidden">
+                            <div class="text-[10px] font-bold text-gray-400 leading-relaxed">
+                                可選 JPG/PNG，最大 8 MB<br>
+                                建議尺寸：512 × 512 以上
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">建檔日期 <span class="text-red-500">*</span></label>
+                        <input id="edit-createdAt" type="date" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">職稱</label>
+                        <select id="edit-position" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800">
+                            <option value=""></option>
+                            <option value="公司幹部">公司幹部</option>
+                            <option value="總幹事">總幹事</option>
+                            <option value="秘書">秘書</option>
+                            <option value="清潔">清潔</option>
+                            <option value="機電">機電</option>
+                            <option value="保全">保全</option>
+                            <option value="臨時保全">臨時保全</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">姓名 <span class="text-red-500">*</span></label>
+                        <input id="edit-name" type="text" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800" placeholder="請輸入姓名">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">出生年月日</label>
+                        <input id="edit-birth" type="date" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800" placeholder="YYYY-MM-DD">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">身分證號</label>
+                        <input id="edit-idNumber" type="text" maxlength="10" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800 uppercase tracking-wide" placeholder="例如：A123456789">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">區域</label>
+                        <select id="edit-region" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800">
+                            <option value=""></option>
+                            <option value="台北">台北</option>
+                            <option value="新北">新北</option>
+                            <option value="桃園">桃園</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">手機號碼</label>
+                        <input id="edit-phone" type="tel" inputmode="tel" maxlength="15" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800 tracking-wide" placeholder="例如：0912-345-678 或 0912345678">
+                    </div>
+                </div>
+                <div id="edit-error" class="hidden text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3"></div>
+            </div>
+            <div class="flex-none bg-white px-4 py-3 border-t border-gray-100 flex items-center justify-end gap-2">
+                <button onclick="closeEditModal()" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">取消</button>
+                <button onclick="submitEditModal()" id="edit-submit-btn" class="px-5 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="fixed inset-0 z-[115] bg-black/50 hidden p-4 flex items-center justify-center" onclick="closeConfirmModal()">
+        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col max-h-[calc(100vh-2rem)]" onclick="event.stopPropagation()">
+            <div class="flex-none p-6">
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                    <i data-lucide="trash-2" size="28"></i>
+                </div>
+                <div class="text-center text-lg font-black text-gray-800 mb-2">確定移除？</div>
+                <div id="confirm-message" class="text-center text-sm text-gray-600 font-bold mb-1">刪除後無法復原。</div>
+                <div id="confirm-detail" class="text-center text-xs text-gray-400 overflow-y-auto max-h-[30vh]"></div>
+            </div>
+            <input type="hidden" id="confirm-id">
+            <div class="flex-none px-4 py-3 border-t border-gray-100 flex items-center justify-center gap-2">
+                <button onclick="closeConfirmModal()" class="flex-1 px-4 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">取消</button>
+                <button onclick="submitConfirmDelete()" class="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100">確認移除</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="photo-modal" class="fixed inset-0 z-[120] bg-black/80 hidden" onclick="closePhotoPreviewModal()">
+        <div class="absolute top-4 left-0 right-0 px-4 z-10 flex items-center justify-between">
+            <div id="photo-modal-name" class="text-white font-bold drop-shadow-lg truncate">大頭照</div>
+            <button onclick="closePhotoPreviewModal()" class="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm border border-white/20">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+        <img id="photo-modal-img" alt="大頭照預覽" class="bg-transparent">
+    </div>
+
+    <footer id="page-footer" class="bg-red-700 text-white p-4 shadow-lg sticky bottom-0 z-50 border-t border-white/10">
+        <div class="w-full">
+            <button onclick="openAddModal()" class="w-full bg-white text-red-700 hover:bg-red-50 active:scale-[0.99] transition px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-red-900/20">
+                <i data-lucide="plus" size="16"></i> 新增黑名單
+            </button>
+        </div>
+    </footer>
+
+    <script>
+        const POSITION_OPTIONS = ['公司幹部', '總幹事', '秘書', '清潔', '機電', '保全', '臨時保全'];
+        const REGION_OPTIONS = ['台北', '新北', '桃園'];
+
+        let db = null;
+        let rootRef = null;
+        let blacklistUnsub = null;
+        let allRows = [];
+        let currentUid = null;
+        let currentEditPhotoDataUrl = '';
+
+        function setEditPhotoPreview(dataUrl) {
+            const preview = document.getElementById('edit-photo-preview');
+            const empty = document.getElementById('edit-photo-empty');
+            if (!preview || !empty) return;
+            currentEditPhotoDataUrl = dataUrl || '';
+            if (currentEditPhotoDataUrl) {
+                preview.src = currentEditPhotoDataUrl;
+                preview.classList.remove('hidden');
+                empty.classList.add('hidden');
+            } else {
+                preview.removeAttribute('src');
+                preview.classList.add('hidden');
+                empty.classList.remove('hidden');
+            }
+        }
+        function clearEditPhoto() {
+            const fileInput = document.getElementById('edit-photo-file');
+            if (fileInput) fileInput.value = '';
+            setEditPhotoPreview('');
+        }
+        function handleEditPhotoFileChange(event) {
+            const file = event && event.target && event.target.files && event.target.files[0];
+            const errEl = document.getElementById('edit-error');
+            if (errEl) { errEl.classList.add('hidden'); errEl.textContent = ''; }
+            if (!file) return;
+            if (!/^image\//.test(file.type)) {
+                if (errEl) { errEl.textContent = '請選擇圖片檔案 (JPG / PNG)'; errEl.classList.remove('hidden'); }
+                return;
+            }
+            const MAX = 8 * 1024 * 1024;
+            if (file.size > MAX) {
+                if (errEl) { errEl.textContent = '圖片大小不可超過 8 MB'; errEl.classList.remove('hidden'); }
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => setEditPhotoPreview(String(reader.result || ''));
+            reader.onerror = () => {
+                if (errEl) { errEl.textContent = '圖片讀取失敗，請更換檔案'; errEl.classList.remove('hidden'); }
+            };
+            reader.readAsDataURL(file);
+        }
+        function openPhotoPreviewModal(dataUrl, nameText) {
+            if (!dataUrl) return;
+            const modal = document.getElementById('photo-modal');
+            const img = document.getElementById('photo-modal-img');
+            const title = document.getElementById('photo-modal-name');
+            if (!modal || !img) return;
+            img.src = dataUrl;
+            img.style.transform = 'translate3d(-50%, -50%, 0)';
+            img.style.position = 'fixed';
+            img.style.left = '50%';
+            img.style.top = '50%';
+            img.style.maxWidth = '92vw';
+            img.style.maxHeight = '86vh';
+            img.style.objectFit = 'contain';
+            if (title) title.textContent = (nameText && nameText.trim()) || '大頭照';
+            modal.classList.remove('hidden');
+        }
+        function closePhotoPreviewModal() {
+            const modal = document.getElementById('photo-modal');
+            const img = document.getElementById('photo-modal-img');
+            if (!modal || !img) return;
+            modal.classList.add('hidden');
+            img.removeAttribute('src');
+        }
+
+        function pad2(n) { return String(n).padStart(2, '0'); }
+        function toInputDate(d) {
+            const x = d instanceof Date ? d : new Date(d);
+            if (isNaN(x.getTime())) return '';
+            return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
+        }
+        function toDisplayDate(d) {
+            const x = d instanceof Date ? d : new Date(d);
+            if (isNaN(x.getTime())) return '';
+            return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
+        }
+        function createdAtToDate(raw) {
+            if (!raw) return null;
+            if (typeof raw.toDate === 'function') {
+                const t = raw.toDate();
+                return isNaN(t.getTime()) ? null : t;
+            }
+            if (typeof raw === 'number') {
+                const t = new Date(raw);
+                return isNaN(t.getTime()) ? null : t;
+            }
+            if (typeof raw === 'string') {
+                const t = new Date(raw);
+                return isNaN(t.getTime()) ? null : t;
+            }
+            return null;
+        }
+        function isValidTwId(id) {
+            if (typeof id !== 'string') return false;
+            const v = id.trim().toUpperCase();
+            if (!/^[A-Z][12][0-9]{8}$/.test(v)) return false;
+            const map = { A:10, B:11, C:12, D:13, E:14, F:15, G:16, H:17, I:34, J:18, K:19, L:20, M:21, N:22, O:35, P:23, Q:24, R:25, S:26, T:27, U:28, V:29, W:32, X:30, Y:31, Z:33 };
+            const first = map[v[0]];
+            if (first == null) return false;
+            let sum = Math.floor(first / 10) + (first % 10) * 9;
+            for (let i = 1; i <= 8; i++) sum += Number(v[i]) * (9 - i);
+            sum += Number(v[9]);
+            return sum % 10 === 0;
+        }
+        function setConnected(isOnline) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            if (!dot || !text) return;
+            if (isOnline) {
+                dot.className = 'w-2 h-2 bg-green-400 rounded-full animate-pulse';
+                text.textContent = '線上';
+            } else {
+                dot.className = 'w-2 h-2 bg-red-400 rounded-full animate-pulse';
+                text.textContent = '離線';
+            }
+        }
+
+        function initFirebaseCompat() {
+            if (!window.firebase) throw new Error('Firebase SDK 載入失敗');
+            if (!firebase.apps || firebase.apps.length === 0) {
+                firebase.initializeApp(window.FIREBASE_CONFIG);
+            }
+            return { auth: firebase.auth(), db: firebase.firestore() };
+        }
+
+        function getAppId() {
+            if (!window.FIREBASE_CONFIG) return 'default';
+            const p = (window.FIREBASE_CONFIG.projectId || '').split('-');
+            return p[p.length - 1] || (window.FIREBASE_CONFIG.projectId || 'default');
+        }
+
+        function showAuth(message) {
+            document.getElementById('auth-required').classList.remove('hidden');
+            document.getElementById('list-container').classList.add('hidden');
+            if (message) document.getElementById('auth-message').textContent = message;
+        }
+
+        function hideAuth() {
+            document.getElementById('auth-required').classList.add('hidden');
+            document.getElementById('list-container').classList.remove('hidden');
+        }
+
+        function setCountLabel(filteredCount, totalCount) {
+            const el = document.getElementById('count-label');
+            if (!el) return;
+            if (filteredCount === totalCount) {
+                el.textContent = `共 ${totalCount || 0} 筆`;
+            } else {
+                el.textContent = `顯示 ${filteredCount || 0} / 共 ${totalCount || 0} 筆`;
+            }
+        }
+
+        async function bootstrap() {
+            const { auth, db: firestore } = initFirebaseCompat();
+            db = firestore;
+            const appId = getAppId();
+            rootRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('blacklist');
+
+            try {
+                setConnected(true);
+            } catch (_) {}
+
+            try {
+                const current = await new Promise(resolve => {
+                    const off = auth.onAuthStateChanged(u => { off(); resolve(u); });
+                    setTimeout(() => { try { off(); resolve(auth.currentUser); } catch(_) { resolve(auth.currentUser); } }, 5000);
+                });
+
+                if (!current) {
+                    showAuth('請先回首頁登入後，方可使用黑名單管理功能。');
+                    return;
+                }
+                currentUid = current.uid || null;
+                hideAuth();
+
+                subscribeBlacklist();
+            } catch (e) {
+                showAuth((e && e.message) || '登入驗證失敗，請稍後再試。');
+            }
+        }
+
+        function subscribeBlacklist() {
+            if (!rootRef) return;
+            if (blacklistUnsub) { try { blacklistUnsub(); } catch (_) {} blacklistUnsub = null; }
+            try {
+                blacklistUnsub = rootRef.orderBy('createdAt', 'desc').limit(1000).onSnapshot(
+                    (snap) => {
+                        setConnected(true);
+                        allRows = [];
+                        snap.forEach(doc => {
+                            const d = doc.data() || {};
+                            allRows.push({
+                                id: doc.id,
+                                createdAt: createdAtToDate(d.createdAt) || new Date(),
+                                position: String(d.position || '').trim(),
+                                name: String(d.name || '').trim(),
+                                birth: String(d.birth || '').trim(),
+                                idNumber: String(d.idNumber || '').trim(),
+                                phone: String(d.phone || '').trim(),
+                                region: String(d.region || '').trim(),
+                                photo: String(d.photo || '').trim(),
+                                updatedAt: d.updatedAt || null,
+                                createdBy: d.createdBy || null
+                            });
+                        });
+                        applyFilters();
+                    },
+                    () => {
+                        setConnected(false);
+                        allRows = [];
+                        applyFilters();
+                    }
+                );
+            } catch (_) { setConnected(false); }
+        }
+
+        function applyFilters() {
+            const region = (document.getElementById('filter-region') || {}).value || '';
+            const position = (document.getElementById('filter-position') || {}).value || '';
+            const keywordRaw = ((document.getElementById('filter-keyword') || {}).value || '').trim();
+            const keyword = keywordRaw.toLowerCase();
+            const clearBtn = document.getElementById('filter-keyword-clear');
+            if (clearBtn) clearBtn.classList.toggle('hidden', !keywordRaw);
+            const rows = allRows.filter(r => {
+                if (region && r.region !== region) return false;
+                if (position && r.position !== position) return false;
+                if (keyword) {
+                    const nameMatch = String(r.name || '').toLowerCase().includes(keyword);
+                    const phoneRaw = String(r.phone || '').replace(/\s|-+/g, '');
+                    const phoneMatch = phoneRaw.includes(keyword.replace(/\s|-+/g, ''));
+                    if (!nameMatch && !phoneMatch) return false;
+                }
+                return true;
+            });
+            setCountLabel(rows.length, allRows.length);
+            renderRows(rows);
+        }
+
+        function clearKeywordFilter() {
+            const el = document.getElementById('filter-keyword');
+            if (el) { el.value = ''; el.blur(); }
+            applyFilters();
+        }
+
+        function mobileCell(label, value, extraClass) {
+            const v = value != null && value !== '' ? value : '<span class="text-gray-300">未填寫</span>';
+            return `
+                <div class="flex justify-between items-start gap-3 ${extraClass || ''}">
+                    <div class="text-[10px] font-bold text-gray-400 uppercase pt-0.5">${label}</div>
+                    <div class="text-sm font-bold text-gray-800 text-right break-all">${v}</div>
+                </div>
+            `;
+        }
+
+        function renderRows(rows) {
+            const container = document.getElementById('list-container');
+            if (!container) return;
+            setCountLabel((rows || []).length, allRows.length);
+
+            if (!rows || rows.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-16 text-gray-400">
+                        <i data-lucide="clipboard-list" size="48" class="mx-auto mb-2 opacity-20"></i>
+                        <div class="font-bold">${allRows.length === 0 ? '尚無黑名單資料' : '無符合條件的資料'}</div>
+                        <div class="text-xs text-gray-400 mt-1">點擊右上「新增黑名單」來建立第一筆</div>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            const html = rows.map(row => {
+                const dateText = toDisplayDate(row.createdAt);
+                const idNumberMask = (row.idNumber || '').length === 10
+                    ? (row.idNumber.slice(0, 4) + '****' + row.idNumber.slice(-2))
+                    : (row.idNumber || '');
+                const phoneDisplay = (row.phone || '').trim();
+                const positionBadge = row.position
+                    ? `<span class="inline-block px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-bold">${row.position}</span>`
+                    : '<span class="text-gray-300 text-[11px]">未填寫</span>';
+                const regionBadge = row.region
+                    ? `<span class="inline-block px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[11px] font-bold">${row.region}</span>`
+                    : '<span class="text-gray-300 text-[11px]">未填寫</span>';
+                const escapedName = String(row.name || '未命名').replace(/'/g, "\\'");
+                const photoCell = row.photo
+                    ? `<button onclick='openPhotoPreviewModal(${JSON.stringify(row.photo)}, ${JSON.stringify(String(row.name || '未命名'))})' class="group mx-auto w-11 h-11 rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-sm hover:ring-2 hover:ring-red-400 transition" title="點擊查看大頭照"><img src="${row.photo}" alt="${escapedName}" class="w-full h-full object-cover"></button>`
+                    : `<div class="mx-auto w-11 h-11 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-300"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`;
+                const photoMobileCell = row.photo
+                    ? `<button onclick='openPhotoPreviewModal(${JSON.stringify(row.photo)}, ${JSON.stringify(String(row.name || '未命名'))})' class="w-14 h-14 shrink-0 rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-sm" title="點擊查看大頭照"><img src="${row.photo}" alt="${escapedName}" class="w-full h-full object-cover"></button>`
+                    : `<div class="w-14 h-14 shrink-0 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-300"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`;
+
+                return `
+                    <div class="hover:bg-gray-50/60 transition">
+                        <div class="hidden md:grid md:grid-cols-13 md:gap-2 md:items-center md:px-4 md:py-3">
+                            <div class="col-span-1 flex items-center justify-center">${photoCell}</div>
+                            <div class="col-span-2 text-sm font-bold text-gray-800 whitespace-nowrap">${dateText || ''}</div>
+                            <div class="col-span-1">${positionBadge}</div>
+                            <div class="col-span-2 text-sm font-bold text-gray-800 truncate">${row.name || ''}</div>
+                            <div class="col-span-2 text-sm font-bold text-gray-800 whitespace-nowrap">${row.birth || ''}</div>
+                            <div class="col-span-1 text-sm font-mono font-bold text-gray-800 tracking-wide">${idNumberMask}</div>
+                            <div class="col-span-1 text-sm font-mono font-bold text-gray-800 whitespace-nowrap">${phoneDisplay || ''}</div>
+                            <div class="col-span-1">${regionBadge}</div>
+                            <div class="col-span-2 flex items-center justify-end gap-2">
+                                <button onclick="openEditModal('${row.id}')" class="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold" title="編輯">
+                                    <i data-lucide="pencil" size="16"></i>
+                                </button>
+                                <button onclick="openConfirmDelete('${row.id}', ${JSON.stringify(String(row.name || '未命名')).replace(/"/g, '&quot;')})" class="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold" title="移除">
+                                    <i data-lucide="trash-2" size="16"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="md:hidden p-4 space-y-3">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="flex items-start gap-3 min-w-0">
+                                    ${photoMobileCell}
+                                    <div class="min-w-0">
+                                        <div class="text-base font-black text-gray-900 truncate">${row.name || '未命名'}</div>
+                                        <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                            ${positionBadge}
+                                            ${regionBadge}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    <button onclick="openEditModal('${row.id}')" class="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">
+                                        <i data-lucide="pencil" size="16"></i>
+                                    </button>
+                                    <button onclick="openConfirmDelete('${row.id}', ${JSON.stringify(String(row.name || '未命名')).replace(/"/g, '&quot;')})" class="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold">
+                                        <i data-lucide="trash-2" size="16"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            ${mobileCell('建檔日期', dateText)}
+                            ${mobileCell('出生年月日', row.birth)}
+                            ${mobileCell('身分證號', idNumberMask)}
+                            ${mobileCell('手機號碼', phoneDisplay)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        function openAddModal() {
+            document.getElementById('edit-id').value = '';
+            document.getElementById('edit-title').textContent = '新增黑名單';
+            document.getElementById('edit-submit-btn').textContent = '儲存新增';
+            document.getElementById('edit-createdAt').value = toInputDate(new Date());
+            document.getElementById('edit-position').value = '';
+            document.getElementById('edit-name').value = '';
+            document.getElementById('edit-birth').value = '';
+            document.getElementById('edit-idNumber').value = '';
+            document.getElementById('edit-phone').value = '';
+            document.getElementById('edit-region').value = '';
+            const fileInput = document.getElementById('edit-photo-file');
+            if (fileInput) fileInput.value = '';
+            setEditPhotoPreview('');
+            const err = document.getElementById('edit-error');
+            err.classList.add('hidden');
+            err.textContent = '';
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function openEditModal(id) {
+            const row = allRows.find(r => r.id === id);
+            if (!row) return;
+            document.getElementById('edit-id').value = String(row.id || '');
+            document.getElementById('edit-title').textContent = '編輯黑名單';
+            document.getElementById('edit-submit-btn').textContent = '儲存變更';
+            document.getElementById('edit-createdAt').value = toInputDate(row.createdAt);
+            document.getElementById('edit-position').value = POSITION_OPTIONS.includes(row.position) ? row.position : '';
+            document.getElementById('edit-name').value = row.name || '';
+            document.getElementById('edit-birth').value = /^\d{4}-\d{2}-\d{2}$/.test(row.birth) ? row.birth : '';
+            document.getElementById('edit-idNumber').value = (row.idNumber || '').toUpperCase();
+            document.getElementById('edit-phone').value = (row.phone || '').trim();
+            document.getElementById('edit-region').value = REGION_OPTIONS.includes(row.region) ? row.region : '';
+            const fileInput = document.getElementById('edit-photo-file');
+            if (fileInput) fileInput.value = '';
+            setEditPhotoPreview(row.photo || '');
+            const err = document.getElementById('edit-error');
+            err.classList.add('hidden');
+            err.textContent = '';
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+        }
+
+        function validateEditForm() {
+            const createdAtRaw = document.getElementById('edit-createdAt').value || '';
+            const position = String(document.getElementById('edit-position').value || '').trim();
+            const name = String(document.getElementById('edit-name').value || '').trim();
+            const birth = String(document.getElementById('edit-birth').value || '').trim();
+            let idNumber = String(document.getElementById('edit-idNumber').value || '').trim().toUpperCase();
+            const phone = String(document.getElementById('edit-phone').value || '').trim().replace(/\s|-+/g, '');
+            const region = String(document.getElementById('edit-region').value || '').trim();
+            const photo = (currentEditPhotoDataUrl || '').trim();
+
+            if (!createdAtRaw || !/^\d{4}-\d{2}-\d{2}$/.test(createdAtRaw)) return '請選擇有效的建檔日期 (YYYY-MM-DD)';
+            const createdDate = new Date(createdAtRaw + 'T00:00:00');
+            if (isNaN(createdDate.getTime())) return '建檔日期格式錯誤';
+
+            if (position && !POSITION_OPTIONS.includes(position)) return '若填寫職稱，請選擇有效的選項';
+            if (!name) return '姓名不可為空';
+
+            let birthDate = null;
+            if (birth) {
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(birth)) return '若填寫出生年月日，請選擇有效的日期 (YYYY-MM-DD)';
+                birthDate = new Date(birth + 'T00:00:00');
+                if (isNaN(birthDate.getTime())) return '出生年月日格式錯誤';
+                if (birthDate.getTime() > Date.now()) return '出生年月日不可為未來';
+            }
+
+            if (idNumber && !isValidTwId(idNumber)) return '若填寫身分證號，格式需為 1 碼英文 + 9 碼數字，且符合檢查碼規則';
+            if (phone && !/^(09\d{8}|09\d{2}-\d{3}-\d{3}|09\d{2}-\d{6}|09\d{6}\d{2})$/.test(phone.replace(/-+/g, ''))) return '若填寫手機號碼，請輸入有效的台灣手機格式 (例如：0912345678)';
+            if (region && !REGION_OPTIONS.includes(region)) return '若填寫區域，請選擇有效的選項';
+
+            return {
+                createdAt: createdDate,
+                position: position || '',
+                name,
+                birth: birth || '',
+                idNumber: idNumber || '',
+                phone: phone || '',
+                region: region || '',
+                photo
+            };
+        }
+
+        async function submitEditModal() {
+            if (!rootRef) return;
+            const errEl = document.getElementById('edit-error');
+            errEl.classList.add('hidden');
+            errEl.textContent = '';
+            const result = validateEditForm();
+            if (typeof result === 'string') {
+                errEl.textContent = result;
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            const docId = String(document.getElementById('edit-id').value || '').trim();
+            const btn = document.getElementById('edit-submit-btn');
+            const prevText = btn.textContent;
+            btn.disabled = true;
+            btn.classList.add('opacity-70', 'cursor-not-allowed');
+            btn.textContent = '處理中…';
+            try {
+                const now = new Date();
+                if (docId) {
+                    await rootRef.doc(docId).update({
+                        createdAt: firebase.firestore.Timestamp.fromDate(result.createdAt),
+                        position: result.position,
+                        name: result.name,
+                        birth: result.birth,
+                        idNumber: result.idNumber,
+                        phone: result.phone,
+                        region: result.region,
+                        photo: result.photo,
+                        updatedAt: firebase.firestore.Timestamp.fromDate(now)
+                    });
+                } else {
+                    await rootRef.add({
+                        createdAt: firebase.firestore.Timestamp.fromDate(result.createdAt),
+                        position: result.position,
+                        name: result.name,
+                        birth: result.birth,
+                        idNumber: result.idNumber,
+                        phone: result.phone,
+                        region: result.region,
+                        photo: result.photo,
+                        createdBy: currentUid || null,
+                        updatedAt: firebase.firestore.Timestamp.fromDate(now)
+                    });
+                }
+                closeEditModal();
+            } catch (e) {
+                errEl.textContent = (e && e.message) ? `儲存失敗：${e.message}` : '儲存失敗，請確認網路後再試';
+                errEl.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-70', 'cursor-not-allowed');
+                btn.textContent = prevText;
+            }
+        }
+
+        function openConfirmDelete(id, nameText) {
+            const row = allRows.find(r => r.id === id);
+            if (!row) return;
+            document.getElementById('confirm-id').value = String(row.id || '');
+            const detail = [];
+            if (row.position) detail.push(row.position);
+            if (row.region) detail.push(row.region);
+            document.getElementById('confirm-message').textContent = `確定要將「${String(nameText || '未命名')}」從黑名單中移除？`;
+            document.getElementById('confirm-detail').textContent = detail.length ? detail.join(' · ') : '';
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            document.getElementById('confirm-id').value = '';
+        }
+
+        async function submitConfirmDelete() {
+            if (!rootRef) return;
+            const docId = String(document.getElementById('confirm-id').value || '').trim();
+            if (!docId) return;
+            try {
+                await rootRef.doc(docId).delete();
+                closeConfirmModal();
+            } catch (_) {
+                alert('移除失敗，請確認網路狀態或權限後再試。');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            bootstrap();
+        });
+    </script>
+</body>
+</html>
