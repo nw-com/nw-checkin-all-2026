@@ -18,6 +18,24 @@
             font-family: 'Noto Sans TC', sans-serif;
             background-color: #f3f4f6;
             -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+        }
+        button, [onclick], [role="button"], .cursor-pointer {
+            touch-action: manipulation;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        button {
+            -webkit-appearance: none;
+            appearance: none;
+            border: 0;
+            background: transparent;
+            font: inherit;
+            color: inherit;
+            cursor: pointer;
+        }
+        button svg, button i, [onclick] svg, [onclick] i {
+            pointer-events: none;
         }
         .scanner-container #reader {
             border: none !important;
@@ -431,7 +449,7 @@
                 <button id="logs-prev-btn" onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-left" size="16"></i>
                 </button>
-                <div id="logs-date-label" onclick="openLogsDatePicker()" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap cursor-pointer select-none hover:bg-gray-200"></div>
+                <div id="logs-date-label" onclick="openLogsDatePicker()" role="button" tabindex="0" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap cursor-pointer select-none hover:bg-gray-200"></div>
                 <button id="logs-next-btn" onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-right" size="16"></i>
                 </button>
@@ -1556,26 +1574,43 @@
         }
 
         function applyDeleteActionGuards() {
-            document.addEventListener('click', (e) => {
-                if (!isRoleRestrictedForClear()) return;
-                const target = e.target;
-                if (!(target instanceof Element)) return;
-                const btn = target.closest('button, [onclick]');
-                if (!btn) return;
+            function isRestrictedAction(targetEl) {
+                if (!isRoleRestrictedForClear()) return false;
+                if (!(targetEl instanceof Element)) return false;
+                const btn = targetEl.closest('button, [onclick], [role="button"]');
+                if (!btn) return false;
                 const onclick = btn.getAttribute('onclick') || '';
-                if (onclick.indexOf('clearLogs(') >= 0 || onclick.indexOf('deleteLog(') >= 0) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                }
-                if (btn.id === 'clear-logs-btn' || btn.getAttribute('data-restricted') === '1') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                }
-            }, true);
+                if (onclick.indexOf('clearLogs(') >= 0 || onclick.indexOf('deleteLog(') >= 0) return true;
+                if (btn.id === 'clear-logs-btn' || btn.getAttribute('data-restricted') === '1') return true;
+                return false;
+            }
+
+            document.addEventListener('click', (e) => {
+                if (!isRestrictedAction(e.target)) return;
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+
+            document.addEventListener('touchend', (e) => {
+                if (!isRestrictedAction(e.target)) return;
+                e.preventDefault();
+                e.stopPropagation();
+            }, { passive: false });
+
+            if (typeof window.clearLogs === 'function') {
+                const origClearLogs = window.clearLogs;
+                window.clearLogs = function () {
+                    if (isRoleRestrictedForClear()) return;
+                    return origClearLogs.apply(this, arguments);
+                };
+            }
+            if (typeof window.deleteLog === 'function') {
+                const origDeleteLog = window.deleteLog;
+                window.deleteLog = function () {
+                    if (isRoleRestrictedForClear()) return;
+                    return origDeleteLog.apply(this, arguments);
+                };
+            }
         }
 
         function resolveAllowedCommunityIds(u) {
