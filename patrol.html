@@ -676,6 +676,40 @@
         </div>
     </div>
 
+    <div id="logs-calendar-modal" class="fixed inset-0 bg-black/50 z-[113] hidden p-4 flex items-center justify-center" onclick="closeLogsCalendarModal()">
+        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <button onclick="changeLogsCalendarMonth(-1)" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600">
+                    <i data-lucide="chevron-left" size="18"></i>
+                </button>
+                <div id="logs-calendar-title" class="font-bold text-gray-800 text-sm"></div>
+                <button onclick="changeLogsCalendarMonth(1)" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600">
+                    <i data-lucide="chevron-right" size="18"></i>
+                </button>
+            </div>
+            <div class="px-4 py-3">
+                <div class="grid grid-cols-7 gap-1 mb-2">
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">日</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">一</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">二</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">三</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">四</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">五</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">六</div>
+                </div>
+                <div id="logs-calendar-grid" class="grid grid-cols-7 gap-1"></div>
+                <div class="mt-4 flex items-center justify-center gap-3 text-[10px] text-gray-500">
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-3 h-3 rounded bg-green-500"></div> 有巡邏紀錄
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-3 h-3 rounded border border-red-500 bg-red-50"></div> 目前選取
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="share-modal" class="fixed inset-0 bg-black/50 z-[114] hidden p-6 flex items-center justify-center" onclick="closeShareModal()">
         <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
             <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -753,6 +787,8 @@
         let pendingInspectionScan = null;
         let pendingPhotoData = null;
         let selectedLogsDate = new Date();
+        let logsCalendarYm = null;
+        let logsCalendarMarkedDays = null;
         let canManageSettings = false;
         let currentUserRoleName = '';
         const RESTRICTED_ROLE_NAMES_FOR_CLEAR = ['總幹事', '秘書', '清潔', '機電', '保全', '臨時保全'];
@@ -1731,50 +1767,145 @@
         }
 
         function openLogsDatePicker() {
+            const base = selectedLogsDate instanceof Date ? selectedLogsDate : new Date();
+            logsCalendarYm = { y: base.getFullYear(), m: base.getMonth() };
+            logsCalendarMarkedDays = null;
+            const modal = document.getElementById('logs-calendar-modal');
+            if (modal) modal.classList.remove('hidden');
+            renderLogsCalendar(true).catch(() => {});
+        }
+
+        function closeLogsCalendarModal() {
+            const modal = document.getElementById('logs-calendar-modal');
+            if (modal) modal.classList.add('hidden');
+            logsCalendarYm = null;
+            logsCalendarMarkedDays = null;
+        }
+
+        function changeLogsCalendarMonth(delta) {
+            if (!logsCalendarYm) return;
+            const d = Number(delta) || 0;
+            if (d === 0) return;
+            const next = new Date(logsCalendarYm.y, logsCalendarYm.m + d, 1);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (next.getFullYear() > today.getFullYear() || (next.getFullYear() === today.getFullYear() && next.getMonth() > today.getMonth())) {
+                return;
+            }
+            logsCalendarYm = { y: next.getFullYear(), m: next.getMonth() };
+            renderLogsCalendar(true).catch(() => {});
+        }
+
+        async function loadLogsCalendarMarkedDays(year, month) {
+            if (!settingsDocRef) return new Set();
+            const start = new Date(year, month, 1, 0, 0, 0, 0);
+            const end = new Date(year, month + 1, 1, 0, 0, 0, 0);
+            const startTs = firebase.firestore.Timestamp.fromDate(start);
+            const endTs = firebase.firestore.Timestamp.fromDate(end);
+            const marked = new Set();
             try {
-                const tempInput = document.createElement('input');
-                tempInput.type = 'date';
-                tempInput.value = toInputDate(selectedLogsDate || new Date());
-                const today = new Date();
-                tempInput.max = toInputDate(today);
-                tempInput.style.position = 'fixed';
-                tempInput.style.top = '0';
-                tempInput.style.left = '0';
-                tempInput.style.opacity = '0.001';
-                tempInput.style.pointerEvents = 'none';
-                tempInput.style.zIndex = '-1';
-                tempInput.style.width = '1px';
-                tempInput.style.height = '1px';
-                tempInput.addEventListener('change', (e) => {
-                    const v = String(e?.target?.value || '').trim();
-                    if (v) {
-                        const [y, m, d] = v.split('-').map(n => parseInt(n, 10));
-                        if (y && m && d) {
-                            const next = new Date(y, m - 1, d, 0, 0, 0, 0);
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            if (next.getTime() <= today.getTime()) {
-                                selectedLogsDate = next;
-                                updateLogsDateLabel();
-                                renderPatrolPointsTags();
-                                subscribeLogsForDate(selectedLogsDate);
-                                renderLogs();
-                            }
-                        }
+                const snap = await settingsDocRef
+                    .collection('logs')
+                    .where('createdAt', '>=', startTs)
+                    .where('createdAt', '<', endTs)
+                    .orderBy('createdAt', 'asc')
+                    .limit(2000)
+                    .get();
+                snap.forEach((doc) => {
+                    const raw = (doc.data() || {}).createdAt;
+                    let t = null;
+                    if (raw && typeof raw.toDate === 'function') t = raw.toDate();
+                    else if (typeof raw === 'number') t = new Date(raw);
+                    else if (typeof raw === 'string') t = new Date(raw);
+                    if (t && !isNaN(t.getTime())) {
+                        marked.add(`${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`);
                     }
-                    setTimeout(() => { try { document.body.removeChild(tempInput); } catch (_) {} }, 100);
                 });
-                document.body.appendChild(tempInput);
-                if (typeof tempInput.showPicker === 'function') {
-                    try { tempInput.showPicker(); return; } catch (_) {}
-                }
-                try {
-                    tempInput.style.pointerEvents = 'auto';
-                    tempInput.focus();
-                    const rect = tempInput.getBoundingClientRect();
-                    try { tempInput.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: rect.left + 1, clientY: rect.top + 1 })); } catch (_) {}
-                } catch (_) {}
             } catch (_) {}
+            return marked;
+        }
+
+        async function renderLogsCalendar(refreshMarked) {
+            if (!logsCalendarYm) return;
+            const { y, m } = logsCalendarYm;
+            const titleEl = document.getElementById('logs-calendar-title');
+            const gridEl = document.getElementById('logs-calendar-grid');
+            if (titleEl) titleEl.textContent = `${y} 年 ${pad2(m + 1)} 月`;
+            if (!gridEl) return;
+
+            if (refreshMarked !== false) {
+                logsCalendarMarkedDays = null;
+                loadLogsCalendarMarkedDays(y, m).then((set) => {
+                    logsCalendarMarkedDays = set;
+                    if (logsCalendarYm && logsCalendarYm.y === y && logsCalendarYm.m === m) {
+                        renderLogsCalendar(false).catch(() => {});
+                    }
+                }).catch(() => {});
+            }
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const sel = selectedLogsDate instanceof Date ? new Date(selectedLogsDate.getFullYear(), selectedLogsDate.getMonth(), selectedLogsDate.getDate()) : null;
+            const marked = logsCalendarMarkedDays || new Set();
+
+            const first = new Date(y, m, 1);
+            const firstDow = first.getDay();
+            const daysInMonth = new Date(y, m + 1, 0).getDate();
+            const cells = [];
+            for (let i = 0; i < firstDow; i++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+            while (cells.length % 7 !== 0) cells.push(null);
+
+            const todayKey = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+            const selKey = sel ? `${sel.getFullYear()}-${pad2(sel.getMonth() + 1)}-${pad2(sel.getDate())}` : '';
+
+            gridEl.innerHTML = cells.map((d) => {
+                if (d === null) return `<div class="h-9"></div>`;
+                const cellDate = new Date(y, m, d, 0, 0, 0, 0);
+                const isFuture = cellDate.getTime() > today.getTime();
+                const key = `${y}-${pad2(m + 1)}-${pad2(d)}`;
+                const isToday = key === todayKey;
+                const isSelected = key === selKey;
+                const isMarked = marked.has(key);
+
+                const base = 'relative h-9 flex items-center justify-center rounded-lg text-sm transition select-none';
+                let cls = base;
+                if (isFuture) {
+                    cls += ' text-gray-300 cursor-not-allowed';
+                } else {
+                    cls += ' cursor-pointer hover:bg-gray-100';
+                }
+                if (isMarked && !isFuture) {
+                    cls += ' bg-green-500 text-white font-bold hover:bg-green-600';
+                }
+                let ring = '';
+                let textExtra = '';
+                if (isSelected && !isMarked) {
+                    ring = ' ring-2 ring-red-500 bg-red-50 text-red-600 font-bold';
+                } else if (isSelected && isMarked) {
+                    ring = ' ring-2 ring-red-500';
+                } else if (isToday && !isMarked && !isFuture) {
+                    textExtra = ' font-bold text-red-600';
+                }
+                const clickHandler = isFuture ? '' : `pickLogsCalendarDate(${y}, ${m}, ${d})`;
+                return `<div role="button" tabindex="${isFuture ? '-1' : '0'}" class="${cls}${ring}${textExtra}" ${clickHandler ? `onclick="${clickHandler}"` : ''}>${d}</div>`;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        function pickLogsCalendarDate(y, m, d) {
+            const next = new Date(Number(y) || 0, Number(m) || 0, Number(d) || 1, 0, 0, 0, 0);
+            if (isNaN(next.getTime())) return;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (next.getTime() > today.getTime()) return;
+            selectedLogsDate = next;
+            updateLogsDateLabel();
+            renderPatrolPointsTags();
+            subscribeLogsForDate(selectedLogsDate);
+            renderLogs();
+            closeLogsCalendarModal();
         }
 
         function pad2(n) {
