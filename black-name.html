@@ -10,6 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
         body {
@@ -22,10 +23,10 @@
         button, [onclick], [role="button"], .cursor-pointer { touch-action: manipulation; }
         button { -webkit-appearance: none; appearance: none; }
         button svg, button i, [onclick] svg, [onclick] i { pointer-events: none; }
-        .grid-cols-13 { grid-template-columns: repeat(13, minmax(0, 1fr)); }
+        .grid-cols-15 { grid-template-columns: repeat(15, minmax(0, 1fr)); }
         @media (min-width: 768px) {
-            .md\:grid-cols-13 { grid-template-columns: repeat(13, minmax(0, 1fr)); }
-            .md\:col-span-13 { grid-column: span 13 / span 13; }
+            .md\:grid-cols-15 { grid-template-columns: repeat(15, minmax(0, 1fr)); }
+            .md\:col-span-15 { grid-column: span 15 / span 15; }
         }
     </style>
 </head>
@@ -48,14 +49,29 @@
 
         <div class="bg-white rounded-xl p-4 shadow-sm mb-4 border border-gray-100">
             <div class="flex flex-col gap-3">
-                <div class="min-w-0">
-                    <div class="font-black text-gray-800 flex items-center gap-2">
-                        <i data-lucide="user-x-2" class="w-5 h-5 text-red-600"></i>
-                        黑名單管理
+                <div class="flex items-start justify-between gap-3 w-full">
+                    <div class="min-w-0">
+                        <div class="font-black text-gray-800 flex items-center gap-2">
+                            <i data-lucide="user-x-2" class="w-5 h-5 text-red-600"></i>
+                            黑名單管理
+                        </div>
+                        <div id="count-label" class="text-[11px] font-bold text-gray-400 mt-0.5">共 0 筆</div>
                     </div>
-                    <div id="count-label" class="text-[11px] font-bold text-gray-400 mt-0.5">共 0 筆</div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="exportExcel()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-green-100 transition text-xs md:text-sm">
+                            <i data-lucide="file-spreadsheet" size="14"></i>
+                            <span class="hidden sm:inline">匯出</span>
+                            <span class="sm:hidden">匯出</span>
+                        </button>
+                        <button onclick="document.getElementById('import-excel-file').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-100 transition text-xs md:text-sm">
+                            <i data-lucide="upload" size="14"></i>
+                            <span class="hidden sm:inline">匯入</span>
+                            <span class="sm:hidden">匯入</span>
+                        </button>
+                        <input id="import-excel-file" type="file" accept=".xlsx,.xls,.csv" onchange="importExcel(event)" class="hidden">
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+                <div class="grid grid-cols-2 gap-3 w-full">
                     <div class="relative w-full">
                         <select id="filter-region" onchange="applyFilters()" class="w-full appearance-none bg-white border border-gray-200 rounded-xl px-8 pl-4 py-2 text-sm font-bold text-gray-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none">
                             <option value="">全部區域</option>
@@ -91,15 +107,17 @@
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div class="hidden md:block">
-                <div class="bg-gray-50 border-b border-gray-100 grid grid-cols-13 gap-2 px-4 py-3 text-[11px] font-bold text-gray-500 uppercase">
+                <div class="bg-gray-50 border-b border-gray-100 grid grid-cols-15 gap-2 px-4 py-3 text-[11px] font-bold text-gray-500 uppercase">
                     <div class="col-span-1 text-center">大頭照</div>
-                    <div class="col-span-2">建檔日期</div>
+                    <div class="col-span-1">建檔日期</div>
                     <div class="col-span-1">職稱</div>
-                    <div class="col-span-2">姓名</div>
-                    <div class="col-span-2">出生年月日</div>
+                    <div class="col-span-1">姓名</div>
+                    <div class="col-span-1">出生年月日</div>
                     <div class="col-span-1">身分證號</div>
                     <div class="col-span-1">手機號碼</div>
                     <div class="col-span-1">區域</div>
+                    <div class="col-span-3">地址</div>
+                    <div class="col-span-2">事由</div>
                     <div class="col-span-2 text-right">操作</div>
                 </div>
             </div>
@@ -182,11 +200,15 @@
                         <label class="block text-xs font-bold text-gray-400 uppercase mb-1">出生年月日</label>
                         <input id="edit-birth" type="date" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800" placeholder="YYYY-MM-DD">
                     </div>
-                    <div>
+                    <div class="md:col-span-2">
                         <label class="block text-xs font-bold text-gray-400 uppercase mb-1">身分證號</label>
                         <input id="edit-idNumber" type="text" maxlength="10" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800 uppercase tracking-wide" placeholder="例如：A123456789">
                     </div>
-                    <div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">手機號碼</label>
+                        <input id="edit-phone" type="tel" inputmode="tel" maxlength="15" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800 tracking-wide" placeholder="例如：0912-345-678 或 0912345678">
+                    </div>
+                    <div class="md:col-span-2">
                         <label class="block text-xs font-bold text-gray-400 uppercase mb-1">區域</label>
                         <select id="edit-region" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800">
                             <option value=""></option>
@@ -196,8 +218,20 @@
                         </select>
                     </div>
                     <div class="md:col-span-2">
-                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">手機號碼</label>
-                        <input id="edit-phone" type="tel" inputmode="tel" maxlength="15" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800 tracking-wide" placeholder="例如：0912-345-678 或 0912345678">
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">地址</label>
+                        <input id="edit-address" type="text" oninput="handleAddressInput()" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800" placeholder="例如：台北市中山區…（輸入後自動帶入區域）">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">事由</label>
+                        <div class="flex gap-2">
+                            <select id="edit-reason" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800">
+                                <option value=""></option>
+                            </select>
+                            <button type="button" onclick="addCustomReason()" class="shrink-0 px-3 py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold" title="加入自訂事由">
+                                <i data-lucide="plus" size="16"></i>
+                            </button>
+                        </div>
+                        <input id="edit-reason-custom" type="text" class="hidden mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm font-bold text-gray-800" placeholder="請輸入自訂事由…（輸入完畢按右側 + 加入選單）">
                     </div>
                 </div>
                 <div id="edit-error" class="hidden text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3"></div>
@@ -248,6 +282,8 @@
     <script>
         const POSITION_OPTIONS = ['公司幹部', '總幹事', '秘書', '清潔', '機電', '保全', '臨時保全'];
         const REGION_OPTIONS = ['台北', '新北', '桃園'];
+        const DEFAULT_REASON_OPTIONS = ['案調未過'];
+        const REASON_STORAGE_KEY = 'nw_blacklist_custom_reasons';
 
         let db = null;
         let rootRef = null;
@@ -255,6 +291,82 @@
         let allRows = [];
         let currentUid = null;
         let currentEditPhotoDataUrl = '';
+        let customReasonOptions = [];
+
+        function loadCustomReasons() {
+            try {
+                const raw = localStorage.getItem(REASON_STORAGE_KEY);
+                const arr = raw ? JSON.parse(raw) : [];
+                customReasonOptions = Array.isArray(arr) ? arr.filter(x => typeof x === 'string' && x.trim()) : [];
+            } catch (_) {
+                customReasonOptions = [];
+            }
+        }
+        function saveCustomReasons() {
+            try {
+                localStorage.setItem(REASON_STORAGE_KEY, JSON.stringify(customReasonOptions));
+            } catch (_) {}
+        }
+        function getAllReasonOptions() {
+            const merged = [];
+            DEFAULT_REASON_OPTIONS.forEach(x => { if (!merged.includes(x)) merged.push(x); });
+            customReasonOptions.forEach(x => { if (!merged.includes(x)) merged.push(x); });
+            return merged;
+        }
+        function rebuildReasonSelect(selectedValue) {
+            const sel = document.getElementById('edit-reason');
+            if (!sel) return;
+            const options = getAllReasonOptions();
+            sel.innerHTML = '<option value=""></option>' + options.map(v => {
+                const selected = v === selectedValue ? ' selected' : '';
+                return `<option value="${v.replace(/"/g, '&quot;')}"${selected}>${v}</option>`;
+            }).join('');
+        }
+        function addCustomReason() {
+            const customInput = document.getElementById('edit-reason-custom');
+            const sel = document.getElementById('edit-reason');
+            if (!customInput || !sel) return;
+            if (customInput.classList.contains('hidden')) {
+                customInput.classList.remove('hidden');
+                customInput.focus();
+                return;
+            }
+            const rawVal = String(customInput.value || '').trim();
+            if (!rawVal) {
+                customInput.classList.add('hidden');
+                return;
+            }
+            if (!customReasonOptions.includes(rawVal)) {
+                customReasonOptions.push(rawVal);
+                saveCustomReasons();
+            }
+            rebuildReasonSelect(rawVal);
+            sel.value = rawVal;
+            customInput.value = '';
+            customInput.classList.add('hidden');
+        }
+        function handleAddressInput() {
+            const addrEl = document.getElementById('edit-address');
+            const regionEl = document.getElementById('edit-region');
+            if (!addrEl || !regionEl) return;
+            const addr = String(addrEl.value || '').trim();
+            if (!addr) return;
+            const currentRegion = regionEl.value;
+            if (currentRegion && REGION_OPTIONS.includes(currentRegion)) return;
+            let matched = '';
+            if (/台北市|臺北市/.test(addr)) matched = '台北';
+            else if (/新北市/.test(addr)) matched = '新北';
+            else if (/桃園市|桃園縣/.test(addr)) matched = '桃園';
+            else {
+                for (const r of REGION_OPTIONS) {
+                    if (addr.startsWith(r) || addr.includes(r + '市') || addr.includes(r + '縣')) {
+                        matched = r;
+                        break;
+                    }
+                }
+            }
+            if (matched && !regionEl.value) regionEl.value = matched;
+        }
 
         function setEditPhotoPreview(dataUrl) {
             const preview = document.getElementById('edit-photo-preview');
@@ -457,6 +569,8 @@
                                 idNumber: String(d.idNumber || '').trim(),
                                 phone: String(d.phone || '').trim(),
                                 region: String(d.region || '').trim(),
+                                address: String(d.address || '').trim(),
+                                reason: String(d.reason || '').trim(),
                                 photo: String(d.photo || '').trim(),
                                 updatedAt: d.updatedAt || null,
                                 createdBy: d.createdBy || null
@@ -487,7 +601,9 @@
                     const nameMatch = String(r.name || '').toLowerCase().includes(keyword);
                     const phoneRaw = String(r.phone || '').replace(/\s|-+/g, '');
                     const phoneMatch = phoneRaw.includes(keyword.replace(/\s|-+/g, ''));
-                    if (!nameMatch && !phoneMatch) return false;
+                    const addressMatch = String(r.address || '').toLowerCase().includes(keyword);
+                    const reasonMatch = String(r.reason || '').toLowerCase().includes(keyword);
+                    if (!nameMatch && !phoneMatch && !addressMatch && !reasonMatch) return false;
                 }
                 return true;
             });
@@ -509,6 +625,20 @@
                     <div class="text-sm font-bold text-gray-800 text-right break-all">${v}</div>
                 </div>
             `;
+        }
+
+        function toggleMobileDetails(id, headerEl) {
+            const details = document.getElementById('mobile-details-' + id);
+            const chev = headerEl ? headerEl.querySelector('.mobile-chevron') : null;
+            if (!details) return;
+            const isHidden = details.classList.contains('hidden');
+            if (isHidden) {
+                details.classList.remove('hidden');
+                if (chev) chev.style.transform = 'rotate(180deg)';
+            } else {
+                details.classList.add('hidden');
+                if (chev) chev.style.transform = 'rotate(0deg)';
+            }
         }
 
         function renderRows(rows) {
@@ -540,6 +670,10 @@
                 const regionBadge = row.region
                     ? `<span class="inline-block px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[11px] font-bold">${row.region}</span>`
                     : '<span class="text-gray-300 text-[11px]">未填寫</span>';
+                const reasonBadge = row.reason
+                    ? `<span class="inline-block px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[11px] font-bold">${row.reason}</span>`
+                    : '<span class="text-gray-300 text-[11px]">未填寫</span>';
+                const addressText = row.address || '';
                 const escapedName = String(row.name || '未命名').replace(/'/g, "\\'");
                 const photoCell = row.photo
                     ? `<button onclick='openPhotoPreviewModal(${JSON.stringify(row.photo)}, ${JSON.stringify(String(row.name || '未命名'))})' class="group mx-auto w-11 h-11 rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-sm hover:ring-2 hover:ring-red-400 transition" title="點擊查看大頭照"><img src="${row.photo}" alt="${escapedName}" class="w-full h-full object-cover"></button>`
@@ -550,15 +684,17 @@
 
                 return `
                     <div class="hover:bg-gray-50/60 transition">
-                        <div class="hidden md:grid md:grid-cols-13 md:gap-2 md:items-center md:px-4 md:py-3">
+                        <div class="hidden md:grid md:grid-cols-15 md:gap-2 md:items-center md:px-4 md:py-3">
                             <div class="col-span-1 flex items-center justify-center">${photoCell}</div>
-                            <div class="col-span-2 text-sm font-bold text-gray-800 whitespace-nowrap">${dateText || ''}</div>
+                            <div class="col-span-1 text-sm font-bold text-gray-800 whitespace-nowrap">${dateText || ''}</div>
                             <div class="col-span-1">${positionBadge}</div>
-                            <div class="col-span-2 text-sm font-bold text-gray-800 truncate">${row.name || ''}</div>
-                            <div class="col-span-2 text-sm font-bold text-gray-800 whitespace-nowrap">${row.birth || ''}</div>
+                            <div class="col-span-1 text-sm font-bold text-gray-800 truncate">${row.name || ''}</div>
+                            <div class="col-span-1 text-sm font-bold text-gray-800 whitespace-nowrap">${row.birth || ''}</div>
                             <div class="col-span-1 text-sm font-mono font-bold text-gray-800 tracking-wide">${idNumberMask}</div>
                             <div class="col-span-1 text-sm font-mono font-bold text-gray-800 whitespace-nowrap">${phoneDisplay || ''}</div>
                             <div class="col-span-1">${regionBadge}</div>
+                            <div class="col-span-3 text-sm font-bold text-gray-800 truncate" title="${addressText.replace(/"/g, '&quot;')}">${addressText || '<span class="text-gray-300 text-[11px]">未填寫</span>'}</div>
+                            <div class="col-span-2">${reasonBadge}</div>
                             <div class="col-span-2 flex items-center justify-end gap-2">
                                 <button onclick="openEditModal('${row.id}')" class="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold" title="編輯">
                                     <i data-lucide="pencil" size="16"></i>
@@ -569,7 +705,7 @@
                             </div>
                         </div>
                         <div class="md:hidden p-4 space-y-3">
-                            <div class="flex items-start justify-between gap-3">
+                            <div class="flex items-start justify-between gap-3 cursor-pointer select-none" onclick="toggleMobileDetails('${row.id}', this)">
                                 <div class="flex items-start gap-3 min-w-0">
                                     ${photoMobileCell}
                                     <div class="min-w-0">
@@ -577,22 +713,28 @@
                                         <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
                                             ${positionBadge}
                                             ${regionBadge}
+                                            ${reasonBadge}
                                         </div>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-2 shrink-0">
-                                    <button onclick="openEditModal('${row.id}')" class="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">
+                                    <button onclick="event.stopPropagation(); openEditModal('${row.id}')" class="p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold">
                                         <i data-lucide="pencil" size="16"></i>
                                     </button>
-                                    <button onclick="openConfirmDelete('${row.id}', ${JSON.stringify(String(row.name || '未命名')).replace(/"/g, '&quot;')})" class="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold">
+                                    <button onclick="event.stopPropagation(); openConfirmDelete('${row.id}', ${JSON.stringify(String(row.name || '未命名')).replace(/"/g, '&quot;')})" class="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold">
                                         <i data-lucide="trash-2" size="16"></i>
                                     </button>
+                                    <i class="mobile-chevron w-5 h-5 text-gray-400 transition-transform shrink-0 mt-2" data-lucide="chevron-down"></i>
                                 </div>
                             </div>
-                            ${mobileCell('建檔日期', dateText)}
-                            ${mobileCell('出生年月日', row.birth)}
-                            ${mobileCell('身分證號', idNumberMask)}
-                            ${mobileCell('手機號碼', phoneDisplay)}
+                            <div id="mobile-details-${row.id}" class="hidden space-y-3 pt-1">
+                                ${mobileCell('建檔日期', dateText)}
+                                ${mobileCell('出生年月日', row.birth)}
+                                ${mobileCell('身分證號', idNumberMask)}
+                                ${mobileCell('手機號碼', phoneDisplay)}
+                                ${mobileCell('地址', addressText)}
+                                ${mobileCell('事由', row.reason)}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -613,6 +755,11 @@
             document.getElementById('edit-idNumber').value = '';
             document.getElementById('edit-phone').value = '';
             document.getElementById('edit-region').value = '';
+            document.getElementById('edit-address').value = '';
+            const customReasonEl = document.getElementById('edit-reason-custom');
+            if (customReasonEl) { customReasonEl.value = ''; customReasonEl.classList.add('hidden'); }
+            loadCustomReasons();
+            rebuildReasonSelect('');
             const fileInput = document.getElementById('edit-photo-file');
             if (fileInput) fileInput.value = '';
             setEditPhotoPreview('');
@@ -635,6 +782,15 @@
             document.getElementById('edit-idNumber').value = (row.idNumber || '').toUpperCase();
             document.getElementById('edit-phone').value = (row.phone || '').trim();
             document.getElementById('edit-region').value = REGION_OPTIONS.includes(row.region) ? row.region : '';
+            document.getElementById('edit-address').value = row.address || '';
+            const customReasonEl = document.getElementById('edit-reason-custom');
+            if (customReasonEl) { customReasonEl.value = ''; customReasonEl.classList.add('hidden'); }
+            loadCustomReasons();
+            if (row.reason && !getAllReasonOptions().includes(row.reason)) {
+                customReasonOptions.push(row.reason);
+                saveCustomReasons();
+            }
+            rebuildReasonSelect(row.reason || '');
             const fileInput = document.getElementById('edit-photo-file');
             if (fileInput) fileInput.value = '';
             setEditPhotoPreview(row.photo || '');
@@ -656,6 +812,8 @@
             let idNumber = String(document.getElementById('edit-idNumber').value || '').trim().toUpperCase();
             const phone = String(document.getElementById('edit-phone').value || '').trim().replace(/\s|-+/g, '');
             const region = String(document.getElementById('edit-region').value || '').trim();
+            const address = String(document.getElementById('edit-address').value || '').trim();
+            const reason = String(document.getElementById('edit-reason').value || '').trim();
             const photo = (currentEditPhotoDataUrl || '').trim();
 
             if (!createdAtRaw || !/^\d{4}-\d{2}-\d{2}$/.test(createdAtRaw)) return '請選擇有效的建檔日期 (YYYY-MM-DD)';
@@ -676,6 +834,7 @@
             if (idNumber && !isValidTwId(idNumber)) return '若填寫身分證號，格式需為 1 碼英文 + 9 碼數字，且符合檢查碼規則';
             if (phone && !/^(09\d{8}|09\d{2}-\d{3}-\d{3}|09\d{2}-\d{6}|09\d{6}\d{2})$/.test(phone.replace(/-+/g, ''))) return '若填寫手機號碼，請輸入有效的台灣手機格式 (例如：0912345678)';
             if (region && !REGION_OPTIONS.includes(region)) return '若填寫區域，請選擇有效的選項';
+            if (reason && !getAllReasonOptions().includes(reason)) return '若填寫事由，請選擇有效的選項或先加入自訂事由';
 
             return {
                 createdAt: createdDate,
@@ -685,6 +844,8 @@
                 idNumber: idNumber || '',
                 phone: phone || '',
                 region: region || '',
+                address: address || '',
+                reason: reason || '',
                 photo
             };
         }
@@ -718,6 +879,8 @@
                         idNumber: result.idNumber,
                         phone: result.phone,
                         region: result.region,
+                        address: result.address,
+                        reason: result.reason,
                         photo: result.photo,
                         updatedAt: firebase.firestore.Timestamp.fromDate(now)
                     });
@@ -730,6 +893,8 @@
                         idNumber: result.idNumber,
                         phone: result.phone,
                         region: result.region,
+                        address: result.address,
+                        reason: result.reason,
                         photo: result.photo,
                         createdBy: currentUid || null,
                         updatedAt: firebase.firestore.Timestamp.fromDate(now)
@@ -753,6 +918,7 @@
             const detail = [];
             if (row.position) detail.push(row.position);
             if (row.region) detail.push(row.region);
+            if (row.reason) detail.push(row.reason);
             document.getElementById('confirm-message').textContent = `確定要將「${String(nameText || '未命名')}」從黑名單中移除？`;
             document.getElementById('confirm-detail').textContent = detail.length ? detail.join(' · ') : '';
             document.getElementById('confirm-modal').classList.remove('hidden');
@@ -775,7 +941,201 @@
             }
         }
 
+        function exportExcel() {
+            if (!allRows || allRows.length === 0) {
+                alert('目前沒有可匯出的黑名單資料。');
+                return;
+            }
+            if (typeof XLSX === 'undefined') {
+                alert('Excel 匯出模組尚未載入完成，請稍後再試。');
+                return;
+            }
+            const headerMap = [
+                ['createdAt', '建檔日期'],
+                ['position', '職稱'],
+                ['name', '姓名'],
+                ['birth', '出生年月日'],
+                ['idNumber', '身分證號'],
+                ['phone', '手機號碼'],
+                ['region', '區域'],
+                ['address', '地址'],
+                ['reason', '事由']
+            ];
+            const data = allRows.map(r => {
+                const row = {};
+                headerMap.forEach(([key, label]) => {
+                    let val = r[key];
+                    if (key === 'createdAt') {
+                        val = toDisplayDate(r.createdAt);
+                    }
+                    row[label] = val != null ? val : '';
+                });
+                return row;
+            });
+            const ws = XLSX.utils.json_to_sheet(data, { header: headerMap.map(x => x[1]) });
+            ws['!cols'] = [
+                { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 14 },
+                { wch: 14 }, { wch: 8 }, { wch: 30 }, { wch: 20 }
+            ];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '黑名單');
+            const now = new Date();
+            const fname = `黑名單_${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}.xlsx`;
+            XLSX.writeFile(wb, fname);
+        }
+
+        function normalizePhone(raw) {
+            return String(raw || '').replace(/\s|-+/g, '');
+        }
+
+        function validateImportRow(obj, idx) {
+            const name = String(obj['姓名'] || obj['name'] || '').trim();
+            const createdAtRaw = String(obj['建檔日期'] || obj['createdAt'] || '').trim();
+            const errors = [];
+            if (!name) errors.push(`第 ${idx} 列：姓名不可為空`);
+            let createdDate = null;
+            if (createdAtRaw) {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(createdAtRaw)) {
+                    createdDate = new Date(createdAtRaw + 'T00:00:00');
+                } else if (typeof obj['建檔日期'] === 'string' && obj['建檔日期']) {
+                    const t = new Date(obj['建檔日期']);
+                    if (!isNaN(t.getTime())) createdDate = t;
+                }
+            }
+            if (!createdDate || isNaN(createdDate.getTime())) {
+                createdDate = new Date();
+            }
+            const position = String(obj['職稱'] || obj['position'] || '').trim();
+            const birth = String(obj['出生年月日'] || obj['birth'] || '').trim();
+            let idNumber = String(obj['身分證號'] || obj['idNumber'] || '').trim().toUpperCase();
+            const phone = normalizePhone(obj['手機號碼'] || obj['phone'] || '');
+            let region = String(obj['區域'] || obj['region'] || '').trim();
+            const address = String(obj['地址'] || obj['address'] || '').trim();
+            const reason = String(obj['事由'] || obj['reason'] || '').trim();
+
+            if (position && !POSITION_OPTIONS.includes(position)) errors.push(`第 ${idx} 列：職稱「${position}」非有效選項`);
+            if (birth && !/^\d{4}-\d{2}-\d{2}$/.test(birth)) errors.push(`第 ${idx} 列：出生年月日格式需為 YYYY-MM-DD`);
+            if (idNumber && !isValidTwId(idNumber)) errors.push(`第 ${idx} 列：身分證號格式錯誤`);
+            if (phone && !/^09\d{8}$/.test(phone)) errors.push(`第 ${idx} 列：手機號碼格式錯誤`);
+            if (!region && address) {
+                if (/台北市|臺北市/.test(address)) region = '台北';
+                else if (/新北市/.test(address)) region = '新北';
+                else if (/桃園市|桃園縣/.test(address)) region = '桃園';
+                else {
+                    for (const r of REGION_OPTIONS) {
+                        if (address.startsWith(r) || address.includes(r + '市') || address.includes(r + '縣')) {
+                            region = r; break;
+                        }
+                    }
+                }
+            }
+            if (region && !REGION_OPTIONS.includes(region)) errors.push(`第 ${idx} 列：區域「${region}」非有效選項`);
+
+            if (errors.length > 0) return { error: errors.join('；') };
+            return {
+                data: {
+                    createdAt: createdDate,
+                    position,
+                    name,
+                    birth: /^\d{4}-\d{2}-\d{2}$/.test(birth) ? birth : '',
+                    idNumber,
+                    phone,
+                    region,
+                    address,
+                    reason,
+                    photo: ''
+                }
+            };
+        }
+
+        async function importExcel(event) {
+            const file = event && event.target && event.target.files && event.target.files[0];
+            if (!file) return;
+            if (!rootRef) {
+                alert('系統尚未就緒，請稍後再試。');
+                event.target.value = '';
+                return;
+            }
+            if (typeof XLSX === 'undefined') {
+                alert('Excel 匯入模組尚未載入完成，請稍後再試。');
+                event.target.value = '';
+                return;
+            }
+            const confirmMsg = `即將匯入 Excel 檔案「${file.name}」。\n\n匯入的資料會以【新增】方式寫入黑名單，不會覆蓋既有資料。\n請問是否繼續？`;
+            if (!confirm(confirmMsg)) {
+                event.target.value = '';
+                return;
+            }
+            try {
+                const buf = await file.arrayBuffer();
+                const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+                const sheetName = wb.SheetNames[0];
+                const ws = wb.Sheets[sheetName];
+                const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+                if (!rows || rows.length === 0) {
+                    alert('檔案中沒有可讀取的資料列。');
+                    event.target.value = '';
+                    return;
+                }
+                const validList = [];
+                const errorList = [];
+                rows.forEach((row, i) => {
+                    const result = validateImportRow(row, i + 2);
+                    if (result.error) errorList.push(result.error);
+                    else validList.push(result.data);
+                });
+                if (errorList.length > 0) {
+                    alert(`以下欄位驗證失敗，已跳過：\n\n${errorList.slice(0, 30).join('\n')}${errorList.length > 30 ? `\n…其餘 ${errorList.length - 30} 筆省略` : ''}`);
+                }
+                if (validList.length === 0) {
+                    alert('沒有可匯入的有效資料。');
+                    event.target.value = '';
+                    return;
+                }
+                const proceedOk = confirm(`共 ${validList.length} 筆有效資料，即將開始匯入。是否繼續？`);
+                if (!proceedOk) {
+                    event.target.value = '';
+                    return;
+                }
+                const now = new Date();
+                let successCount = 0;
+                let failCount = 0;
+                const errors = [];
+                for (let i = 0; i < validList.length; i++) {
+                    const item = validList[i];
+                    try {
+                        await rootRef.add({
+                            createdAt: firebase.firestore.Timestamp.fromDate(item.createdAt),
+                            position: item.position,
+                            name: item.name,
+                            birth: item.birth,
+                            idNumber: item.idNumber,
+                            phone: item.phone,
+                            region: item.region,
+                            address: item.address,
+                            reason: item.reason,
+                            photo: '',
+                            createdBy: currentUid || null,
+                            updatedAt: firebase.firestore.Timestamp.fromDate(new Date())
+                        });
+                        successCount++;
+                    } catch (e) {
+                        failCount++;
+                        errors.push(`第 ${i + 1} 筆（${item.name}）：${(e && e.message) || '寫入失敗'}`);
+                    }
+                }
+                const summary = `匯入完成！\n\n成功：${successCount} 筆\n失敗：${failCount} 筆${errors.length ? '\n\n失敗明細（前 20 筆）：\n' + errors.slice(0, 20).join('\n') : ''}`;
+                alert(summary);
+            } catch (e) {
+                alert(`匯入失敗：${(e && e.message) || '未知錯誤'}`);
+            } finally {
+                event.target.value = '';
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            loadCustomReasons();
+            rebuildReasonSelect('');
             lucide.createIcons();
             bootstrap();
         });
