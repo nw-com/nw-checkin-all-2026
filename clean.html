@@ -2329,6 +2329,11 @@
             showAppChrome();
             updatePatrolCount();
             if (canManageSettings) initDownloadUI();
+
+            const autoNfc = new URLSearchParams(window.location.search).get('nfc');
+            if (String(autoNfc || '').trim() === '1') {
+                setTimeout(() => { try { toggleNfcScan(); } catch (_) {} }, 350);
+            }
         }
 
 
@@ -2493,6 +2498,19 @@
                 alert('您的瀏覽器或裝置不支援 Web NFC 功能，請使用 Android 版 Chrome 瀏覽器。');
                 return;
             }
+            if (window.top !== window.self) {
+                const tryOpen = confirm('NFC 功能僅支援在頂層分頁中使用（目前頁面被嵌入在其他視窗中）。\n\n即將在新分頁開啟清潔頁面，開啟後再點選「NFC 感應」即可使用。\n\n是否現在開啟？');
+                if (tryOpen) {
+                    try {
+                        const target = new URL(window.location.href);
+                        target.searchParams.set('nfc', '1');
+                        window.open(target.toString(), '_blank', 'noopener,noreferrer');
+                    } catch (_) {
+                        alert('無法自動開啟，請手動點擊瀏覽器的「在新分頁開啟」後再使用 NFC。');
+                    }
+                }
+                return;
+            }
             try {
                 nfcAbortController = new AbortController();
                 ndefReader = new NDEFReader();
@@ -2536,7 +2554,21 @@
                     if (window.navigator.vibrate) window.navigator.vibrate([60, 40, 60]);
                 };
             } catch (err) {
-                alert('啟動 NFC 失敗：' + ((err && err.message) || '請確認已開啟 NFC 權限'));
+                const msg = String((err && err.message) || '').toLowerCase();
+                if (msg.indexOf('top-level') >= 0 || msg.indexOf('browsing context') >= 0) {
+                    const tryOpen = confirm('NFC 功能僅支援在頂層分頁中使用（目前頁面被嵌入在其他視窗中）。\n\n即將在新分頁開啟清潔頁面，開啟後再點選「NFC 感應」即可使用。\n\n是否現在開啟？');
+                    if (tryOpen) {
+                        try {
+                            const target = new URL(window.location.href);
+                            target.searchParams.set('nfc', '1');
+                            window.open(target.toString(), '_blank', 'noopener,noreferrer');
+                        } catch (_) {
+                            alert('無法自動開啟，請手動點擊瀏覽器的「在新分頁開啟」後再使用 NFC。');
+                        }
+                    }
+                } else {
+                    alert('啟動 NFC 失敗：' + ((err && err.message) || '請確認已開啟 NFC 權限'));
+                }
                 stopNfcScan();
             }
         }
