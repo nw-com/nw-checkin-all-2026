@@ -94,9 +94,21 @@
                         <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 text-gray-400">
                             <i data-lucide="video-off" size="32"></i>
                         </div>
-                        <button onclick="toggleScanner(true)" class="bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-red-100 hover:bg-red-700 transition active:scale-95">
-                            開啟攝影機掃描
-                        </button>
+                        <div class="flex flex-col sm:flex-row gap-3 w-full max-w-sm px-4">
+                            <button onclick="toggleScanner(true)" class="flex-1 bg-red-600 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-red-100 hover:bg-red-700 transition active:scale-95 flex items-center justify-center gap-1.5">
+                                <i data-lucide="camera" size="18"></i>
+                                攝影機掃描
+                            </button>
+                            <button id="nfc-btn" onclick="toggleNfcScan()" class="flex-1 bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition active:scale-95 flex items-center justify-center gap-1.5">
+                                <i data-lucide="radio" size="18"></i>
+                                <span id="nfc-btn-label">NFC 感應</span>
+                            </button>
+                        </div>
+                        <div id="nfc-status" class="hidden mt-4 w-full max-w-sm px-4">
+                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-xs font-bold text-indigo-700 text-center">
+                                正在感應 NFC 標籤，請將手機靠近標籤…
+                            </div>
+                        </div>
                         <p class="text-xs text-gray-400 mt-4">按下按鈕後開始清潔打卡</p>
                     </div>
                     
@@ -113,7 +125,7 @@
                 <h3 class="text-red-800 font-bold mb-1 flex items-center gap-1">
                     <i data-lucide="info" size="18"></i> 提示
                 </h3>
-                <p class="text-sm text-red-700">請對準清潔點 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。</p>
+                <p class="text-sm text-red-700">請對準清潔點 QR Code 或感應 NFC 標籤，系統會自動辨識該代碼對應的位置並記錄座標。</p>
             </div>
         </div>
 
@@ -2337,6 +2349,7 @@
             // 切換分頁時自動關閉相機
             if (viewName !== 'scanner') {
                 toggleScanner(false);
+                stopNfcScan();
             }
 
             if (viewName === 'logs') {
@@ -2465,6 +2478,85 @@
 
         function closeModal() {
             document.getElementById('success-modal').classList.add('hidden');
+        }
+
+        let ndefReader = null;
+        let nfcScanning = false;
+        let nfcAbortController = null;
+
+        async function toggleNfcScan() {
+            if (nfcScanning) {
+                stopNfcScan();
+                return;
+            }
+            if (typeof NDEFReader === 'undefined') {
+                alert('您的瀏覽器或裝置不支援 Web NFC 功能，請使用 Android 版 Chrome 瀏覽器。');
+                return;
+            }
+            try {
+                nfcAbortController = new AbortController();
+                ndefReader = new NDEFReader();
+                await ndefReader.scan({ signal: nfcAbortController.signal });
+                nfcScanning = true;
+                const btn = document.getElementById('nfc-btn');
+                const label = document.getElementById('nfc-btn-label');
+                const status = document.getElementById('nfc-status');
+                if (btn) {
+                    btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-100');
+                    btn.classList.add('bg-gray-700', 'hover:bg-gray-800', 'shadow-gray-200');
+                }
+                if (label) label.textContent = '關閉 NFC';
+                if (status) status.classList.remove('hidden');
+
+                ndefReader.onreading = (event) => {
+                    let decodedText = '';
+                    const records = event.message.records || [];
+                    for (const rec of records) {
+                        try {
+                            if (rec.recordType === 'text' || rec.recordType === 'url') {
+                                const decoder = new TextDecoder(rec.encoding || 'utf-8');
+                                decodedText = decoder.decode(rec.data);
+                                break;
+                            } else if (rec.recordType === 'mime') {
+                                const decoder = new TextDecoder('utf-8');
+                                decodedText = decoder.decode(rec.data);
+                                break;
+                            }
+                        } catch (_) {}
+                    }
+                    if (!decodedText && event.serialNumber) {
+                        decodedText = String(event.serialNumber).toUpperCase();
+                    }
+                    if (!decodedText) return;
+                    if (window.navigator.vibrate) window.navigator.vibrate(80);
+                    stopNfcScan();
+                    onScanSuccess(decodedText, { isNfc: true });
+                };
+                ndefReader.onreadingerror = () => {
+                    if (window.navigator.vibrate) window.navigator.vibrate([60, 40, 60]);
+                };
+            } catch (err) {
+                alert('啟動 NFC 失敗：' + ((err && err.message) || '請確認已開啟 NFC 權限'));
+                stopNfcScan();
+            }
+        }
+
+        function stopNfcScan() {
+            nfcScanning = false;
+            if (nfcAbortController) {
+                try { nfcAbortController.abort(); } catch (_) {}
+                nfcAbortController = null;
+            }
+            ndefReader = null;
+            const btn = document.getElementById('nfc-btn');
+            const label = document.getElementById('nfc-btn-label');
+            const status = document.getElementById('nfc-status');
+            if (btn) {
+                btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-100');
+                btn.classList.remove('bg-gray-700', 'hover:bg-gray-800', 'shadow-gray-200');
+            }
+            if (label) label.textContent = 'NFC 感應';
+            if (status) status.classList.add('hidden');
         }
 
         function updatePatrolCount() {

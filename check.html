@@ -78,9 +78,21 @@
                         <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 text-gray-400">
                             <i data-lucide="video-off" size="32"></i>
                         </div>
-                        <button onclick="toggleScanner(true)" class="bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-red-100 hover:bg-red-700 transition active:scale-95">
-                            開啟攝影機掃描
-                        </button>
+                        <div class="flex flex-col sm:flex-row gap-3 w-full max-w-sm px-4">
+                            <button onclick="toggleScanner(true)" class="flex-1 bg-red-600 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-red-100 hover:bg-red-700 transition active:scale-95 flex items-center justify-center gap-1.5">
+                                <i data-lucide="camera" size="18"></i>
+                                攝影機掃描
+                            </button>
+                            <button id="nfc-btn" onclick="toggleNfcScan()" class="flex-1 bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition active:scale-95 flex items-center justify-center gap-1.5">
+                                <i data-lucide="radio" size="18"></i>
+                                <span id="nfc-btn-label">NFC 感應</span>
+                            </button>
+                        </div>
+                        <div id="nfc-status" class="hidden mt-4 w-full max-w-sm px-4">
+                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-xs font-bold text-indigo-700 text-center">
+                                正在感應 NFC 標籤，請將手機靠近標籤…
+                            </div>
+                        </div>
                         <p class="text-xs text-gray-400 mt-4">按下按鈕後開始督勤</p>
                     </div>
                     
@@ -97,7 +109,7 @@
                 <h3 class="text-red-800 font-bold mb-1 flex items-center gap-1">
                     <i data-lucide="info" size="18"></i> 提示
                 </h3>
-                <p class="text-sm text-red-700">請對準督勤 QR Code，系統會自動辨識該代碼對應的位置並記錄座標。</p>
+                <p class="text-sm text-red-700">請對準督勤 QR Code 或感應 NFC 標籤，系統會自動辨識該代碼對應的位置並記錄座標。</p>
             </div>
 
         </div>
@@ -128,11 +140,11 @@
                 </div>
             </div>
             <div id="logs-date-nav" class="flex items-center justify-center gap-2 mb-4">
-                <button onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                <button id="logs-prev-btn" onclick="changeLogDate(-1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-left" size="16"></i>
                 </button>
-                <div id="logs-date-label" onclick="openLogsDatePicker()" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap cursor-pointer select-none hover:bg-gray-200"></div>
-                <button onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
+                <div id="logs-date-label" onclick="openLogsDatePicker()" role="button" tabindex="0" class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg whitespace-nowrap cursor-pointer select-none hover:bg-gray-200"></div>
+                <button id="logs-next-btn" onclick="changeLogDate(1)" class="p-1 rounded-lg hover:bg-gray-100 text-gray-500">
                     <i data-lucide="chevron-right" size="16"></i>
                 </button>
             </div>
@@ -437,6 +449,40 @@
         </div>
     </div>
 
+    <div id="logs-calendar-modal" class="fixed inset-0 bg-black/50 z-[113] hidden p-4 flex items-center justify-center" onclick="closeLogsCalendarModal()">
+        <div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+            <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <button onclick="changeLogsCalendarMonth(-1)" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600">
+                    <i data-lucide="chevron-left" size="18"></i>
+                </button>
+                <div id="logs-calendar-title" class="font-bold text-gray-800 text-sm"></div>
+                <button onclick="changeLogsCalendarMonth(1)" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600">
+                    <i data-lucide="chevron-right" size="18"></i>
+                </button>
+            </div>
+            <div class="px-4 py-3">
+                <div class="grid grid-cols-7 gap-1 mb-2">
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">日</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">一</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">二</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">三</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">四</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">五</div>
+                    <div class="text-center text-[10px] font-bold text-gray-400 py-1">六</div>
+                </div>
+                <div id="logs-calendar-grid" class="grid grid-cols-7 gap-1"></div>
+                <div class="mt-4 flex items-center justify-center gap-3 text-[10px] text-gray-500">
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-3 h-3 rounded bg-green-500"></div> 有督勤紀錄
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-3 h-3 rounded border border-red-500 bg-red-50"></div> 目前選取
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="confirm-modal" class="fixed inset-0 bg-black/50 z-[115] hidden p-6 flex items-center justify-center">
         <div class="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden">
             <div class="px-5 py-4 border-b border-gray-100">
@@ -515,6 +561,8 @@
         let logs = [];
         let locationMap = {};
         let selectedLogsDate = new Date();
+        let logsCalendarYm = null;
+        let logsCalendarMarkedDays = null;
         let canManageSettings = false;
         let downloadUIReady = false;
         let reportPreviewState = null;
@@ -1781,6 +1829,7 @@
             // 切換分頁時自動關閉相機
             if (viewName !== 'scanner') {
                 toggleScanner(false);
+                stopNfcScan();
             }
 
             if (viewName === 'logs') {
@@ -1973,6 +2022,85 @@
 
         function closeModal() {
             document.getElementById('success-modal').classList.add('hidden');
+        }
+
+        let ndefReader = null;
+        let nfcScanning = false;
+        let nfcAbortController = null;
+
+        async function toggleNfcScan() {
+            if (nfcScanning) {
+                stopNfcScan();
+                return;
+            }
+            if (typeof NDEFReader === 'undefined') {
+                alert('您的瀏覽器或裝置不支援 Web NFC 功能，請使用 Android 版 Chrome 瀏覽器。');
+                return;
+            }
+            try {
+                nfcAbortController = new AbortController();
+                ndefReader = new NDEFReader();
+                await ndefReader.scan({ signal: nfcAbortController.signal });
+                nfcScanning = true;
+                const btn = document.getElementById('nfc-btn');
+                const label = document.getElementById('nfc-btn-label');
+                const status = document.getElementById('nfc-status');
+                if (btn) {
+                    btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-100');
+                    btn.classList.add('bg-gray-700', 'hover:bg-gray-800', 'shadow-gray-200');
+                }
+                if (label) label.textContent = '關閉 NFC';
+                if (status) status.classList.remove('hidden');
+
+                ndefReader.onreading = (event) => {
+                    let decodedText = '';
+                    const records = event.message.records || [];
+                    for (const rec of records) {
+                        try {
+                            if (rec.recordType === 'text' || rec.recordType === 'url') {
+                                const decoder = new TextDecoder(rec.encoding || 'utf-8');
+                                decodedText = decoder.decode(rec.data);
+                                break;
+                            } else if (rec.recordType === 'mime') {
+                                const decoder = new TextDecoder('utf-8');
+                                decodedText = decoder.decode(rec.data);
+                                break;
+                            }
+                        } catch (_) {}
+                    }
+                    if (!decodedText && event.serialNumber) {
+                        decodedText = String(event.serialNumber).toUpperCase();
+                    }
+                    if (!decodedText) return;
+                    if (window.navigator.vibrate) window.navigator.vibrate(80);
+                    stopNfcScan();
+                    onScanSuccess(decodedText, { isNfc: true });
+                };
+                ndefReader.onreadingerror = () => {
+                    if (window.navigator.vibrate) window.navigator.vibrate([60, 40, 60]);
+                };
+            } catch (err) {
+                alert('啟動 NFC 失敗：' + ((err && err.message) || '請確認已開啟 NFC 權限'));
+                stopNfcScan();
+            }
+        }
+
+        function stopNfcScan() {
+            nfcScanning = false;
+            if (nfcAbortController) {
+                try { nfcAbortController.abort(); } catch (_) {}
+                nfcAbortController = null;
+            }
+            ndefReader = null;
+            const btn = document.getElementById('nfc-btn');
+            const label = document.getElementById('nfc-btn-label');
+            const status = document.getElementById('nfc-status');
+            if (btn) {
+                btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-100');
+                btn.classList.remove('bg-gray-700', 'hover:bg-gray-800', 'shadow-gray-200');
+            }
+            if (label) label.textContent = 'NFC 感應';
+            if (status) status.classList.add('hidden');
         }
 
         function updatePatrolCount() {
