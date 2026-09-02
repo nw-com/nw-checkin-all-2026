@@ -3249,11 +3249,13 @@
         };
 
         // 3. Admin Dashboard (System Config)
-        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, signatureTypes, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId, subPagesMap, hasSubPermission, onShowCommunityDetail }) => {
+        const AdminDashboard = ({ user, currentUser, users, communities, roles, companies, areas, signatureTypes, pages, onAddUser, onAddCommunity, subtab, setActiveTab, setCadreSubtab, setCadreMapSelectedUserId, subPagesMap, hasSubPermission, onShowCommunityDetail, pageLabelMap, pageLevelKeys, pageLevelLabels, subPageLevelKeys, subPageLevelLabels, cloneUserPagePermissions, buildDefaultPermissionsFromRole, normalizeUserPermissions, setUserPermPageLevel, setUserPermSubLevel, setUserPermFullPage }) => {
             const [newCommName, setNewCommName] = useState('');
             const [newUser, setNewUser] = useState({ name: '', email: '', role: 'staff', communityId: '' });
             const [showAddModal, setShowAddModal] = useState(false);
             const [modalUser, setModalUser] = useState({ role: 'admin', title: '', name: '', email: '', phone: '', communityId: '', avatarUrl: '', status: '在職', startDate: '', resignDate: '' });
+            const [modalUserPermissions, setModalUserPermissions] = useState(() => cloneUserPagePermissions({}));
+            const [userPermSearch, setUserPermSearch] = useState('');
 
             // Settings > Account Filters
             const [settingsAccountFilterRole, setSettingsAccountFilterRole] = useState('');
@@ -4943,7 +4945,7 @@
                                 帳號列表
                             </h3>
                             <div className="mb-4 flex gap-2">
-                                <button onClick={()=>{ setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職', startDate:'', resignDate:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
+                                <button onClick={()=>{ setEditingUserId(null); const defaultPerm = buildDefaultPermissionsFromRole('admin', roles); setModalUserPermissions(defaultPerm); setUserPermSearch(''); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職', startDate:'', resignDate:'' }); setShowAddModal(true); }} className="bg-red-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-red-700">新增</button>
                                 <button onClick={handleExportUsers} className="bg-green-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-green-700">匯出</button>
                                 <label className="bg-blue-600 text-white px-4 py-2 rounded-2xl text-sm font-bold hover:bg-blue-700 cursor-pointer flex items-center">
                                     匯入
@@ -5185,7 +5187,7 @@
                                                 </div>
                                             </div>
                                             <div className="flex gap-2 justify-start">
-                                                <button onClick={()=>{ setEditingUserId(u.id); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '', status: u.status || '在職', startDate: u.startDate || '', resignDate: u.resignDate || '', transferDate: u.transferDate || '', companyId: u.companyId, communityId: u.communityId }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
+                                                <button onClick={()=>{ setEditingUserId(u.id); const defaultPerm = normalizeUserPermissions(u, roles); setModalUserPermissions(defaultPerm); setUserPermSearch(''); setModalUser({ role: u.role || 'staff', title: u.title || '', name: u.name || '', email: u.email || '', phone: u.phone || '', communityIds: u.communityIds || (u.communityId ? [u.communityId] : []), companyIds: u.companyIds || (u.companyId ? [u.companyId] : []), avatarUrl: u.avatarUrl || '', status: u.status || '在職', startDate: u.startDate || '', resignDate: u.resignDate || '', transferDate: u.transferDate || '', companyId: u.companyId, communityId: u.communityId }); setShowAddModal(true); }} className="px-2 py-1 rounded-2xl bg-gray-800 text-white">編輯</button>
                                                 <button onClick={()=>{ setConfirmDelete({ type:'user', id:u.id, label:u.name || u.email || u.id }); }} className="px-2 py-1 rounded-2xl bg-red-600 text-white">刪除</button>
                                             </div>
                                             <div className="text-gray-700">{u.updatedByName ? `${u.updatedByName} ${formatDateTime(u.updatedAt)}` : '-'}</div>
@@ -5199,7 +5201,7 @@
                                         <h4 className="text-lg font-bold text-gray-800 mb-4">新增/編輯人員</h4>
                                         <div className="space-y-3">
                                             <label className="block text-xs font-bold text-gray-500 uppercase">角色</label>
-                                            <select className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.role} onChange={e=>setModalUser(prev=>({...prev, role: e.target.value}))}>
+                                            <select className="w-full bg-gray-50 border-0 p-3 rounded-2xl text-sm focus:ring-2 focus:ring-red-100" value={modalUser.role} onChange={e=>{ const newRole = e.target.value; setModalUser(prev=>({...prev, role: newRole})); const merged = cloneUserPagePermissions(modalUserPermissions || {}); if (Object.keys(merged).length === 0) { setModalUserPermissions(buildDefaultPermissionsFromRole(newRole, roles)); } else { setModalUserPermissions(merged); } }}>
                                                 <option value="admin">系統管理員</option>
                                                 {getSortedData(roles, { key: null }, (data) => data.sort((a, b) => {
                                                     if (typeof a.order === 'number' && typeof b.order === 'number') {
@@ -5463,6 +5465,103 @@
                                                     </select>
                                                 </>
                                             )}
+                                            <div className="mt-6 border-t border-gray-100 pt-4">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <h5 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-red-600"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                                        權限設定（分頁 / 子分頁）
+                                                    </h5>
+                                                    <div className="flex gap-1.5">
+                                                        <button type="button" onClick={()=>{ if (!confirm('確定要依目前角色重設預設權限嗎？\n目前勾選的權限將會被覆蓋。')) return; setModalUserPermissions(buildDefaultPermissionsFromRole(modalUser.role, roles)); setToast('已重設為角色預設權限'); }} className="px-2.5 py-1.5 rounded-2xl text-[11px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 whitespace-nowrap">依角色重設</button>
+                                                        <button type="button" onClick={()=>{ if (!confirm('確定要全部開啟嗎？')) return; setModalUserPermissions(buildDefaultPermissionsFromRole('admin', roles)); }} className="px-2.5 py-1.5 rounded-2xl text-[11px] font-bold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 whitespace-nowrap">全部開啟</button>
+                                                        <button type="button" onClick={()=>{ if (!confirm('確定要全部關閉嗎？')) return; const perm = cloneUserPagePermissions({}); Object.keys(pageLabelMap).forEach((pk) => { perm[pk] = { display: false, view: false, edit: false, sub: {} }; const subKeys = (subPagesMap && subPagesMap[pk]) ? subPagesMap[pk].map(x => x.key) : []; subKeys.forEach(sk => { perm[pk].sub[sk] = { display: false, view: false, edit: false }; }); }); setModalUserPermissions(perm); }} className="px-2.5 py-1.5 rounded-2xl text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 whitespace-nowrap">全部關閉</button>
+                                                    </div>
+                                                </div>
+                                                <div className="mb-3 flex items-center gap-2">
+                                                    <div className="relative flex-1">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                                        <input type="text" value={userPermSearch} onChange={(e)=>setUserPermSearch(e.target.value)} placeholder="搜尋分頁/子分頁..." className="w-full bg-gray-50 border border-gray-200 pl-9 pr-9 py-2 rounded-2xl text-xs focus:outline-none focus:ring-2 focus:ring-red-100" />
+                                                        {String(userPermSearch || '').trim() !== '' && (
+                                                            <button type="button" onClick={()=>setUserPermSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white text-gray-500 hover:text-gray-800 flex items-center justify-center shadow-sm border border-gray-100" aria-label="清除">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="border border-gray-200 rounded-2xl bg-gray-50 overflow-hidden">
+                                                    {(Object.keys(pageLabelMap || {})).map((pageKey) => {
+                                                        const pageLabel = (pageLabelMap && pageLabelMap[pageKey]) ? pageLabelMap[pageKey] : pageKey;
+                                                        const subs = (subPagesMap && subPagesMap[pageKey]) ? subPagesMap[pageKey] : [];
+                                                        const searchStr = String(userPermSearch || '').trim().toLowerCase();
+                                                        const pageMatch = !searchStr || pageLabel.toLowerCase().indexOf(searchStr) >= 0 || String(pageKey || '').toLowerCase().indexOf(searchStr) >= 0;
+                                                        const matchedSubs = subs.filter(s => {
+                                                            if (!searchStr) return true;
+                                                            const sk = String(s.key || '').toLowerCase();
+                                                            const sl = String(s.label || '').toLowerCase();
+                                                            return sk.indexOf(searchStr) >= 0 || sl.indexOf(searchStr) >= 0;
+                                                        });
+                                                        if (searchStr && !pageMatch && matchedSubs.length === 0) return null;
+                                                        const node = ((modalUserPermissions && modalUserPermissions[pageKey]) || { display: false, view: false, edit: false, sub: {} });
+                                                        const isAllDisplay = subs.length === 0 ? !!node.display : (!!node.display && subs.every(s => !!(node.sub && node.sub[s.key] && node.sub[s.key].display)));
+                                                        const isAllView = subs.length === 0 ? !!node.view : (!!node.view && subs.every(s => !!(node.sub && node.sub[s.key] && node.sub[s.key].view)));
+                                                        const isAllEdit = subs.length === 0 ? !!node.edit : (!!node.edit && subs.every(s => !!(node.sub && node.sub[s.key] && node.sub[s.key].edit)));
+                                                        const visibleSubs = searchStr ? matchedSubs : subs;
+                                                        return (
+                                                            <div key={pageKey} className="border-b border-gray-200 last:border-b-0 bg-white">
+                                                                <div className="flex items-stretch divide-x divide-gray-100">
+                                                                    <label className="flex-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none hover:bg-gray-50 min-w-0">
+                                                                        <input type="checkbox" className="w-4 h-4 text-red-600 rounded-2xl focus:ring-red-500 shrink-0" checked={!!node.display} onChange={(e)=>setModalUserPermissions(prev => setUserPermFullPage(prev, pageKey, e.target.checked))} />
+                                                                        <span className="text-[13px] font-bold text-gray-800 truncate">分頁：{pageLabel}</span>
+                                                                    </label>
+                                                                    {pageLevelKeys.map((level) => (
+                                                                        <label key={level} className="px-2 flex flex-col items-center justify-center gap-0.5 cursor-pointer select-none min-w-[52px] hover:bg-gray-50">
+                                                                            <input type="checkbox" className="w-4 h-4 text-red-600 rounded-2xl focus:ring-red-500 shrink-0" checked={level === 'display' ? !!node.display : level === 'view' ? !!node.view : !!node.edit} disabled={level === 'display'} onChange={(e)=>setModalUserPermissions(prev => setUserPermPageLevel(prev, pageKey, level, e.target.checked))} />
+                                                                            <span className="text-[10px] text-gray-500 whitespace-nowrap">{pageLevelLabels[level]}</span>
+                                                                        </label>
+                                                                    ))}
+                                                                    <label className="px-2 flex flex-col items-center justify-center gap-0.5 cursor-pointer select-none min-w-[58px] hover:bg-gray-50 border-l border-gray-100">
+                                                                        <input type="checkbox" className="w-4 h-4 text-red-600 rounded-2xl focus:ring-red-500 shrink-0" checked={isAllDisplay} onChange={(e)=>setModalUserPermissions(prev => setUserPermFullPage(prev, pageKey, e.target.checked))} />
+                                                                        <span className="text-[10px] text-gray-500 whitespace-nowrap">全顯示</span>
+                                                                    </label>
+                                                                </div>
+                                                                {visibleSubs.length > 0 && (
+                                                                    <div className="bg-gray-50 border-t border-gray-100 divide-y divide-gray-100">
+                                                                        <div className="flex items-stretch divide-x divide-gray-100 px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                                                                            <div className="flex-1 min-w-0 flex items-center">
+                                                                                <span className="truncate pl-6">子分頁</span>
+                                                                            </div>
+                                                                            {subPageLevelKeys.map(level => (
+                                                                                <div key={level} className="min-w-[52px] text-center whitespace-nowrap">
+                                                                                    {subPageLevelLabels[level]}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        {visibleSubs.map((sub) => {
+                                                                            const subNode = ((node.sub && node.sub[sub.key]) || { display: false, view: false, edit: false });
+                                                                            return (
+                                                                                <div key={sub.key} className="flex items-stretch divide-x divide-gray-100 hover:bg-white">
+                                                                                    <label className="flex-1 flex items-center gap-2 px-3 py-2 cursor-pointer select-none min-w-0">
+                                                                                        <input type="checkbox" className="w-3.5 h-3.5 text-red-500 rounded-2xl focus:ring-red-400 shrink-0" checked={!!subNode.display} onChange={(e)=>setModalUserPermissions(prev => setUserPermSubLevel(prev, pageKey, sub.key, 'display', e.target.checked))} />
+                                                                                        <span className="text-[12px] text-gray-700 truncate pl-0.5">{sub.label}</span>
+                                                                                    </label>
+                                                                                    {subPageLevelKeys.map((level) => (
+                                                                                        <label key={level} className="px-2 flex items-center justify-center min-w-[52px] cursor-pointer select-none">
+                                                                                            <input type="checkbox" className="w-3.5 h-3.5 text-red-500 rounded-2xl focus:ring-red-400 shrink-0" checked={level === 'display' ? !!subNode.display : level === 'view' ? !!subNode.view : !!subNode.edit} disabled={level === 'display'} onChange={(e)=>setModalUserPermissions(prev => setUserPermSubLevel(prev, pageKey, sub.key, level, e.target.checked))} />
+                                                                                        </label>
+                                                                                    ))}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div className="mt-2 text-[11px] text-gray-500 leading-relaxed">
+                                                    <div>權限階層：顯示 → 查看 → 編輯（勾選較高階層時會自動勾選較低階層；取消顯示會自動取消查看/編輯）。</div>
+                                                </div>
+                                            </div>
                                         </div>
                                             {userError && <div className="text-xs text-red-600">{userError}</div>}
                                             <div className="flex justify-end gap-2 mt-4">
@@ -5480,7 +5579,7 @@
                                                         finalCompanyId = (modalUser.companyId !== undefined) ? modalUser.companyId : ((modalUser.companyIds && modalUser.companyIds.length > 0) ? modalUser.companyIds[0] : '');
                                                         finalCommunityId = (modalUser.communityId !== undefined) ? modalUser.communityId : ((modalUser.communityIds && modalUser.communityIds.length > 0) ? modalUser.communityIds[0] : '');
                                                     }
-                                                    const userDataToSave = { ...modalUser, communityId: finalCommunityId, companyId: finalCompanyId, status: modalUser.status || '在職' }; if (editingUserId && !userDataToSave.password) { delete userDataToSave.password; } if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職', startDate:'', resignDate:'' }); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
+                                                    const userDataToSave = { ...modalUser, communityId: finalCommunityId, companyId: finalCompanyId, status: modalUser.status || '在職', permissions: cloneUserPagePermissions(modalUserPermissions || {}) }; if (editingUserId && !userDataToSave.password) { delete userDataToSave.password; } if (editingUserId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUserId), { ...userDataToSave, updatedByName: (currentUser && currentUser.name) || (user && user.email) || '', updatedAt: serverTimestamp() }); setToast('儲存成功'); } else { await onAddUser(userDataToSave); setToast('新增成功'); } setShowAddModal(false); setEditingUserId(null); setModalUser({ role:'admin', title:'', name:'', email:'', phone:'', communityIds:[], companyIds:[], avatarUrl:'', status:'在職', startDate:'', resignDate:'' }); setModalUserPermissions(cloneUserPagePermissions({})); setUserPermSearch(''); } catch(e) { handleFetchError(e, 'save_user'); setUserError(`儲存失敗：${e.code || e.message}`); } finally { setUserSaving(false);} }} className="px-3 py-2 rounded-2xl bg-red-600 text-white">儲存</button>
                                             </div>
                                     </div>
                                 </div>
@@ -9585,6 +9684,145 @@
             ]
         };
 
+        const pageLabelMap = {
+            home: '首頁',
+            overview: '總覽',
+            clock: '打卡',
+            community: '社區',
+            function: '功能',
+            cadre: '幹部',
+            application: '申請',
+            settings: '設定'
+        };
+
+        const pageLevelKeys = ['display', 'view', 'edit'];
+        const pageLevelLabels = { display: '顯示', view: '查看', edit: '編輯' };
+        const subPageLevelKeys = ['display', 'view', 'edit'];
+        const subPageLevelLabels = { display: '顯示', view: '查看', edit: '編輯' };
+
+        const cloneUserPagePermissions = (perm) => {
+            const src = (perm && typeof perm === 'object') ? perm : {};
+            const out = {};
+            Object.keys(src).forEach((pk) => {
+                const pv = src[pk];
+                if (!pv || typeof pv !== 'object') return;
+                const node = {
+                    display: !!pv.display,
+                    view: !!pv.view,
+                    edit: !!pv.edit,
+                    sub: {}
+                };
+                const subSrc = (pv.sub && typeof pv.sub === 'object') ? pv.sub : {};
+                Object.keys(subSrc).forEach((sk) => {
+                    const sv = subSrc[sk];
+                    if (!sv || typeof sv !== 'object') return;
+                    node.sub[sk] = {
+                        display: !!sv.display,
+                        view: !!sv.view,
+                        edit: !!sv.edit
+                    };
+                });
+                out[pk] = node;
+            });
+            return out;
+        };
+
+        const buildDefaultPermissionsFromRole = (role, roleList) => {
+            const out = {};
+            const userRole = (roleList || []).find(r => r && r.id === role);
+            const pagePerms = new Set((userRole && Array.isArray(userRole.permissions)) ? userRole.permissions : []);
+            const subPerms = (userRole && userRole.subPermissions && typeof userRole.subPermissions === 'object') ? userRole.subPermissions : {};
+            Object.keys(pageLabelMap).forEach((pk) => {
+                const hasPage = (role === 'admin') || pagePerms.has(pk);
+                const subKeys = (subPagesMap && subPagesMap[pk]) ? subPagesMap[pk].map(s => s.key) : [];
+                const node = {
+                    display: hasPage,
+                    view: hasPage,
+                    edit: (role === 'admin'),
+                    sub: {}
+                };
+                subKeys.forEach((sk) => {
+                    let hasSub = hasPage;
+                    if (role !== 'admin' && subPerms[pk] && Array.isArray(subPerms[pk])) {
+                        hasSub = subPerms[pk].includes(sk);
+                    }
+                    node.sub[sk] = {
+                        display: hasSub,
+                        view: hasSub,
+                        edit: (role === 'admin')
+                    };
+                });
+                out[pk] = node;
+            });
+            return out;
+        };
+
+        const normalizeUserPermissions = (dbUserObj, roleList) => {
+            if (!dbUserObj || typeof dbUserObj !== 'object') return buildDefaultPermissionsFromRole(null, roleList);
+            const perm = cloneUserPagePermissions(dbUserObj.permissions);
+            if (Object.keys(perm).length > 0) return perm;
+            return buildDefaultPermissionsFromRole(dbUserObj.role, roleList);
+        };
+
+        const setUserPermPageLevel = (prevPerm, pageKey, level, checked) => {
+            const perm = cloneUserPagePermissions(prevPerm);
+            if (!perm[pageKey]) {
+                perm[pageKey] = { display: false, view: false, edit: false, sub: {} };
+            }
+            perm[pageKey][level] = !!checked;
+            if (level === 'display' || level === 'view') {
+                if (!perm[pageKey].display && perm[pageKey].view) perm[pageKey].view = false;
+            }
+            if (level === 'edit') {
+                if (perm[pageKey].edit && !perm[pageKey].view) perm[pageKey].view = true;
+                if (perm[pageKey].view && !perm[pageKey].display) perm[pageKey].display = true;
+            }
+            if (!perm[pageKey].display) {
+                perm[pageKey].view = false;
+                perm[pageKey].edit = false;
+            } else if (!perm[pageKey].view) {
+                perm[pageKey].edit = false;
+            }
+            const subKeys = (subPagesMap && subPagesMap[pageKey]) ? subPagesMap[pageKey].map(s => s.key) : [];
+            subKeys.forEach((sk) => {
+                if (!perm[pageKey].sub[sk]) perm[pageKey].sub[sk] = { display: false, view: false, edit: false };
+                if (!perm[pageKey].display) {
+                    perm[pageKey].sub[sk].display = false;
+                    perm[pageKey].sub[sk].view = false;
+                    perm[pageKey].sub[sk].edit = false;
+                    return;
+                }
+                if (!perm[pageKey].sub[sk].display) perm[pageKey].sub[sk].display = true;
+                if (!perm[pageKey].sub[sk].view) perm[pageKey].sub[sk].view = true;
+                if (perm[pageKey].edit && !perm[pageKey].sub[sk].edit) perm[pageKey].sub[sk].edit = true;
+            });
+            return perm;
+        };
+
+        const setUserPermSubLevel = (prevPerm, pageKey, subKey, level, checked) => {
+            const perm = cloneUserPagePermissions(prevPerm);
+            if (!perm[pageKey]) {
+                perm[pageKey] = { display: false, view: false, edit: false, sub: {} };
+            }
+            if (!perm[pageKey].display) perm[pageKey].display = true;
+            if (!perm[pageKey].view && (level === 'view' || level === 'edit')) perm[pageKey].view = true;
+            if (!perm[pageKey].sub[subKey]) perm[pageKey].sub[subKey] = { display: false, view: false, edit: false };
+            perm[pageKey].sub[subKey][level] = !!checked;
+            if (!perm[pageKey].sub[subKey].display) {
+                perm[pageKey].sub[subKey].view = false;
+                perm[pageKey].sub[subKey].edit = false;
+            } else if (!perm[pageKey].sub[subKey].view) {
+                perm[pageKey].sub[subKey].edit = false;
+            }
+            if (perm[pageKey].sub[subKey].edit && !perm[pageKey].sub[subKey].view) perm[pageKey].sub[subKey].view = true;
+            if (perm[pageKey].sub[subKey].view && !perm[pageKey].sub[subKey].display) perm[pageKey].sub[subKey].display = true;
+            return perm;
+        };
+
+        const setUserPermFullPage = (prevPerm, pageKey, enabled) => {
+            return setUserPermPageLevel(prevPerm, pageKey, 'display', enabled);
+        };
+
         // --- Main App Component ---
         // Schedule Reminder Component
         const ScheduleReminder = ({ schedules, attendance }) => {
@@ -12680,6 +12918,20 @@
             const hasSubPermission = (pageKey, subKey) => {
                 if (!dbUser) return false;
                 if (dbUser.role === 'admin') return true;
+                const userPerm = normalizeUserPermissions(dbUser, roles);
+                const pageNode = userPerm[pageKey];
+                if (pageNode && (pageNode.display === false || pageNode.view === false)) {
+                    return false;
+                }
+                if (pageNode && pageNode.edit) {
+                    return true;
+                }
+                const hasUserSub = !!(pageNode && pageNode.sub && pageNode.sub[subKey]);
+                if (hasUserSub) {
+                    const subNode = pageNode.sub[subKey];
+                    if (!subNode.display || !subNode.view) return false;
+                    return true;
+                }
                 const userRole = roles.find(r => r.id === dbUser.role);
                 if (!userRole) return false;
                 if (!userRole.permissions?.includes(pageKey)) return false;
@@ -14298,6 +14550,12 @@
             const hasPermission = (pageKey) => {
                 if (!dbUser) return false;
                 if (dbUser.role === 'admin') return true;
+                const userPerm = normalizeUserPermissions(dbUser, roles);
+                const pageNode = userPerm[pageKey];
+                if (pageNode) {
+                    if (pageNode.edit) return true;
+                    return pageNode.display && pageNode.view;
+                }
                 const userRole = (roles || []).find(r => r.id === dbUser.role);
                 return userRole?.permissions?.includes(pageKey) || false;
             };
@@ -28563,6 +28821,17 @@
                                         setSelectedCommunityDetailUser(u);
                                         setShowCommunityDetailModal(true);
                                     }}
+                                    pageLabelMap={pageLabelMap}
+                                    pageLevelKeys={pageLevelKeys}
+                                    pageLevelLabels={pageLevelLabels}
+                                    subPageLevelKeys={subPageLevelKeys}
+                                    subPageLevelLabels={subPageLevelLabels}
+                                    cloneUserPagePermissions={cloneUserPagePermissions}
+                                    buildDefaultPermissionsFromRole={buildDefaultPermissionsFromRole}
+                                    normalizeUserPermissions={normalizeUserPermissions}
+                                    setUserPermPageLevel={setUserPermPageLevel}
+                                    setUserPermSubLevel={setUserPermSubLevel}
+                                    setUserPermFullPage={setUserPermFullPage}
                                 />
                             </div>
                         )}
