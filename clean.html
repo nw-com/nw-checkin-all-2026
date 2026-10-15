@@ -418,6 +418,9 @@
                     </button>
                 </div>
                 <div class="p-4">
+                    <div id="inspection-items-modal-image-wrap" class="hidden mb-4">
+                        <img id="inspection-items-modal-image" class="w-full h-48 object-cover rounded-xl border border-gray-100" src="" alt="地點照片">
+                    </div>
                     <div id="inspection-items-modal-location" class="font-bold text-gray-700 text-center mb-4"></div>
                     <div id="inspection-items-modal-list" class="space-y-2"></div>
                 </div>
@@ -472,6 +475,15 @@
                         <label class="block text-xs font-bold text-gray-400 uppercase mb-1">對應代碼 (Code)</label>
                         <input type="text" id="custom-qr-code" placeholder="例如：LOBBY_01" 
                                class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase mb-1">地點照片（選填）</label>
+                        <div id="custom-location-image-preview-wrap" class="hidden mb-2">
+                            <img id="custom-location-image-preview" class="w-full h-44 object-cover rounded-lg border border-gray-200" src="" alt="地點照片預覽">
+                            <button type="button" onclick="clearCustomLocationImage()" class="mt-1 text-xs text-red-500 hover:underline">移除圖片</button>
+                        </div>
+                        <input type="file" id="custom-location-image" accept="image/*" capture="environment"
+                               class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm">
                     </div>
                     <button onclick="handleManualQR()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-100 flex items-center justify-center gap-2">
                         <i data-lucide="qr-code" size="18"></i> 產生 QR Code 並儲存
@@ -584,6 +596,15 @@
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-1">對應代碼 (Code)</label>
                     <input type="text" id="edit-map-code" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-1">地點照片（選填）</label>
+                    <div id="edit-map-image-preview-wrap" class="hidden mb-2">
+                        <img id="edit-map-image-preview" class="w-full h-44 object-cover rounded-lg border border-gray-200" src="" alt="地點照片預覽">
+                        <button type="button" onclick="clearEditMapImage()" class="mt-1 text-xs text-red-500 hover:underline">移除圖片</button>
+                    </div>
+                    <input type="file" id="edit-map-image" accept="image/*" capture="environment"
+                           class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition text-sm">
                 </div>
                 <div class="flex gap-2">
                     <button onclick="closeEditMappingModal()" class="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
@@ -780,6 +801,8 @@
         let inspectionEditingItems = [];
         let pendingInspectionScan = null;
         let pendingPhotoData = null;
+        let selectedLocationImage = '';
+        let editLocationImage = '';
         let selectedLogsDate = new Date();
         let logsCalendarYm = null;
         let logsCalendarMarkedDays = null;
@@ -795,6 +818,39 @@
 
         function normalizeKey(v) {
             return String(v || '').replace(/\uFEFF/g, '').trim();
+        }
+
+        // 將圖片壓縮為 Base64（最大邊 1024px, JPEG 0.8）
+        function compressImageToBase64(file, maxSize = 1024, quality = 0.8) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        let w = img.width;
+                        let h = img.height;
+                        if (w > maxSize || h > maxSize) {
+                            if (w > h) {
+                                h = Math.round(h * maxSize / w);
+                                w = maxSize;
+                            } else {
+                                w = Math.round(w * maxSize / h);
+                                h = maxSize;
+                            }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
         }
 
         function normalizeInspectionItems(raw) {
@@ -972,17 +1028,21 @@
             
             const data = locationMap[c];
             let name = '';
+            let image = '';
             if (data) {
                 if (typeof data === 'string') {
                     name = normalizeKey(data);
                 } else if (data && typeof data === 'object') {
                     name = normalizeKey(data.name || '');
+                    image = typeof data.image === 'string' ? data.image : '';
                 }
             }
             
             const items = getInspectionItemsForCode(c);
             const locationEl = document.getElementById('inspection-items-modal-location');
             const listEl = document.getElementById('inspection-items-modal-list');
+            const imgWrap = document.getElementById('inspection-items-modal-image-wrap');
+            const imgEl = document.getElementById('inspection-items-modal-image');
             
             // 查找今天的日志中是否有该地点的记录
             const todayStr = formatYmd(selectedLogsDate);
@@ -1011,6 +1071,15 @@
             }
             
             if (locationEl) locationEl.textContent = name || c;
+            if (imgWrap && imgEl) {
+                if (image) {
+                    imgEl.src = image;
+                    imgWrap.classList.remove('hidden');
+                } else {
+                    imgEl.src = '';
+                    imgWrap.classList.add('hidden');
+                }
+            }
             if (listEl) {
                 if (items.length === 0) {
                     listEl.innerHTML = '<p class="text-center text-gray-500">沒有檢查項目</p>';
@@ -2174,6 +2243,8 @@
                     if (typeof v === 'object' && v !== null && v.name) {
                         normalized[nk] = {
                             name: normalizeKey(v.name),
+                            image: typeof v.image === 'string' ? v.image : '',
+                            order: typeof v.order === 'number' ? v.order : 9999,
                             createdAt: v.createdAt || null,
                             period: v.period || 'daily',
                             timesPerDay: v.timesPerDay || 1,
@@ -2183,6 +2254,8 @@
                     } else {
                         normalized[nk] = {
                             name: normalizeKey(v),
+                            image: '',
+                            order: 9999,
                             createdAt: null,
                             period: 'daily',
                             timesPerDay: 1,
@@ -2297,6 +2370,8 @@
                     if (typeof v === 'object' && v !== null && v.name) {
                         normalized[nk] = {
                             name: normalizeKey(v.name),
+                            image: typeof v.image === 'string' ? v.image : '',
+                            order: typeof v.order === 'number' ? v.order : 9999,
                             createdAt: v.createdAt || null,
                             period: v.period || 'daily',
                             timesPerDay: v.timesPerDay || 1,
@@ -2306,6 +2381,8 @@
                     } else {
                         normalized[nk] = {
                             name: normalizeKey(v),
+                            image: '',
+                            order: 9999,
                             createdAt: null,
                             period: 'daily',
                             timesPerDay: 1,
@@ -2614,11 +2691,13 @@
                 const data = map[code];
                 let name = '';
                 let createdAtMs = 0;
+                let order = 9999;
                 if (data) {
                     if (typeof data === 'string') {
                         name = normalizeKey(data);
                     } else if (data && typeof data === 'object') {
                         name = normalizeKey(data.name || '');
+                        if (typeof data.order === 'number') order = data.order;
                         const ts = data.createdAt;
                         if (ts && typeof ts.toMillis === 'function') { try { createdAtMs = ts.toMillis(); } catch (_) {} }
                         else if (ts && typeof ts.toDate === 'function') { try { createdAtMs = ts.toDate().getTime(); } catch (_) {} }
@@ -2626,7 +2705,7 @@
                         else if (typeof ts === 'number') createdAtMs = ts;
                     }
                 }
-                return { code: normalizeKey(code), name: name, createdAtMs };
+                return { code: normalizeKey(code), name: name, createdAtMs, order };
             }).filter(x => x.code || x.name);
 
             // 应用周期判断
@@ -2642,6 +2721,9 @@
             if (dateEl) dateEl.textContent = formatDateLabel(selectedLogsDate || new Date());
 
             entries.sort((a, b) => {
+                const oa = typeof a.order === 'number' ? a.order : 9999;
+                const ob = typeof b.order === 'number' ? b.order : 9999;
+                if (oa !== ob) return oa - ob;
                 const ta = Number(a.createdAtMs) || 0;
                 const tb = Number(b.createdAtMs) || 0;
                 if (ta !== tb) return ta - tb;
@@ -2763,9 +2845,15 @@
             if (!settingsDocRef || !dbUser) return;
             const existing = locationMap[code];
             const nextMap = { ...(locationMap || {}) };
+            const maxOrder = Object.keys(nextMap).reduce((m, k) => {
+                const o = nextMap[k] && typeof nextMap[k].order === 'number' ? nextMap[k].order : 0;
+                return Math.max(m, o);
+            }, 0);
             if (existing && existing.name) {
                 nextMap[code] = {
                     name: name,
+                    image: selectedLocationImage,
+                    order: (existing && typeof existing.order === 'number') ? existing.order : maxOrder + 1,
                     createdAt: existing.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
                     period: existing.period || 'daily',
                     timesPerDay: existing.timesPerDay || 1,
@@ -2775,6 +2863,8 @@
             } else {
                 nextMap[code] = {
                     name: name,
+                    image: selectedLocationImage,
+                    order: maxOrder + 1,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     period: 'daily',
                     timesPerDay: 1,
@@ -2790,6 +2880,10 @@
                 locationMap = nextMap;
                 generateQR(name, code);
                 renderLocationMap();
+                // 清空表單
+                nameInput.value = '';
+                codeInput.value = '';
+                clearCustomLocationImage();
             }).catch(() => {
                 alert('儲存地點代碼失敗');
             });
@@ -2828,6 +2922,9 @@
             const sortedKeys = keys.sort((a, b) => {
                 const dataA = locationMap[a];
                 const dataB = locationMap[b];
+                const orderA = (dataA && typeof dataA.order === 'number') ? dataA.order : 9999;
+                const orderB = (dataB && typeof dataB.order === 'number') ? dataB.order : 9999;
+                if (orderA !== orderB) return orderA - orderB;
                 const timeA = dataA && dataA.createdAt && dataA.createdAt.toMillis ? dataA.createdAt.toMillis() : 0;
                 const timeB = dataB && dataB.createdAt && dataB.createdAt.toMillis ? dataB.createdAt.toMillis() : 0;
                 return timeA - timeB;
@@ -2837,11 +2934,13 @@
                 sortedKeys.map(code => {
                     const data = locationMap[code];
                     let name = '';
+                    let image = '';
                     if (data) {
                         if (typeof data === 'string') {
                             name = normalizeKey(data);
                         } else if (data && typeof data === 'object') {
                             name = normalizeKey(data.name || '');
+                            image = typeof data.image === 'string' ? data.image : '';
                         }
                     }
                     
@@ -2871,14 +2970,19 @@
                     }
                     
                     return `
-                <div class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm mb-2">
-                    <div>
-                        <p class="font-bold text-gray-700">${name}</p>
-                        <p class="text-xs font-mono text-red-500">${code}</p>
-                        ${periodInfo}
+                <div class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm mb-2 gap-3">
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                        ${image ? `<img src="${image}" class="w-12 h-12 rounded-lg object-cover border border-gray-100 flex-shrink-0" alt="">` : ``}
+                        <div class="min-w-0">
+                            <p class="font-bold text-gray-700 truncate">${name}</p>
+                            <p class="text-xs font-mono text-red-500">${code}</p>
+                            ${periodInfo}
+                        </div>
                     </div>
                     ${canManageSettings ? `
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-1 flex-shrink-0">
+                            <button onclick='moveMapping(${JSON.stringify(code)}, -1)' class="text-gray-400 hover:text-red-500 p-1" title="上移"><i data-lucide="chevron-up" size="16"></i></button>
+                            <button onclick='moveMapping(${JSON.stringify(code)}, 1)' class="text-gray-400 hover:text-red-500 p-1" title="下移"><i data-lucide="chevron-down" size="16"></i></button>
                             <button onclick='openInspectionSettingsModal(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="eye" size="16"></i></button>
                             <button onclick='openEditMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="pencil" size="16"></i></button>
                             <button onclick='openPrintMapping(${JSON.stringify(code)})' class="text-gray-400 hover:text-red-500 p-1"><i data-lucide="printer" size="16"></i></button>
@@ -2889,6 +2993,46 @@
             `}).join('');
             lucide.createIcons();
             renderPatrolPointsTags();
+        }
+
+        function moveMapping(code, direction) {
+            if (!canManageSettings) return;
+            if (!settingsDocRef || !dbUser) return;
+            const c = normalizeKey(code);
+            if (!c || !locationMap[c]) return;
+
+            const keys = Object.keys(locationMap).sort((a, b) => {
+                const oa = (locationMap[a] && typeof locationMap[a].order === 'number') ? locationMap[a].order : 9999;
+                const ob = (locationMap[b] && typeof locationMap[b].order === 'number') ? locationMap[b].order : 9999;
+                if (oa !== ob) return oa - ob;
+                const ta = locationMap[a] && locationMap[a].createdAt && locationMap[a].createdAt.toMillis ? locationMap[a].createdAt.toMillis() : 0;
+                const tb = locationMap[b] && locationMap[b].createdAt && locationMap[b].createdAt.toMillis ? locationMap[b].createdAt.toMillis() : 0;
+                return ta - tb;
+            });
+            const idx = keys.indexOf(c);
+            const targetIdx = idx + direction;
+            if (targetIdx < 0 || targetIdx >= keys.length) return;
+
+            const nextMap = { ...(locationMap || {}) };
+            keys.forEach((k, i) => {
+                if (!nextMap[k] || typeof nextMap[k] !== 'object') return;
+                nextMap[k] = { ...nextMap[k], order: i + 1 };
+            });
+            const orderA = nextMap[c].order;
+            const orderB = nextMap[keys[targetIdx]].order;
+            nextMap[c] = { ...nextMap[c], order: orderB };
+            nextMap[keys[targetIdx]] = { ...nextMap[keys[targetIdx]], order: orderA };
+
+            settingsDocRef.set({
+                locationMap: nextMap,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: dbUser.id
+            }, { merge: true }).then(() => {
+                locationMap = nextMap;
+                renderLocationMap();
+            }).catch(() => {
+                alert('調整順序失敗');
+            });
         }
 
         function openPrintMapping(code) {
@@ -2913,11 +3057,13 @@
             if (!c) return;
             const data = locationMap[c];
             let name = '';
+            let image = '';
             if (data) {
                 if (typeof data === 'string') {
                     name = normalizeKey(data);
                 } else if (data && typeof data === 'object') {
                     name = normalizeKey(data.name || '');
+                    image = typeof data.image === 'string' ? data.image : '';
                 }
             }
             const modal = document.getElementById('edit-mapping-modal');
@@ -2927,6 +3073,19 @@
             if (oldEl) oldEl.value = c;
             if (nameEl) nameEl.value = name;
             if (codeEl) codeEl.value = c;
+            // 載入既有照片
+            editLocationImage = image;
+            const editImg = document.getElementById('edit-map-image-preview');
+            const editWrap = document.getElementById('edit-map-image-preview-wrap');
+            const editInput = document.getElementById('edit-map-image');
+            if (editInput) editInput.value = '';
+            if (image) {
+                if (editImg) editImg.src = image;
+                if (editWrap) editWrap.classList.remove('hidden');
+            } else {
+                if (editImg) editImg.src = '';
+                if (editWrap) editWrap.classList.add('hidden');
+            }
             if (modal) modal.classList.remove('hidden');
             lucide.createIcons();
         }
@@ -2934,6 +3093,7 @@
         function closeEditMappingModal() {
             const modal = document.getElementById('edit-mapping-modal');
             if (modal) modal.classList.add('hidden');
+            editLocationImage = '';
         }
 
         function saveMappingEdit() {
@@ -2951,6 +3111,8 @@
             if (oldCode !== nextCode) delete nextMap[oldCode];
             nextMap[nextCode] = {
                 name: nextName,
+                image: editLocationImage,
+                order: (existing && typeof existing.order === 'number') ? existing.order : 9999,
                 createdAt: (existing && existing.createdAt) || firebase.firestore.FieldValue.serverTimestamp(),
                 period: (existing && existing.period) || 'daily',
                 timesPerDay: (existing && existing.timesPerDay) || 1,
@@ -3374,6 +3536,49 @@
                 }
             });
         }
+
+        // ===== 地點照片上傳處理 =====
+        function clearCustomLocationImage() {
+            selectedLocationImage = '';
+            const input = document.getElementById('custom-location-image');
+            const wrap = document.getElementById('custom-location-image-preview-wrap');
+            const img = document.getElementById('custom-location-image-preview');
+            if (input) input.value = '';
+            if (wrap) wrap.classList.add('hidden');
+            if (img) img.src = '';
+        }
+
+        function clearEditMapImage() {
+            editLocationImage = '';
+            const input = document.getElementById('edit-map-image');
+            const wrap = document.getElementById('edit-map-image-preview-wrap');
+            const img = document.getElementById('edit-map-image-preview');
+            if (input) input.value = '';
+            if (wrap) wrap.classList.add('hidden');
+            if (img) img.src = '';
+        }
+
+        function bindLocationImageInput(inputId, previewWrapId, previewImgId, setter) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            input.addEventListener('change', async (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                try {
+                    const dataUrl = await compressImageToBase64(file);
+                    setter(dataUrl);
+                    const img = document.getElementById(previewImgId);
+                    const wrap = document.getElementById(previewWrapId);
+                    if (img) img.src = dataUrl;
+                    if (wrap) wrap.classList.remove('hidden');
+                } catch (_) {
+                    alert('圖片處理失敗，請重試');
+                }
+            });
+        }
+
+        bindLocationImageInput('custom-location-image', 'custom-location-image-preview-wrap', 'custom-location-image-preview', (dataUrl) => { selectedLocationImage = dataUrl; });
+        bindLocationImageInput('edit-map-image', 'edit-map-image-preview-wrap', 'edit-map-image-preview', (dataUrl) => { editLocationImage = dataUrl; });
 
         hideAppChrome();
         if (getIsPublicMode()) {
